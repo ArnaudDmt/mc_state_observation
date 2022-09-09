@@ -135,14 +135,16 @@ bool LegacyFlexibilityObserver::run(const mc_control::MCController & ctl)
 
   /** Velocity of accelerometer **/
   sva::MotionVecd velIMU =
-      X_0_p.invMul(accPos_ * robot.mbc().bodyVelB[robot.bodyIndexByName(robot.bodySensor().parentBody())]);
-  // TODO: problem, velIMU is X_p_0 * V_p_acc, but what we want is velIMU = X_p_0 * V_acc_p!
+    accPos_ * robot.mbc().bodyVelW[robot.bodyIndexByName(robot.bodySensor().parentBody())];
+
   inputs_.segment<3>(Input::linVelIMU) = velIMU.linear();
   inputs_.segment<3>(Input::angVelIMU) = velIMU.angular();
 
   /** Acceleration of accelerometer **/
-  sva::MotionVecd accIMU =
-      accPos_ * X_0_p.invMul(robot.mbc().bodyAccB[robot.bodyIndexByName(robot.bodySensor().parentBody())]);
+  Eigen::Matrix3d E_p_0_r = X_0_p.rotation().transpose();
+  sva::PTransformd E_p_0(E_p_0_r);
+    sva::MotionVecd accIMU =
+    accPos_ * E_p_0 * robot.mbc().bodyAccB[robot.bodyIndexByName(robot.bodySensor().parentBody())];
 
   /** Use material acceleration, not spatial **/
   inputs_.segment<3>(Input::linAccIMU) = accIMU.linear() + velIMU.angular().cross(velIMU.linear());

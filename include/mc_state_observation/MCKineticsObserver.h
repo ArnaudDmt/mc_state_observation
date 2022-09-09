@@ -5,7 +5,7 @@
 #include <mc_rbdyn/Contact.h>
 #include <mc_rbdyn/Robot.h>
 
-#include <state-observation/flexibility-estimation/model-base-ekf-flex-estimator-imu.hpp>
+#include <state-observation/dynamics-estimators/kinetics-observer.hpp>
 
 #include <mc_observers/Observer.h>
 

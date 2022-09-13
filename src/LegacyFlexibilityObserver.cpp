@@ -300,8 +300,15 @@ void LegacyFlexibilityObserver::setContacts(const mc_rbdyn::Robot & robot, std::
   contactPositions_.clear();
   for(const auto & contact : contacts)
   {
-    const auto & fs = robot.indirectSurfaceForceSensor(contact);
-    contactPositions_.push_back(fs.X_p_f());
+    /*
+    Correction of an error : the pose of the sensor in the body was used as an input but the input must be its pose in the world frame
+    This correction might not be optimal
+    */
+    const auto & fs = robot.indirectSurfaceForceSensor(contact); 
+    sva::PTransformd contactPos_ = fs.X_p_f();
+    sva::PTransformd X_0_p = robot.bodyPosW(fs.parentBody());
+    sva::PTransformd contactPosW = contactPos_ * X_0_p;
+    contactPositions_.push_back(contactPosW);
   }
   unsigned nbContacts = static_cast<unsigned>(contacts.size());
   observer_.setContactsNumber(nbContacts);

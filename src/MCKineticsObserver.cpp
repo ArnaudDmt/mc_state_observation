@@ -17,14 +17,16 @@ namespace mc_state_observation
 {
 namespace so = stateObservation;
 
-LegacyFlexibilityObserver::LegacyFlexibilityObserver(const std::string & type, double dt)
-: mc_observers::Observer(type, dt), observer_(dt)
+MCKineticsObserver::MCKineticsObserver(const std::string & type, double dt)
+: mc_observers::Observer(type, dt), observer_(4,4)
 {
+  observer_.setSamplingTime(dt);
+  observer_.useFiniteDifferencesJacobians(true);
   //observer_.setContactModel(SOFlexibilityObserver::contactModel::elasticContact);
   //observer_.setWithForcesMeasurements(true);
 }
 
-void LegacyFlexibilityObserver::configure(const mc_control::MCController & ctl, const mc_rtc::Configuration & config)
+void MCKineticsObserver::configure(const mc_control::MCController & ctl, const mc_rtc::Configuration & config)
 {
   robot_ = config("robot", ctl.robot().name());
   //imuSensor_ = config("imuSensor", ctl.robot().bodySensor().name());
@@ -37,9 +39,9 @@ void LegacyFlexibilityObserver::configure(const mc_control::MCController & ctl, 
   config("gyroNoiseCovariance", gyroNoiseCovariance_);
   config("flexStiffness", flexStiffness_);
   config("flexDamping", flexDamping_);
-}/
+}
 
-void LegacyFlexibilityObserver::reset(const mc_control::MCController & ctl)
+void MCKineticsObserver::reset(const mc_control::MCController & ctl)
 {
   const auto & robot = ctl.robot(robot_);
   const auto & robotModule = robot.module();
@@ -83,19 +85,15 @@ void LegacyFlexibilityObserver::reset(const mc_control::MCController & ctl)
   }
 }
 
-
-
-
-
-bool LegacyFlexibilityObserver::run(const mc_control::MCController & ctl)
+bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 {
-  using Input = stateObservation::flexibilityEstimation::IMUElasticLocalFrameDynamicalSystem::input;
-  using State = stateObservation::flexibilityEstimation::IMUElasticLocalFrameDynamicalSystem::state;
+  /*
+  using Input = stateObservation::IMUElasticLocalFrameDynamicalSystem::input;
+  using State = stateObservation::IMUElasticLocalFrameDynamicalSystem::state;
+  */
   const auto & robot = ctl.robot(robot_);
 
-  setContacts(robot, findContacts(ctl));
-
-  unsigned nbContacts = static_cast<unsigned>(contacts_.size());
+  //unsigned nbContacts = static_cast<unsigned>(contacts_.size());
 
   /*
   // Measurements == sensor output 
@@ -139,29 +137,28 @@ bool LegacyFlexibilityObserver::run(const mc_control::MCController & ctl)
   unsigned i = 0;
   for(const auto & imu : IMUs_)
   {
+    mapIMUs_.insertPair(imu.name());
     /** Position of accelerometer **/
     accPos_ = robot.bodySensor(imu.name()).X_b_s();
     const sva::PTransformd & X_0_p = robot.bodyPosW(robot.bodySensor(imu.name()).parentBody());
     sva::PTransformd accPosW = accPos_ * X_0_p;
+    stateObservation::kine::Orientation oriAccW(Eigen::Matrix3d(accPosW.rotation().transpose()));
     /** Velocity of accelerometer **/
     sva::MotionVecd velIMU =
-    accPos_ * robot.mbc().bodyVelW[robot.bodyIndexByName(robot.bodySensor(imu.name()).parentBody())];
+      accPos_ * robot.mbc().bodyVelW[robot.bodyIndexByName(robot.bodySensor(imu.name()).parentBody())];
 
     /** Acceleration of accelerometer **/
-    sva::PTransformd E_p_0(X_0_p.rotation().transpose());
+    sva::PTransformd E_p_0(Eigen::Matrix3d(X_0_p.rotation().transpose()));
     sva::MotionVecd accIMU =
-    accPos_ * E_p_0 * robot.mbc().bodyAccB[robot.bodyIndexByName(robot.bodySensor(imu.name()).parentBody())];
-    dfefef /** Use material acceleration, not spatial **/
-    jklinputs_.segment<3>(Input::linAccIMU) = accIMU.linear() + velIMU.angular().cross(velIMU.linear());
+      accPos_ * E_p_0 * robot.mbc().bodyAccB[robot.bodyIndexByName(robot.bodySensor(imu.name()).parentBody())];
+    /** Use material acceleration, not spatial **/
+    //inputs_.segment<3>(Input::linAccIMU) = accIMU.linear() + velIMU.angular().cross(velIMU.linear());
 
-    Kinematics::Kinematics userImuKinematics = stateObservation::Kinematics::fromVector(stateObservation::Vector( accPosW.translation(),
-                                                                                                                  velIMU.linear(),
-                                                                                                                  accIMU.linear(),
-                                                                                                                  accPosW.rotation().transpose(),
-                                                                                                                  velIMU.angular(),
-                                                                                                                  accIMU.angular() )
-                                                                                        , stateObservation::Kinematics::Flags::all);
-    stateObservation::setIMU(robot.bodySensor().linearAcceleration(), robot.bodySensor().angularVelocity(), userImuKinematics, );
+    stateObservation::kine::Kinematics userImuKinematics;
+    Eigen::Matrix<double, 3*5+4, 1> imuVector;
+    imuVector << accPosW.translation(), velIMU.linear(), accIMU.linear(), oriAccW.toVector4(), velIMU.angular(), accIMU.angular();
+    userImuKinematics.fromVector(imuVector, stateObservation::kine::Kinematics::Flags::all);
+    observer_.setIMU(robot.bodySensor().linearAcceleration(), robot.bodySensor().angularVelocity(), userImuKinematics, mapIMUs_.getNumFromName(imu.name()));
 
     ++i;
   }
@@ -171,7 +168,7 @@ bool LegacyFlexibilityObserver::run(const mc_control::MCController & ctl)
   /** TODO : Merge inertias into CoM inertia and/or get it from fd() **/
   Eigen::Vector6d inertia;
   Eigen::Matrix3d inertiaAtOrigin =
-      sva::inertiaToOrigin(inertiaWaist_.inertia(), mass_, posCom, Eigen::Matrix3d::Identity().eval());
+      sva::inertiaToOrigin(inertiaWaist_.inertia(), mass_, robot.com(), Eigen::Matrix3d::Identity().eval());
   inertia << inertiaAtOrigin(0, 0), inertiaAtOrigin(1, 1), inertiaAtOrigin(2, 2), inertiaAtOrigin(0, 1),
       inertiaAtOrigin(0, 2), inertiaAtOrigin(1, 2);
   // inputs_.segment<6>(Input::inertia) = inertia;
@@ -181,6 +178,7 @@ bool LegacyFlexibilityObserver::run(const mc_control::MCController & ctl)
   /** Contacts
    * Note that when we use force sensors, this should be the position of the force sensor!
    */
+  setContacts(robot, findContacts(ctl));
   /*
   for(unsigned i = 0; i < contacts_.size(); ++i)
   {
@@ -202,9 +200,11 @@ bool LegacyFlexibilityObserver::run(const mc_control::MCController & ctl)
   /* Get IMU position from res, and set the free-flyer accordingly. Note that
    * the result of the estimator is a difference from the reference, not an
    * absolute value */
-  Eigen::Vector3d rotVec = res_.segment<observer_.sizeOri>(stateObservation::Kinematics::oriIndex());
-  sva::PTransformd newAccPos(stateObservation::kine::rotationVectorToRotationMatrix(rotVec).transpose(),
-                             res_.segment<observer_.sizePos>(stateObservation::Kinematics::posIndex()));
+  
+  const Eigen::Vector4d & rotVec = res_.segment<4>(observer_.oriIndex());
+  Eigen::Quaternion<double> resultRot = Eigen::Quaternion<double>(rotVec);
+  sva::PTransformd newAccPos(resultRot.toRotationMatrix().transpose(),
+                             res_.segment<3>(observer_.posIndex()));
 
   const sva::PTransformd & X_0_prev = robot.mbc().bodyPosW[0];
   X_0_fb_.rotation() = newAccPos.rotation() * X_0_prev.rotation();
@@ -213,8 +213,8 @@ bool LegacyFlexibilityObserver::run(const mc_control::MCController & ctl)
   /* Get free-flyer velocity from res */
   sva::MotionVecd newAccVel = sva::MotionVecd::Zero();
 
-  newAccVel.linear() = res_.segment<observer_.sizeLinVel>(stateObservation::Kinematics::linVelIndex());
-  newAccVel.angular() = res_.segment<observer_.sizeAngVel>(stateObservation::Kinematics::angVelIndex());
+  newAccVel.linear() = res_.segment<3>(observer_.linVelIndex());
+  newAccVel.angular() = res_.segment<3>(observer_.angVelIndex());
 
   /* "Inverse velocity" : find velocity of the base that gives you velocity
    * of the accelerometer */
@@ -231,14 +231,14 @@ bool LegacyFlexibilityObserver::run(const mc_control::MCController & ctl)
   return true;
 }
 
-void LegacyFlexibilityObserver::update(mc_control::MCController & ctl)
+void MCKineticsObserver::update(mc_control::MCController & ctl)
 {
   auto & robot = ctl.realRobot(robot_);
   robot.posW(X_0_fb_);
   robot.velW(v_fb_0_.vector());
 }
 
-void LegacyFlexibilityObserver::addToLogger(const mc_control::MCController &,
+void MCKineticsObserver::addToLogger(const mc_control::MCController &,
                                             mc_rtc::Logger & logger,
                                             const std::string & category)
 {
@@ -246,13 +246,13 @@ void LegacyFlexibilityObserver::addToLogger(const mc_control::MCController &,
   logger.addLogEntry(category + "_velW", [this]() -> const sva::MotionVecd & { return v_fb_0_; });
 }
 
-void LegacyFlexibilityObserver::removeFromLogger(mc_rtc::Logger & logger, const std::string & category)
+void MCKineticsObserver::removeFromLogger(mc_rtc::Logger & logger, const std::string & category)
 {
   logger.removeLogEntry(category + "_posW");
   logger.removeLogEntry(category + "_velW");
 }
 
-void LegacyFlexibilityObserver::addToGUI(const mc_control::MCController &,
+void MCKineticsObserver::addToGUI(const mc_control::MCController &,
                                          mc_rtc::gui::StateBuilder & gui,
                                          const std::vector<std::string> & category)
 {
@@ -267,27 +267,27 @@ void LegacyFlexibilityObserver::addToGUI(const mc_control::MCController &,
   // clang-format on
 }
 
-void LegacyFlexibilityObserver::mass(double mass)
+void MCKineticsObserver::mass(double mass)
 {
   mass_ = mass;
-  observer_.setRobotMass(mass);
+  observer_.setMass(mass);
 }
 
-void LegacyFlexibilityObserver::flexStiffness(const sva::MotionVecd & stiffness)
+void MCKineticsObserver::flexStiffness(const sva::MotionVecd & stiffness)
 {
   flexStiffness_ = stiffness;
-  observer_.setKfe(flexStiffness_.linear().asDiagonal());
-  observer_.setKte(flexStiffness_.angular().asDiagonal());
+  //observer_.setKfe(flexStiffness_.linear().asDiagonal());
+  //observer_.setKte(flexStiffness_.angular().asDiagonal());
 }
 
-void LegacyFlexibilityObserver::flexDamping(const sva::MotionVecd & damping)
+void MCKineticsObserver::flexDamping(const sva::MotionVecd & damping)
 {
   flexDamping_ = damping;
-  observer_.setKfv(flexDamping_.linear().asDiagonal());
-  observer_.setKtv(flexDamping_.angular().asDiagonal());
+  //observer_.setKfv(flexDamping_.linear().asDiagonal());
+  //observer_.setKtv(flexDamping_.angular().asDiagonal());
 }
 
-std::set<std::string> LegacyFlexibilityObserver::findContacts(const mc_control::MCController & ctl)
+std::set<std::string> MCKineticsObserver::findContacts(const mc_control::MCController & ctl)
 {
   const auto & robot = ctl.robot(robot_);
   std::set<std::string> contactsFound;
@@ -312,42 +312,73 @@ std::set<std::string> LegacyFlexibilityObserver::findContacts(const mc_control::
   return contactsFound;
 }
 
-void LegacyFlexibilityObserver::setContacts(const mc_rbdyn::Robot & robot, std::set<std::string> contacts)
+void MCKineticsObserver::setContacts(const mc_rbdyn::Robot & robot, std::set<std::string> updatedContacts)
 {
-  if(contacts_ == contacts) return;
-  contacts_ = contacts;
-  if(verbose_) mc_rtc::log::info("[{}] Contacts changed: {}", name(), mc_rtc::io::to_string(contacts_));
+  //if(contacts_ == updatedContacts) return;
+  std::set<std::string> & oldContacts = contacts_; // alias
+
+  if(verbose_) mc_rtc::log::info("[{}] Contacts changed: {}", name(), mc_rtc::io::to_string(updatedContacts));
   contactPositions_.clear();
-  for(const auto & contact : contacts)
+  
+  for(const auto & updatedContact : updatedContacts)
   {
-    const auto & fs = robot.surfaceForceSensor(contact);
+    const auto & ifs = robot.indirectSurfaceForceSensor(updatedContact);
+    const auto & fs = robot.surfaceForceSensor(updatedContact);
     //contactPositions_.push_back(fs.X_p_f());
 
     /** Position of the contact **/
-    contactPos_ = fs.X_p_f();
-    const sva::PTransformd & X_0_p = robot.bodyPosW(fs.parentBody());
+    sva::PTransformd contactPos_ = ifs.X_p_f();
+    sva::PTransformd X_0_p = robot.bodyPosW(ifs.parentBody());
     sva::PTransformd contactPosW = contactPos_ * X_0_p;
+    stateObservation::kine::Orientation oriContactW(Eigen::Matrix3d(contactPosW.rotation().transpose()));
     /** Velocity of the contact **/
     sva::MotionVecd velContact =
-      contactPos_ * robot.mbc().bodyVelW[robot.bodyIndexByName(fs.parentBody())];
+      contactPos_ * robot.mbc().bodyVelW[robot.bodyIndexByName(ifs.parentBody())];
 
     /** Acceleration of the contact **/
-    sva::MotionVecd accContact =
-      contactPos_ * robot.mbc().bodyAccW[robot.bodyIndexByName(fs.parentBody())];
-    dfefef /** Use material acceleration, not spatial **/
-    jklinputs_.segment<3>(Input::linAccIMU) = accIMU.linear() + velIMU.angular().cross(velIMU.linear());
     
-    stateObservation::Kinematics userContactKine = stateObservation::Kinematics::fromVector(stateObservation::Vector( contactPosW.translation(),
-                                                                                                                  velContact.linear(),
-                                                                                                                  accContact.linear(),
-                                                                                                                  contactPosW.rotation().transpose(),
-                                                                                                                  velContact.angular(),
-                                                                                                                  accContact.angular() )
-                                                                                        , stateObservation::Kinematics::Flags::all);
+    sva::PTransformd E_p_0(Eigen::Matrix3d(X_0_p.rotation().transpose()));
+    sva::MotionVecd accContact =
+      contactPos_ * E_p_0 * robot.mbc().bodyAccB[robot.bodyIndexByName(ifs.parentBody())];
 
-    observer.updateContactWithWrenchSensor(fs.wrench(), wrenchCovMatrix, userContactKine, number);
+      
+    /** Use material acceleration, not spatial **/
+    // inputs_.segment<3>(Input::linAccIMU) = accIMU.linear() + velIMU.angular().cross(velIMU.linear());
+    
+    
+    stateObservation::kine::Kinematics userContactKine;
+    Eigen::Matrix<double, 3*5+4, 1> contactVector;
+    contactVector << contactPosW.translation(), velContact.linear(), accContact.linear(), oriContactW.toVector4(), velContact.angular(), accContact.angular();
+    userContactKine.fromVector(contactVector, stateObservation::kine::Kinematics::Flags::all);
+
+    if (oldContacts.find(updatedContact) != oldContacts.end())  // checks if the contact already exists, if yes, it is updated
+    {
+      observer_.updateContactWithWrenchSensor(fs.wrench().vector(), userContactKine, mapContacts_.getNumFromName(updatedContact));
+    }
+    else  // checks if the contact already exists, if no, it is added to the observer
+    {
+      mapContacts_.insertPair(updatedContact);
+      observer_.addContact( userContactKine,
+                            mapContacts_.getNumFromName(updatedContact),
+                            flexStiffness_.linear().asDiagonal(), 
+                            flexDamping_.linear().asDiagonal(), 
+                            flexStiffness_.angular().asDiagonal(), 
+                            flexDamping_.angular().asDiagonal() );
+      observer_.updateContactWithWrenchSensor(fs.wrench().vector(), userContactKine, mapContacts_.getNumFromName(updatedContact)); // not sure about that
+    }
+    
+    
+    
   }
-  // unsigned nbContacts = static_cast<unsigned>(contacts.size());
+  std::set<std::string> diffs;  // List of the contact that were available on last iteration but are not set anymore on the current one
+  std::set_difference(oldContacts.begin(), oldContacts.end(), updatedContacts.begin(), updatedContacts.end(), std::inserter(diffs, diffs.end()));
+  for(const auto & diff : diffs)
+  {
+    observer_.removeContact(mapContacts_.getNumFromName(diff));
+  }
+
+  oldContacts = updatedContacts;
+  unsigned nbContacts = static_cast<unsigned>(oldContacts.size());
   // observer_.setContactsNumber(nbContacts);
   if(debug_)
   {
@@ -359,7 +390,7 @@ void LegacyFlexibilityObserver::setContacts(const mc_rbdyn::Robot & robot, std::
 
 
 /*
-void LegacyFlexibilityObserver::setContacts(const mc_rbdyn::Robot & robot, std::set<std::string> contacts)
+void MCKineticsObserver::setContacts(const mc_rbdyn::Robot & robot, std::set<std::string> contacts)
 {
   if(contacts_ == contacts) return;
   contacts_ = contacts;
@@ -382,7 +413,7 @@ void LegacyFlexibilityObserver::setContacts(const mc_rbdyn::Robot & robot, std::
 */
 
 /*
-void LegacyFlexibilityObserver::updateNoiseCovariance()
+void MCKineticsObserver::updateNoiseCovariance()
 {
   unsigned nbContacts = static_cast<unsigned>(contacts_.size());
 
@@ -440,4 +471,4 @@ void LegacyFlexibilityObserver::updateNoiseCovariance()
 
 } // namespace mc_state_observation
 
-EXPORT_OBSERVER_MODULE("LegacyFlexibility", mc_state_observation::LegacyFlexibilityObserver)
+EXPORT_OBSERVER_MODULE("MCKineticsObserver", mc_state_observation::MCKineticsObserver)

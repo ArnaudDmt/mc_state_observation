@@ -18,10 +18,35 @@ namespace mc_state_observation
    *    Yacine Chitour. IEEE-RAS Humanoids 2017. <hal-01499167>
    *
    */
-  struct LegacyFlexibilityObserver : public mc_observers::Observer
+
+
+  class MapContactsIMU{
+
+  public:
+    
+    inline int getNumFromName(std::string name)
+    {
+      BOOST_ASSERT(mapNameNum.find(name) != mapNameNum.end() && "This id isn't attributed");
+      return mapNameNum.find(name)->second;
+    }
+
+    inline void insertPair(std::string name) {
+      if (mapNameNum.find(name) != mapNameNum.end()) return;
+      
+      mapNameNum.insert(std::pair<std::string,int>(name, num));
+      num++;
+    }
+    
+  private: 
+    std::map<std::string,int> mapNameNum;
+    int num = 0;
+
+  };
+
+  struct MCKineticsObserver : public mc_observers::Observer
   {
 
-    LegacyFlexibilityObserver(const std::string & type, double dt);
+    MCKineticsObserver(const std::string & type, double dt);
 
     void configure(const mc_control::MCController & ctl, const mc_rtc::Configuration &) override;
 
@@ -32,6 +57,9 @@ namespace mc_state_observation
     void update(mc_control::MCController & ctl) override;
 
 protected:
+
+  inline bool MCKineticsObserver::initObserverStateVector();
+
   /*! \brief Add observer from logger
    *
    * @param category Category in which to log this observer
@@ -211,8 +239,10 @@ public:
     double forceSensorNoiseCovariance_ = 5.; // from https://gite.lirmm.fr/caron/mc_observers/issues/1#note_10040
     double gyroNoiseCovariance_ = 1e-9;
     double mass_ = 42; // [kg]
-    stateObservation::KineticsObserverKineticsObserver observer_;
+    stateObservation::KineticsObserver observer_;
     std::set<std::string> contacts_; ///< Sorted list of contacts
+    MapContactsIMU mapContacts_;
+    MapContactsIMU mapIMUs_;
     std::vector<sva::PTransformd> contactPositions_; ///< Position of the contact frames (force sensor frame when using force sensors)
     sva::MotionVecd flexDamping_{{17, 17, 17}, {250, 250, 250}}; // HRP-4, {25.0, 200} for HRP-2
     sva::MotionVecd flexStiffness_{{727, 727, 727}, {4e4, 4e4, 4e4}}; // HRP-4, {620, 3e5} for HRP-2
@@ -222,4 +252,6 @@ public:
     sva::PTransformd accContact_; /**< currently hanled contact pos in body */
     sva::RBInertiad inertiaWaist_; /**< grouped inertia */
   };
+
 } // mc_state_observation
+

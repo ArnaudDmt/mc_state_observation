@@ -22,8 +22,6 @@ MCKineticsObserver::MCKineticsObserver(const std::string & type, double dt)
 {
   observer_.setSamplingTime(dt);
   observer_.useFiniteDifferencesJacobians(true);
-  //observer_.setContactModel(SOFlexibilityObserver::contactModel::elasticContact);
-  //observer_.setWithForcesMeasurements(true);
 }
 
 void MCKineticsObserver::configure(const mc_control::MCController & ctl, const mc_rtc::Configuration & config)
@@ -83,6 +81,27 @@ void MCKineticsObserver::reset(const mc_control::MCController & ctl)
     mc_rtc::log::info("flexStiffness_ = {}", flexStiffness_);
     mc_rtc::log::info("flexDamping_ = {}", flexDamping_);
   }
+  
+  initObserverStateVector(robot);
+
+}
+
+void MCKineticsObserver::initObserverStateVector(const mc_rbdyn::Robot & robot)
+{
+  stateObservation::kine::Orientation initOrientation(Eigen::Matrix3d(robot.posW().rotation().transpose()));
+
+  Eigen::VectorXd initStateVector;
+  initStateVector = Eigen::VectorXd::Zero(observer_.getStateSize());
+  
+  initStateVector.segment<3>(0) = robot.posW().translation();
+  initStateVector.segment<4>(3) = initOrientation.toVector4();
+  initStateVector.segment<3>(7) = robot.velW().linear();
+  initStateVector.segment<3>(10) = robot.velW().angular();
+  initStateVector.segment<3>(13) = robot.accW().linear();
+  initStateVector.segment<3>(16) = robot.accW().angular();
+
+  observer_.initWorldCentroidStateVector(initStateVector);
+
 }
 
 bool MCKineticsObserver::run(const mc_control::MCController & ctl)
@@ -93,76 +112,11 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
   */
   const auto & robot = ctl.robot(robot_);
 
-  //unsigned nbContacts = static_cast<unsigned>(contacts_.size());
-
-  /*
-  // Measurements == sensor output 
-  measurements_ = Eigen::VectorXd::Zero(observer_.getMeasurementSize());
-  if(measurements_.size() != 6 + 6 * nbContacts)
-  {
-    mc_rtc::log::error_and_throw<std::invalid_argument>("[{}] Invalid measurement size", name());
-  }
-  measurements_.segment<3>(0) = robot.bodySensor().linearAcceleration();
-  measurements_.segment<3>(3) = robot.bodySensor().angularVelocity();
-  unsigned i = 0;
-  for(const auto & contact : contacts_)
-  {
-    const mc_rbdyn::ForceSensor & fs = robot.surfaceForceSensor(contact);
-    measurements_.segment<3>(6 * (i + 1) + 0) = fs.force();
-    measurements_.segment<3>(6 * (i + 1) + 3) = fs.couple();
-    ++i;
-  }
-  //observer_.setMeasurement(measurements_);
-  
-  */
-
-  /* Input = Controller values, all in *world* frame 
-  inputs_ = Eigen::VectorXd::Zero(observer_.getInputSize());
-  if(inputs_.size() != Input::sizeBase + 12 * nbContacts)
-  {
-    mc_rtc::log::error_and_throw<std::invalid_argument>("Invalid input size");
-  }
-  */
-
   /** Center of mass (assumes FK, FV and FA are already done) **/
   observer_.setCenterOfMass(robot.com(), robot.comVelocity(), robot.comAcceleration());
-  /*
-  Eigen::Vector3d posCom = robot.com();
-  inputs_.segment<3>(Input::posCom) = posCom;
-  inputs_.segment<3>(Input::velCom) = robot.comVelocity();
-  inputs_.segment<3>(Input::accCom) = robot.comAcceleration();
-  */
 
   /** Accelerometers **/
-  unsigned i = 0;
-  for(const auto & imu : IMUs_)
-  {
-    mapIMUs_.insertPair(imu.name());
-    /** Position of accelerometer **/
-    accPos_ = robot.bodySensor(imu.name()).X_b_s();
-    const sva::PTransformd & X_0_p = robot.bodyPosW(robot.bodySensor(imu.name()).parentBody());
-    sva::PTransformd accPosW = accPos_ * X_0_p;
-    stateObservation::kine::Orientation oriAccW(Eigen::Matrix3d(accPosW.rotation().transpose()));
-    /** Velocity of accelerometer **/
-    sva::MotionVecd velIMU =
-      accPos_ * robot.mbc().bodyVelW[robot.bodyIndexByName(robot.bodySensor(imu.name()).parentBody())];
-
-    /** Acceleration of accelerometer **/
-    sva::PTransformd E_p_0(Eigen::Matrix3d(X_0_p.rotation().transpose()));
-    sva::MotionVecd accIMU =
-      accPos_ * E_p_0 * robot.mbc().bodyAccB[robot.bodyIndexByName(robot.bodySensor(imu.name()).parentBody())];
-    /** Use material acceleration, not spatial **/
-    //inputs_.segment<3>(Input::linAccIMU) = accIMU.linear() + velIMU.angular().cross(velIMU.linear());
-
-    stateObservation::kine::Kinematics userImuKinematics;
-    Eigen::Matrix<double, 3*5+4, 1> imuVector;
-    imuVector << accPosW.translation(), velIMU.linear(), accIMU.linear(), oriAccW.toVector4(), velIMU.angular(), accIMU.angular();
-    userImuKinematics.fromVector(imuVector, stateObservation::kine::Kinematics::Flags::all);
-    observer_.setIMU(robot.bodySensor().linearAcceleration(), robot.bodySensor().angularVelocity(), userImuKinematics, mapIMUs_.getNumFromName(imu.name()));
-
-    ++i;
-  }
-
+  updateIMUs(robot);
 
   /** Inertias **/
   /** TODO : Merge inertias into CoM inertia and/or get it from fd() **/
@@ -178,19 +132,7 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
   /** Contacts
    * Note that when we use force sensors, this should be the position of the force sensor!
    */
-  setContacts(robot, findContacts(ctl));
-  /*
-  for(unsigned i = 0; i < contacts_.size(); ++i)
-  {
-    const sva::PTransformd & X_0_c = contactPositions_[i];
-    Eigen::Matrix3d tmp = X_0_c.rotation().transpose();
-    inputs_.segment<3>(Input::contacts + 12 * i + 0) = X_0_c.translation();
-    inputs_.segment<3>(Input::contacts + 12 * i + 3) = sva::rotationVelocity(tmp);
-
-    inputs_.segment<3>(Input::contacts + 12 * i + 6) = Eigen::Vector3d::Zero();
-    inputs_.segment<3>(Input::contacts + 12 * i + 9) = Eigen::Vector3d::Zero();
-  }
-  */
+  updateContacts(robot, findContacts(ctl));
 
   /* Step once, and return result */
   
@@ -236,6 +178,38 @@ void MCKineticsObserver::update(mc_control::MCController & ctl)
   auto & robot = ctl.realRobot(robot_);
   robot.posW(X_0_fb_);
   robot.velW(v_fb_0_.vector());
+}
+
+void MCKineticsObserver::updateIMUs(const mc_rbdyn::Robot & robot)
+{
+  unsigned i = 0;
+  for(const auto & imu : IMUs_)
+  {
+    mapIMUs_.insertPair(imu.name());
+    /** Position of accelerometer **/
+    accPos_ = robot.bodySensor(imu.name()).X_b_s();
+    const sva::PTransformd & X_0_p = robot.bodyPosW(robot.bodySensor(imu.name()).parentBody());
+    sva::PTransformd accPosW = accPos_ * X_0_p;
+    stateObservation::kine::Orientation oriAccW(Eigen::Matrix3d(accPosW.rotation().transpose()));
+    /** Velocity of accelerometer **/
+    sva::MotionVecd velIMU =
+      accPos_ * robot.mbc().bodyVelW[robot.bodyIndexByName(robot.bodySensor(imu.name()).parentBody())];
+
+    /** Acceleration of accelerometer **/
+    sva::PTransformd E_p_0(Eigen::Matrix3d(X_0_p.rotation().transpose()));
+    sva::MotionVecd accIMU =
+      accPos_ * E_p_0 * robot.mbc().bodyAccB[robot.bodyIndexByName(robot.bodySensor(imu.name()).parentBody())];
+    /** Use material acceleration, not spatial **/
+    //inputs_.segment<3>(Input::linAccIMU) = accIMU.linear() + velIMU.angular().cross(velIMU.linear());
+
+    stateObservation::kine::Kinematics userImuKinematics;
+    Eigen::Matrix<double, 3*5+4, 1> imuVector;
+    imuVector << accPosW.translation(), velIMU.linear(), accIMU.linear(), oriAccW.toVector4(), velIMU.angular(), accIMU.angular();
+    userImuKinematics.fromVector(imuVector, stateObservation::kine::Kinematics::Flags::all);
+    observer_.setIMU(robot.bodySensor().linearAcceleration(), robot.bodySensor().angularVelocity(), userImuKinematics, mapIMUs_.getNumFromName(imu.name()));
+
+    ++i;
+  }
 }
 
 void MCKineticsObserver::addToLogger(const mc_control::MCController &,
@@ -312,7 +286,7 @@ std::set<std::string> MCKineticsObserver::findContacts(const mc_control::MCContr
   return contactsFound;
 }
 
-void MCKineticsObserver::setContacts(const mc_rbdyn::Robot & robot, std::set<std::string> updatedContacts)
+void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<std::string> updatedContacts)
 {
   //if(contacts_ == updatedContacts) return;
   std::set<std::string> & oldContacts = contacts_; // alias
@@ -366,9 +340,7 @@ void MCKineticsObserver::setContacts(const mc_rbdyn::Robot & robot, std::set<std
                             flexDamping_.angular().asDiagonal() );
       observer_.updateContactWithWrenchSensor(fs.wrench().vector(), userContactKine, mapContacts_.getNumFromName(updatedContact)); // not sure about that
     }
-    
-    
-    
+
   }
   std::set<std::string> diffs;  // List of the contact that were available on last iteration but are not set anymore on the current one
   std::set_difference(oldContacts.begin(), oldContacts.end(), updatedContacts.begin(), updatedContacts.end(), std::inserter(diffs, diffs.end()));
@@ -388,86 +360,6 @@ void MCKineticsObserver::setContacts(const mc_rbdyn::Robot & robot, std::set<std
   // updateNoiseCovariance(); already set in updateContactWithWrenchSensor
 }
 
-
-/*
-void MCKineticsObserver::setContacts(const mc_rbdyn::Robot & robot, std::set<std::string> contacts)
-{
-  if(contacts_ == contacts) return;
-  contacts_ = contacts;
-  if(verbose_) mc_rtc::log::info("[{}] Contacts changed: {}", name(), mc_rtc::io::to_string(contacts_));
-  contactPositions_.clear();
-  for(const auto & contact : contacts)
-  {
-    const auto & fs = robot.indirectSurfaceForceSensor(contact);
-    contactPositions_.push_back(fs.X_p_f());
-  }
-  unsigned nbContacts = static_cast<unsigned>(contacts.size());
-  observer_.setContactsNumber(nbContacts);
-  if(debug_)
-  {
-    mc_rtc::log::info("nbContacts = {}", nbContacts);
-  }
-
-  updateNoiseCovariance();
-}
-*/
-
-/*
-void MCKineticsObserver::updateNoiseCovariance()
-{
-  unsigned nbContacts = static_cast<unsigned>(contacts_.size());
-
-  Eigen::MatrixXd noiseCovariance = observer_.getMeasurementNoiseCovariance();
-  if(noiseCovariance.rows() != 6 + 6 * nbContacts || noiseCovariance.cols() != 6 + 6 * nbContacts)
-  {
-    mc_rtc::log::error_and_throw<std::invalid_argument>("Invalid noise covariance shape");
-  }
-  noiseCovariance.setIdentity();
-  // mesures: IMU accel, IMU gyro, contact: force, torque
-  noiseCovariance.diagonal().segment<3>(0) *= accelNoiseCovariance_;
-  noiseCovariance.diagonal().segment<3>(3) *= gyroNoiseCovariance_;
-  noiseCovariance.diagonal().segment(6, 6 * nbContacts) *= forceSensorNoiseCovariance_;
-  // this is covariance, not confidence: the higher, the less you trust
-  if(debug_)
-  {
-    mc_rtc::log::info("Noise covariance shape: {} x {}", noiseCovariance.rows(), noiseCovariance.cols());
-    mc_rtc::log::info("noiseCovariance =\n{}", noiseCovariance);
-  }
-  observer_.setMeasurementNoiseCovariance(noiseCovariance);
-
-  // Update process noise covariance as well
-  Eigen::MatrixXd processNoiseCovariance = observer_.getProcessNoiseCovariance();
-  using State = stateObservation::flexibilityEstimation::IMUElasticLocalFrameDynamicalSystem::state;
-#if 0 // with Mehdi at JRL
-    processNoiseCovariance.block<3, 3>(State::fc + 3, State::fc + 3).setIdentity();
-    processNoiseCovariance.block<3, 3>(State::fc + 3, State::fc + 3) *= 1e-1;
-    processNoiseCovariance.block<3, 3>(State::fc + 6 + 3, State::fc + 6 + 3).setIdentity();
-    processNoiseCovariance.block<3, 3>(State::fc + 6 + 3, State::fc + 6 + 3) *= 1e-1;
-    processNoiseCovariance.block<3, 3>(State::fc + 3, State::fc + 3).setIdentity();
-    processNoiseCovariance.block<3, 3>(State::fc + 3, State::fc + 3) *= 1e-1;
-    processNoiseCovariance.block<3, 3>(State::fc + 6 + 3, State::fc + 6 + 3).setIdentity();
-    processNoiseCovariance.block<3, 3>(State::fc + 6 + 3, State::fc + 6 + 3) *= 1e-1;
-#endif
-#if 1 // from https://gite.lirmm.fr/caron/mc_observers/issues/1#note_10040
-  Eigen::VectorXd processCovariances(State::size);
-  // clang-format off
-    processCovariances << 1e-8, 1e-8, 1e-8, 1e-8, 1e-8, 1e-8, 1e-8, 1e-8, 1e-8,
-                       1e-8, 1e-8, 1e-8, 10000, 10000, 10000, 10000, 10000,
-                       10000, 10000, 10000, 10000, 10000, 10000, 10000, 1000,
-                       1000, 1000, 1000, 1000, 1000, 0, 0, 0, 0, 0;
-  // clang-format on
-  // processNoiseCovariance.setZero();
-  processNoiseCovariance = processCovariances.asDiagonal();
-#endif
-  if(debug_)
-  {
-    mc_rtc::log::info("Process noise covariance shape: {} x {}", processNoiseCovariance.rows(),
-                      processNoiseCovariance.cols());
-    mc_rtc::log::info("processNoiseCovariance =\n{}", processNoiseCovariance);
-  }
-  observer_.setProcessNoiseCovariance(processNoiseCovariance);
-}
-*/
 
 } // namespace mc_state_observation
 

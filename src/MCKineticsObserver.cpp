@@ -12,13 +12,15 @@
 #include <RBDyn/FK.h>
 #include <RBDyn/FV.h>
 
+#include <iostream>
+
 namespace mc_state_observation
 
 {
 namespace so = stateObservation;
 
 MCKineticsObserver::MCKineticsObserver(const std::string & type, double dt)
-: mc_observers::Observer(type, dt), observer_(4,4)
+: mc_observers::Observer(type, dt), observer_(0,0)
 {
   observer_.setSamplingTime(dt);
   observer_.useFiniteDifferencesJacobians(true);
@@ -100,10 +102,8 @@ void MCKineticsObserver::initObserverStateVector(const mc_rbdyn::Robot & robot)
   //std::cout << std::endl << "robot orientation: " << std::endl << initOrientation.toVector4() << std::endl;
   initStateVector.segment<3>(7) = robot.velW().linear();
   initStateVector.segment<3>(10) = robot.velW().angular();
-  initStateVector.segment<3>(13) = robot.accW().linear();
-  initStateVector.segment<3>(16) = robot.accW().angular();
 
-  observer_.initWorldCentroidStateVector(initStateVector);
+  observer_.initWorldCentroidStateVector(initStateVector); //No need to initialize the other variables as only the positions and velocities of the contact reference are used
 
   //std::cout << std::endl << "initStateVector: " << std::endl << initStateVector << std::endl;
   //std::cout << std::endl << "centroidStateVector: " << std::endl << observer_.getCurrentStateVector() << std::endl;
@@ -212,7 +212,7 @@ void MCKineticsObserver::updateIMUs(const mc_rbdyn::Robot & robot)
 
     stateObservation::kine::Kinematics userImuKinematics;
     Eigen::Matrix<double, 3*5+4, 1> imuVector;
-    imuVector << accPosW.translation(), velIMU.linear(), accIMU.linear(), oriAccW.toVector4(), velIMU.angular(), accIMU.angular();
+    imuVector << accPosW.translation(), oriAccW.toVector4(), velIMU.linear(), velIMU.angular(), accIMU.linear(), accIMU.angular();
     userImuKinematics.fromVector(imuVector, stateObservation::kine::Kinematics::Flags::all);
     observer_.setIMU(robot.bodySensor().linearAcceleration(), robot.bodySensor().angularVelocity(), userImuKinematics, mapIMUs_.getNumFromName(imu.name()));
 
@@ -334,7 +334,7 @@ void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<
     
     stateObservation::kine::Kinematics userContactKine;
     Eigen::Matrix<double, 3*5+4, 1> contactVector;
-    contactVector << contactPosW.translation(), velContact.linear(), accContact.linear(), oriContactW.toVector4(), velContact.angular(), accContact.angular();
+    contactVector << contactPosW.translation(), oriContactW.toVector4(), velContact.linear(), velContact.angular(), accContact.linear(),  accContact.angular();
     std::cout << std::endl << "contactVector: " << std::endl << contactVector << std::endl;
     userContactKine.fromVector(contactVector, stateObservation::kine::Kinematics::Flags::all);
     std::cout << std::endl << "userContactKine: " << std::endl << userContactKine << std::endl;
@@ -349,10 +349,10 @@ void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<
       mapContacts_.insertPair(updatedContact);
       observer_.addContact( userContactKine,
                             mapContacts_.getNumFromName(updatedContact),
-                            flexStiffness_.linear().asDiagonal(), 
-                            flexDamping_.linear().asDiagonal(), 
-                            flexStiffness_.angular().asDiagonal(), 
-                            flexDamping_.angular().asDiagonal() );
+                            contactStiffness_.linear().asDiagonal(), 
+                            contactDamping_.linear().asDiagonal(), 
+                            contactStiffness_.angular().asDiagonal(), 
+                            contactDamping_.angular().asDiagonal() );
       observer_.updateContactWithWrenchSensor(fs.wrench().vector(), userContactKine, mapContacts_.getNumFromName(updatedContact)); // not sure about that
     }
 
@@ -375,10 +375,6 @@ void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<
   // updateNoiseCovariance(); already set in updateContactWithWrenchSensor
 }
 
-  //std::cout << std::endl << "robot velW linear: " << std::endl << robot.velW().linear() << std::endl;
-  //std::cout << std::endl << "robot velW angular: " << std::endl << robot.velW().angular() << std::endl;
-  
-  observer_.initWorldCentroidStateVector(initStateVector); //No need to initialize the other variables as only the positions and velocities of the contact reference are used
 
 } // namespace mc_state_observation
 

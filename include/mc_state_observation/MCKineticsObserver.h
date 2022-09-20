@@ -58,7 +58,9 @@ namespace mc_state_observation
 
 protected:
 
-  inline bool MCKineticsObserver::initObserverStateVector();
+  void initObserverStateVector(const mc_rbdyn::Robot & robot);
+
+  void updateIMUs(const mc_rbdyn::Robot & robot);
 
   /*! \brief Add observer from logger
    *
@@ -88,7 +90,8 @@ protected:
    * \return Name of surfaces in contact with the environment
    */
   std::set<std::string> findContacts(const mc_control::MCController & solver);
-  void setContacts(const mc_rbdyn::Robot& robot, std::set<std::string> contacts);
+
+  void updateContacts(const mc_rbdyn::Robot& robot, std::set<std::string> contacts);
 
 protected:
   std::string robot_ = "";
@@ -246,6 +249,8 @@ public:
     std::vector<sva::PTransformd> contactPositions_; ///< Position of the contact frames (force sensor frame when using force sensors)
     sva::MotionVecd flexDamping_{{17, 17, 17}, {250, 250, 250}}; // HRP-4, {25.0, 200} for HRP-2
     sva::MotionVecd flexStiffness_{{727, 727, 727}, {4e4, 4e4, 4e4}}; // HRP-4, {620, 3e5} for HRP-2
+    sva::MotionVecd contactDamping_{{0.17, 0.17, 0.17}, {2.50, 2.50, 2.50}}; // HRP-4, {25.0, 200} for HRP-2
+    sva::MotionVecd contactStiffness_{{7.27, 7.27, 7.27}, {4e1, 4e1, 4e1}}; // HRP-4, {620, 3e5} for HRP-2
     sva::MotionVecd v_fb_0_ = sva::MotionVecd::Zero();
     sva::PTransformd X_0_fb_ = sva::PTransformd::Identity();
     sva::PTransformd accPos_; /**< currently hanled accelerometer pos in body */

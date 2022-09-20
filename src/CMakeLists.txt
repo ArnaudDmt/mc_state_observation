@@ -2,6 +2,10 @@ macro(add_simple_observer observer_name)
   add_observer(${observer_name} "${observer_name}.cpp" "${CMAKE_SOURCE_DIR}/include/${PROJECT_NAME}/${observer_name}.h")
   # mc_observers doesn't actually depend on mc_control, but the observer's implementation does
   target_link_libraries(${observer_name} PUBLIC mc_rtc::mc_control)
+  # Force installation in non-debug folder
+  if("${CMAKE_BUILD_TYPE}" STREQUAL Debug)
+    install(TARGETS ${observer_name} DESTINATION ${MC_RTC_LIBDIR}/mc_observers)
+  endif()
 endmacro()
 
 macro(add_so_observer observer_name)

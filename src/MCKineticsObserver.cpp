@@ -43,6 +43,8 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
 
 void MCKineticsObserver::reset(const mc_control::MCController & ctl)
 {
+  simStarted_ = false;
+
   const auto & robot = ctl.robot(robot_);
   const auto & robotModule = robot.module();
 
@@ -83,8 +85,6 @@ void MCKineticsObserver::reset(const mc_control::MCController & ctl)
     mc_rtc::log::info("flexStiffness_ = {}", flexStiffness_);
     mc_rtc::log::info("flexDamping_ = {}", flexDamping_);
   }
-  
-  initObserverStateVector(robot);
 
 }
 
@@ -120,6 +120,18 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 
   /** Center of mass (assumes FK, FV and FA are already done) **/
   observer_.setCenterOfMass(robot.com(), robot.comVelocity(), robot.comAcceleration());
+
+
+    /** Contacts
+   * Note that when we use force sensors, this should be the position of the force sensor!
+   */
+  updateContacts(robot, findContacts(ctl));
+  
+  if (!simStarted_)
+  {
+    return true;
+  }
+
 
   /** Accelerometers **/
   updateIMUs(robot);

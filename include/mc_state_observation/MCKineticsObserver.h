@@ -256,6 +256,8 @@ public:
     sva::PTransformd accPos_; /**< currently hanled accelerometer pos in body */
     sva::PTransformd accContact_; /**< currently hanled contact pos in body */
     sva::RBInertiad inertiaWaist_; /**< grouped inertia */
+
+    bool simStarted_ = false;
   };
 
 } // mc_state_observation

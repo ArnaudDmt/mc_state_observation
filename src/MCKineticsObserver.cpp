@@ -29,7 +29,6 @@ MCKineticsObserver::MCKineticsObserver(const std::string & type, double dt)
 
 void MCKineticsObserver::configure(const mc_control::MCController & ctl, const mc_rtc::Configuration & config)
 {
-
   robot_ = config("robot", ctl.robot().name());
   // imuSensor_ = config("imuSensor", ctl.robot().bodySensor().name());
   IMUs_ = config("imuSensor", ctl.robot().bodySensors());
@@ -46,6 +45,7 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
 void MCKineticsObserver::reset(const mc_control::MCController & ctl)
 {
   simStarted_ = false;
+  ekfIsSet_ = false;
 
   const auto & robot = ctl.robot(robot_);
   const auto & robotModule = robot.module();
@@ -114,7 +114,6 @@ void MCKineticsObserver::initObserverStateVector(const mc_rbdyn::Robot & robot)
 
 bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 {
-
   /*
   using Input = stateObservation::IMUElasticLocalFrameDynamicalSystem::input;
   using State = stateObservation::IMUElasticLocalFrameDynamicalSystem::state;
@@ -165,6 +164,8 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
   // observer_.setMeasurementInput(inputs_);
   std::cout << std::endl << "time ekf: " << std::endl << observer_.getStateVectorTimeIndex() << std::endl;
   res_ = observer_.update();
+    
+  ekfIsSet_ = true;
 
   /* Get IMU position from res, and set the free-flyer accordingly. Note that
    * the result of the estimator is a difference from the reference, not an

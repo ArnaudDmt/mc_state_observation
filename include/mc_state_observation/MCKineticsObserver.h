@@ -234,12 +234,18 @@ public:
 
   private:
 
+    bool ekfIsSet_ = false;
     int maxContacts_ = 2;
     int maxIMUs_ = 2;
 
     Eigen::VectorXd inputs_;
     Eigen::VectorXd measurements_;
     Eigen::VectorXd res_;
+
+    //Eigen::VectorXd gyroPredictions_;
+    //Eigen::VectorXd accPredictions_;
+    Eigen::VectorXd measurePredictions_ = Eigen::VectorXd::Zero(3,1);
+
     bool debug_ = false;
     bool verbose_ = true;
     double accelNoiseCovariance_ = 1e-4;

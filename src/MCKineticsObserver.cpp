@@ -203,14 +203,18 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
   /* Get free-flyer velocity from res */
   //sva::MotionVecd newAccVel = sva::MotionVecd::Zero();
 
-  newAccVel.linear() = res_.segment<3>(observer_.linVelIndex());
-  newAccVel.angular() = res_.segment<3>(observer_.angVelIndex());
+  //newAccVel.linear() = res_.segment<3>(observer_.linVelIndex());
+  //newAccVel.angular() = res_.segment<3>(observer_.angVelIndex());
 
   /* "Inverse velocity" : find velocity of the base that gives you velocity
    * of the accelerometer */
 
   /* Bring velocity of the IMU to the origin of the joint : we want the
    * velocity of joint 0, so stop one before the first joint */
+
+  v_fb_0_.angular() = X_0_fb_.rotation()*realK_0_fb.angVel(); //  X_0_fb_.rotation() = realK_0_fb.orientation.toMatrix3().transpose()
+  v_fb_0_.linear() = X_0_fb_.rotation()*realK_0_fb.linVel();
+  /*
   sva::PTransformd E_0_prev(X_0_prev.rotation());
   sva::MotionVecd v_prev_0 = robot.mbc().bodyVelW[0];
 

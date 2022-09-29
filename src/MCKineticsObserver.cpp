@@ -23,13 +23,14 @@ MCKineticsObserver::MCKineticsObserver(const std::string & type, double dt)
 : mc_observers::Observer(type, dt), observer_(0,0)
 {
   observer_.setSamplingTime(dt);
+  std::cout << std::endl << "dt: " << std::endl << dt << std::endl;
   observer_.useFiniteDifferencesJacobians(true);
 }
 
 void MCKineticsObserver::configure(const mc_control::MCController & ctl, const mc_rtc::Configuration & config)
 {
   robot_ = config("robot", ctl.robot().name());
-  //imuSensor_ = config("imuSensor", ctl.robot().bodySensor().name());
+  // imuSensor_ = config("imuSensor", ctl.robot().bodySensor().name());
   IMUs_ = config("imuSensor", ctl.robot().bodySensors());
   config("debug", debug_);
   config("verbose", verbose_);
@@ -90,6 +91,8 @@ void MCKineticsObserver::reset(const mc_control::MCController & ctl)
 
 void MCKineticsObserver::initObserverStateVector(const mc_rbdyn::Robot & robot)
 {
+  std::cout << std::endl << "initializing state vector" << std::endl;
+
   stateObservation::kine::Orientation initOrientation(Eigen::Matrix3d(robot.posW().rotation().transpose()));
 
   Eigen::VectorXd initStateVector;
@@ -97,17 +100,15 @@ void MCKineticsObserver::initObserverStateVector(const mc_rbdyn::Robot & robot)
   
   initStateVector.segment<3>(0) = robot.posW().translation();
   initStateVector.segment<4>(3) = initOrientation.toVector4();
-  
-  //std::cout << std::endl << "robot position: " << std::endl << robot.posW().translation() << std::endl;
-  //std::cout << std::endl << "robot orientation: " << std::endl << initOrientation.toVector4() << std::endl;
-  initStateVector.segment<3>(7) = robot.velW().linear();
-  initStateVector.segment<3>(10) = robot.velW().angular();
 
-  observer_.initWorldCentroidStateVector(initStateVector); //No need to initialize the other variables as only the positions and velocities of the contact reference are used
+  // std::cout << std::endl << "robot position: " << std::endl << robot.posW().translation() << std::endl;
+  // std::cout << std::endl << "robot orientation: " << std::endl << initOrientation.toVector4() << std::endl;
 
-  //std::cout << std::endl << "initStateVector: " << std::endl << initStateVector << std::endl;
-  //std::cout << std::endl << "centroidStateVector: " << std::endl << observer_.getCurrentStateVector() << std::endl;
-  //std::cout << std::endl << "centroidKinematics: " << std::endl << observer_.getGlobalCentroidKinematics() << std::endl;
+
+  // std::cout << std::endl << "initStateVector: " << std::endl << initStateVector << std::endl;
+  // std::cout << std::endl << "centroidStateVector: " << std::endl << observer_.getCurrentStateVector() << std::endl;
+  // std::cout << std::endl << "centroidKinematics: " << std::endl << observer_.getGlobalCentroidKinematics() <<
+  // std::endl;
 }
 
 bool MCKineticsObserver::run(const mc_control::MCController & ctl)
@@ -117,8 +118,13 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
   using State = stateObservation::IMUElasticLocalFrameDynamicalSystem::state;
   */
   const auto & robot = ctl.robot(robot_);
+  Eigen::Matrix<double, 3, 2> initCom;
+  initCom << robot.com(), robot.comVelocity();
+  std::cout << std::endl << "com: " << std::endl << initCom.transpose() << std::endl;
+
 
   /** Center of mass (assumes FK, FV and FA are already done) **/
+  
   observer_.setCenterOfMass(robot.com(), robot.comVelocity(), robot.comAcceleration());
 
 
@@ -153,26 +159,47 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
   updateContacts(robot, findContacts(ctl));
 
   /* Step once, and return result */
-  
-  //observer_.setMeasurementInput(inputs_);
-  std::cout << std::endl << "time: " << std::endl << observer_.getStateVectorTimeIndex() << std::endl;
+
+  // observer_.setMeasurementInput(inputs_);
+  std::cout << std::endl << "time ekf: " << std::endl << observer_.getStateVectorTimeIndex() << std::endl;
   res_ = observer_.update();
 
   /* Get IMU position from res, and set the free-flyer accordingly. Note that
    * the result of the estimator is a difference from the reference, not an
    * absolute value */
-  
+
   const Eigen::Vector4d & rotVec = res_.segment<4>(observer_.oriIndex());
   Eigen::Quaternion<double> resultRot = Eigen::Quaternion<double>(rotVec);
   sva::PTransformd newAccPos(resultRot.toRotationMatrix().transpose(),
                              res_.segment<3>(observer_.posIndex()));
 
-  const sva::PTransformd & X_0_prev = robot.mbc().bodyPosW[0];
-  X_0_fb_.rotation() = newAccPos.rotation() * X_0_prev.rotation();
-  X_0_fb_.translation() = newAccPos.rotation().transpose() * X_0_prev.translation() + newAccPos.translation();
+  //const sva::PTransformd & X_0_prev = robot.mbc().bodyPosW[0];
+  
+  //X_0_fb_.rotation() = newAccPos.rotation() * X_0_prev.rotation();
+  stateObservation::kine::Kinematics K_0_fb;
+  K_0_fb.position = robot.posW().translation();
+  K_0_fb.orientation = stateObservation::Matrix3(robot.posW().rotation().transpose());
+  K_0_fb.linVel = robot.velW().linear();
+  K_0_fb.angVel = robot.velW().angular();
+
+  stateObservation::kine::Kinematics realK_0_fb(observer_.getGlobalKinematicsOf(K_0_fb));
+  std::cout << std::endl << "realK_0_fb: " << std::endl << realK_0_fb << std::endl;
+  std::cout << std::endl << "worldCentKine: " << std::endl << observer_.getGlobalCentroidKinematics() << std::endl;
+  X_0_fb_.rotation() = realK_0_fb.orientation.toMatrix3().transpose();
+  X_0_fb_.translation() = realK_0_fb.position();
+
+  //X_0_fb_.rotation() = observer_.getGlobalCentroidKinematics().orientation.toMatrix3().transpose();
+  //X_0_fb_.translation() = newAccPos.rotation().transpose() * X_0_prev.translation() + newAccPos.translation();
+
+  //X_0_fb_.translation() = observer_.getGlobalKinematicsOf();
+  //std::cout << std::endl << "zpos: " << std::endl << observer_.getCurrentStateVector().segment<3>(0) << std::endl;
+  std::cout << std::endl << "getLocalCentroidKinematics: " << std::endl << observer_.getLocalCentroidKinematics() << std::endl;
+  std::cout << std::endl << "getGlobalCentroidKinematics: " << std::endl << observer_.getGlobalCentroidKinematics() << std::endl;
+  //std::cout << std::endl << "worldCentroidStateKinematics_: " << std::endl << observer_.getLocalCentroidKinematics() << std::endl;
+  
 
   /* Get free-flyer velocity from res */
-  sva::MotionVecd newAccVel = sva::MotionVecd::Zero();
+  //sva::MotionVecd newAccVel = sva::MotionVecd::Zero();
 
   newAccVel.linear() = res_.segment<3>(observer_.linVelIndex());
   newAccVel.angular() = res_.segment<3>(observer_.angVelIndex());
@@ -213,42 +240,196 @@ void MCKineticsObserver::updateIMUs(const mc_rbdyn::Robot & robot)
     stateObservation::kine::Orientation oriAccW(Eigen::Matrix3d(accPosW.rotation().transpose()));
     /** Velocity of accelerometer **/
     sva::MotionVecd velIMU =
-      accPos_ * robot.mbc().bodyVelW[robot.bodyIndexByName(robot.bodySensor(imu.name()).parentBody())];
+        accPos_ * robot.mbc().bodyVelW[robot.bodyIndexByName(robot.bodySensor(imu.name()).parentBody())];
 
     /** Acceleration of accelerometer **/
     sva::PTransformd E_p_0(Eigen::Matrix3d(X_0_p.rotation().transpose()));
     sva::MotionVecd accIMU =
-      accPos_ * E_p_0 * robot.mbc().bodyAccB[robot.bodyIndexByName(robot.bodySensor(imu.name()).parentBody())];
+        accPos_ * E_p_0 * robot.mbc().bodyAccB[robot.bodyIndexByName(robot.bodySensor(imu.name()).parentBody())];
     /** Use material acceleration, not spatial **/
-    //inputs_.segment<3>(Input::linAccIMU) = accIMU.linear() + velIMU.angular().cross(velIMU.linear());
+    // inputs_.segment<3>(Input::linAccIMU) = accIMU.linear() + velIMU.angular().cross(velIMU.linear());
 
     stateObservation::kine::Kinematics userImuKinematics;
-    Eigen::Matrix<double, 3*5+4, 1> imuVector;
-    imuVector << accPosW.translation(), oriAccW.toVector4(), velIMU.linear(), velIMU.angular(), accIMU.linear(), accIMU.angular();
+    Eigen::Matrix<double, 3 * 5 + 4, 1> imuVector;
+    imuVector << accPosW.translation(), oriAccW.toVector4(), velIMU.linear(), velIMU.angular(), accIMU.linear(),
+        accIMU.angular();
     userImuKinematics.fromVector(imuVector, stateObservation::kine::Kinematics::Flags::all);
-    observer_.setIMU(robot.bodySensor().linearAcceleration(), robot.bodySensor().angularVelocity(), userImuKinematics, mapIMUs_.getNumFromName(imu.name()));
+
+    observer_.setIMU(robot.bodySensor().linearAcceleration(), robot.bodySensor().angularVelocity(),
+                                                userImuKinematics, mapIMUs_.getNumFromName(imu.name()));
 
     ++i;
   }
 }
 
 void MCKineticsObserver::addToLogger(const mc_control::MCController &,
-                                            mc_rtc::Logger & logger,
-                                            const std::string & category)
+                                     mc_rtc::Logger & logger,
+                                     const std::string & category)
 {
   logger.addLogEntry(category + "_posW", [this]() -> const sva::PTransformd & { return X_0_fb_; });
   logger.addLogEntry(category + "_velW", [this]() -> const sva::MotionVecd & { return v_fb_0_; });
+  //if (ekfIsSet_)
+  {
+    unsigned i = 0;
+    for(const auto & imu : IMUs_)
+    { 
+      logger.addLogEntry(category + "_measured_gyro: " + imu.name(), [this, imu]() -> Eigen::Vector3d { 
+        if(ekfIsSet_) { return observer_.getEKF().getLastMeasurement().segment<observer_.sizeGyroBias>(observer_.getIMUMeasIndexByNum(mapIMUs_.getNumFromName(imu.name())) + observer_.sizeAcceleroSignal); } else { return Eigen::Vector3d::Zero(); }
+      });
+      logger.addLogEntry(category + "_predicted_gyro: " + imu.name(), [this, imu]() -> Eigen::Vector3d { 
+        if(ekfIsSet_) { return observer_.getEKF().getLastPredictedMeasurement().segment<observer_.sizeGyroBias>(observer_.getIMUMeasIndexByNum(mapIMUs_.getNumFromName(imu.name())) + observer_.sizeAcceleroSignal); } else { return Eigen::Vector3d::Zero(); }
+      });
+      logger.addLogEntry(category + "_measured_acc: " + imu.name(), [this, imu]() -> Eigen::Vector3d { 
+        if(ekfIsSet_) { return observer_.getEKF().getLastMeasurement().segment<observer_.sizeAcceleroSignal>(observer_.getIMUMeasIndexByNum(mapIMUs_.getNumFromName(imu.name()))); } else { return Eigen::Vector3d::Zero(); }
+      });
+      logger.addLogEntry(category + "_predicted_acc: " + imu.name(), [this, imu]() -> Eigen::Vector3d { 
+        if(ekfIsSet_) { return observer_.getEKF().getLastPredictedMeasurement().segment<observer_.sizeAcceleroSignal>(observer_.getIMUMeasIndexByNum(mapIMUs_.getNumFromName(imu.name()))); } else { return Eigen::Vector3d::Zero(); }
+      });
+      i++;
+    }
+    
+    for(unsigned j = 0; j < maxContacts_; j++)
+    { 
+      logger.addLogEntry(category + "_measured_force" + std::to_string(j), [this, j]() -> Eigen::Vector3d { 
+        if(ekfIsSet_) 
+        { 
+          if (observer_.getContactIsSetByNum(j))
+          {
+            return observer_.getEKF().getLastMeasurement().segment<observer_.sizeForce>(observer_.getContactMeasIndexByNum(j) + observer_.sizeAcceleroSignal); 
+          } 
+          else 
+          { 
+            return Eigen::Vector3d::Zero(); 
+          }
+        }
+        else 
+        { 
+          return Eigen::Vector3d::Zero(); 
+        }
+        //return observer_.getEKF().getLastPredictedMeasurement().segment<observer_.sizeGyroBias>(observer_.getIMUMeasIndexByNum(mapIMUs_.getNumFromName(imu.name())) + observer_.sizeAcceleroSignal);
+      });
+      logger.addLogEntry(category + "_predicted_force" + std::to_string(j), [this, j]() -> Eigen::Vector3d { 
+        if(ekfIsSet_) 
+        { 
+          if (observer_.getContactIsSetByNum(j))
+          {
+            return observer_.getEKF().getLastPredictedMeasurement().segment<observer_.sizeForce>(observer_.getContactMeasIndexByNum(j) + observer_.sizeAcceleroSignal); 
+          } 
+          else 
+          { 
+            return Eigen::Vector3d::Zero(); 
+          }
+        }
+        else 
+        { 
+          return Eigen::Vector3d::Zero(); 
+        }
+        //return observer_.getEKF().getLastPredictedMeasurement().segment<observer_.sizeGyroBias>(observer_.getIMUMeasIndexByNum(mapIMUs_.getNumFromName(imu.name())) + observer_.sizeAcceleroSignal);
+      });
+      logger.addLogEntry(category + "_measured_torque" + std::to_string(j), [this, j]() -> Eigen::Vector3d { 
+        if(ekfIsSet_) 
+        { 
+          if (observer_.getContactIsSetByNum(j))
+          {
+            return observer_.getEKF().getLastMeasurement().segment<observer_.sizeTorque>(observer_.getContactMeasIndexByNum(j) + observer_.sizeForce);
+          } 
+          else 
+          { 
+            return Eigen::Vector3d::Zero(); 
+          }
+        }
+        else 
+        { 
+          return Eigen::Vector3d::Zero(); 
+        }
+        //return observer_.getEKF().getLastPredictedMeasurement().segment<observer_.sizeAcceleroSignal>(observer_.getIMUMeasIndexByNum(mapIMUs_.getNumFromName(imu.name())));
+      });
+      logger.addLogEntry(category + "_predicted_torque" + std::to_string(j), [this, j]() -> Eigen::Vector3d { 
+        if(ekfIsSet_) 
+        { 
+          if (observer_.getContactIsSetByNum(j))
+          {
+            return observer_.getEKF().getLastPredictedMeasurement().segment<observer_.sizeTorque>(observer_.getContactMeasIndexByNum(j) + observer_.sizeForce);
+          } 
+          else 
+          { 
+            return Eigen::Vector3d::Zero(); 
+          }
+        }
+        else 
+        { 
+          return Eigen::Vector3d::Zero(); 
+        }
+        //return observer_.getEKF().getLastPredictedMeasurement().segment<observer_.sizeAcceleroSignal>(observer_.getIMUMeasIndexByNum(mapIMUs_.getNumFromName(imu.name())));
+      });
+      j++;
+    }
+  }
+  /*
+  logger.addLogEntry(category + "_predicted_force: ", [this]() -> Eigen::Vector3d { 
+    for(const auto & contact : contacts_)
+    {   
+      if(ekfIsSet_) 
+      { 
+        if (observer_.getContactIsSetByNum(mapContacts_.getNumFromName(contact)))
+        {
+          return observer_.getEKF().getLastPredictedMeasurement().segment<observer_.sizeForce>(observer_.getContactMeasIndexByNum(mapContacts_.getNumFromName(contact)) + observer_.sizeAcceleroSignal); 
+        } 
+        else 
+        { 
+          return Eigen::Vector3d::Zero(); 
+        }
+      }
+      else 
+      { 
+        return Eigen::Vector3d::Zero(); 
+      }
+      }
+    
+    //return observer_.getEKF().getLastPredictedMeasurement().segment<observer_.sizeGyroBias>(observer_.getIMUMeasIndexByNum(mapIMUs_.getNumFromName(imu.name())) + observer_.sizeAcceleroSignal);
+  });
+  logger.addLogEntry(category + "_predicted_torque: ", [this]() -> Eigen::Vector3d { 
+    for(const auto & contact : contacts_)
+    {
+      if(ekfIsSet_) 
+      { 
+        if (observer_.getContactIsSetByNum(mapContacts_.getNumFromName(contact)))
+        {
+          return observer_.getEKF().getLastPredictedMeasurement().segment<observer_.sizeTorque>(observer_.getContactMeasIndexByNum(mapContacts_.getNumFromName(contact)) + observer_.sizeForce);
+        } 
+        else 
+        { 
+          return Eigen::Vector3d::Zero(); 
+        }
+      }
+      else 
+      { 
+        return Eigen::Vector3d::Zero(); 
+      }
+      //return observer_.getEKF().getLastPredictedMeasurement().segment<observer_.sizeAcceleroSignal>(observer_.getIMUMeasIndexByNum(mapIMUs_.getNumFromName(imu.name())));
+    }
+    
+  });
+  */
+  
 }
 
 void MCKineticsObserver::removeFromLogger(mc_rtc::Logger & logger, const std::string & category)
 {
   logger.removeLogEntry(category + "_posW");
   logger.removeLogEntry(category + "_velW");
+  unsigned i = 0;
+  for(const auto & imu : IMUs_)
+  {
+    i++;
+    logger.removeLogEntry(category + "_velIMU" + std::to_string(i));
+    logger.removeLogEntry(category + "_accIMU" + std::to_string(i));
+  }
 }
 
 void MCKineticsObserver::addToGUI(const mc_control::MCController &,
-                                         mc_rtc::gui::StateBuilder & gui,
-                                         const std::vector<std::string> & category)
+                                  mc_rtc::gui::StateBuilder & gui,
+                                  const std::vector<std::string> & category)
 {
   using namespace mc_rtc::gui;
   // clang-format off
@@ -270,15 +451,15 @@ void MCKineticsObserver::mass(double mass)
 void MCKineticsObserver::flexStiffness(const sva::MotionVecd & stiffness)
 {
   flexStiffness_ = stiffness;
-  //observer_.setKfe(flexStiffness_.linear().asDiagonal());
-  //observer_.setKte(flexStiffness_.angular().asDiagonal());
+  // observer_.setKfe(flexStiffness_.linear().asDiagonal());
+  // observer_.setKte(flexStiffness_.angular().asDiagonal());
 }
 
 void MCKineticsObserver::flexDamping(const sva::MotionVecd & damping)
 {
   flexDamping_ = damping;
-  //observer_.setKfv(flexDamping_.linear().asDiagonal());
-  //observer_.setKtv(flexDamping_.angular().asDiagonal());
+  // observer_.setKfv(flexDamping_.linear().asDiagonal());
+  // observer_.setKtv(flexDamping_.angular().asDiagonal());
 }
 
 std::set<std::string> MCKineticsObserver::findContacts(const mc_control::MCController & ctl)
@@ -303,22 +484,26 @@ std::set<std::string> MCKineticsObserver::findContacts(const mc_control::MCContr
       }
     }
   }
+  if (!contactsFound.empty() && !simStarted_)
+  {
+    simStarted_ = true;
+    initObserverStateVector(robot);
+  }
   return contactsFound;
 }
 
 void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<std::string> updatedContacts)
 {
-  //if(contacts_ == updatedContacts) return;
+  // if(contacts_ == updatedContacts) return;
   std::set<std::string> & oldContacts = contacts_; // alias
 
   if(verbose_) mc_rtc::log::info("[{}] Contacts changed: {}", name(), mc_rtc::io::to_string(updatedContacts));
   contactPositions_.clear();
-  
+
   for(const auto & updatedContact : updatedContacts)
   {
     const auto & ifs = robot.indirectSurfaceForceSensor(updatedContact);
-    const auto & fs = robot.surfaceForceSensor(updatedContact);
-    //contactPositions_.push_back(fs.X_p_f());
+    // contactPositions_.push_back(fs.X_p_f());
 
     /** Position of the contact **/
     sva::PTransformd contactPos_ = ifs.X_p_f();
@@ -330,34 +515,38 @@ void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<
       contactPos_ * robot.mbc().bodyVelW[robot.bodyIndexByName(ifs.parentBody())];
 
     /** Acceleration of the contact **/
-    
+
     sva::PTransformd E_p_0(Eigen::Matrix3d(X_0_p.rotation().transpose()));
-    std::cout << std::endl << "X_0_p.rotation().transpose(): " << std::endl << X_0_p.rotation().transpose() << std::endl;
+    std::cout << std::endl
+              << "X_0_p.rotation().transpose(): " << std::endl
+              << X_0_p.rotation().transpose() << std::endl;
     std::cout << std::endl << "oriContactW: " << std::endl << oriContactW.getMatrixRefUnsafe()() << std::endl;
     std::cout << std::endl << "oriContactW.toVector4: " << std::endl << oriContactW.toVector4() << std::endl;
-    std::cout << std::endl << "oriContactW.toVector4.quaternion: " << std::endl << stateObservation::Quaternion(oriContactW.toVector4()).coeffs() << std::endl;
-    sva::MotionVecd accContact =
-      contactPos_ * E_p_0 * robot.mbc().bodyAccB[robot.bodyIndexByName(ifs.parentBody())];
+    std::cout << std::endl
+              << "oriContactW.toVector4.quaternion: " << std::endl
+              << stateObservation::Quaternion(oriContactW.toVector4()).coeffs() << std::endl;
+    sva::MotionVecd accContact = contactPos_ * E_p_0 * robot.mbc().bodyAccB[robot.bodyIndexByName(ifs.parentBody())];
 
-      
     /** Use material acceleration, not spatial **/
     // inputs_.segment<3>(Input::linAccIMU) = accIMU.linear() + velIMU.angular().cross(velIMU.linear());
-    
-    
+
     stateObservation::kine::Kinematics userContactKine;
     Eigen::Matrix<double, 3*5+4, 1> contactVector;
     contactVector << contactPosW.translation(), oriContactW.toVector4(), velContact.linear(), velContact.angular(), accContact.linear(),  accContact.angular();
     std::cout << std::endl << "contactVector: " << std::endl << contactVector << std::endl;
     userContactKine.fromVector(contactVector, stateObservation::kine::Kinematics::Flags::all);
     std::cout << std::endl << "userContactKine: " << std::endl << userContactKine << std::endl;
-    std::cout << std::endl << "userContactKine.quaternion: " << std::endl << userContactKine.orientation.getQuaternionRefUnsafe()().coeffs() << std::endl;
+    std::cout << std::endl
+              << "userContactKine.quaternion: " << std::endl
+              << userContactKine.orientation.getQuaternionRefUnsafe()().coeffs() << std::endl;
 
     if (oldContacts.find(updatedContact) != oldContacts.end())  // checks if the contact already exists, if yes, it is updated
     {
       observer_.updateContactWithWrenchSensor(fs.wrench().vector(), userContactKine, mapContacts_.getNumFromName(updatedContact));
     }
-    else  // checks if the contact already exists, if no, it is added to the observer
+    else // checks if the contact already exists, if no, it is added to the observer
     {
+      std::cout << std::endl << "Adding contact: " << std::endl;
       mapContacts_.insertPair(updatedContact);
       observer_.addContact( userContactKine,
                             mapContacts_.getNumFromName(updatedContact),
@@ -367,7 +556,6 @@ void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<
                             contactDamping_.angular().asDiagonal() );
       observer_.updateContactWithWrenchSensor(fs.wrench().vector(), userContactKine, mapContacts_.getNumFromName(updatedContact)); // not sure about that
     }
-
   }
   std::set<std::string> diffs;  // List of the contact that were available on last iteration but are not set anymore on the current one
   std::set_difference(oldContacts.begin(), oldContacts.end(), updatedContacts.begin(), updatedContacts.end(), std::inserter(diffs, diffs.end()));
@@ -386,7 +574,6 @@ void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<
 
   // updateNoiseCovariance(); already set in updateContactWithWrenchSensor
 }
-
 
 } // namespace mc_state_observation
 

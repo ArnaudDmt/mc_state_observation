@@ -23,7 +23,6 @@ MCKineticsObserver::MCKineticsObserver(const std::string & type, double dt)
 : mc_observers::Observer(type, dt), observer_(maxContacts_, maxIMUs_)
 {
   observer_.setSamplingTime(dt);
-  std::cout << std::endl << "dt: " << std::endl << dt << std::endl;
   observer_.useFiniteDifferencesJacobians(true);
 }
 
@@ -92,8 +91,6 @@ void MCKineticsObserver::reset(const mc_control::MCController & ctl)
 
 void MCKineticsObserver::initObserverStateVector(const mc_rbdyn::Robot & robot)
 {
-  std::cout << std::endl << "initializing state vector" << std::endl;
-
   stateObservation::kine::Orientation initOrientation(Eigen::Matrix3d(robot.posW().rotation().transpose()));
 
   Eigen::VectorXd initStateVector;
@@ -101,20 +98,9 @@ void MCKineticsObserver::initObserverStateVector(const mc_rbdyn::Robot & robot)
   initStateVector.segment<3>(0) = robot.com();
   // initStateVector.segment<3>(0) = robot.posW().translation();
   initStateVector.segment<4>(3) = initOrientation.toVector4();
-
-  // std::cout << std::endl << "robot position: " << std::endl << robot.posW().translation() << std::endl;
-  // std::cout << std::endl << "robot orientation: " << std::endl << initOrientation.toVector4() << std::endl;
-
   initStateVector.segment<3>(7) = robot.comVelocity();
-  // initStateVector.segment<3>(7) = robot.velW().linear();
-  // initStateVector.segment<3>(10) = robot.velW().angular();
 
   observer_.initWorldCentroidStateVector(initStateVector);
-
-  // std::cout << std::endl << "initStateVector: " << std::endl << initStateVector << std::endl;
-  // std::cout << std::endl << "centroidStateVector: " << std::endl << observer_.getCurrentStateVector() << std::endl;
-  // std::cout << std::endl << "centroidKinematics: " << std::endl << observer_.getGlobalCentroidKinematics() <<
-  // std::endl;
 }
 
 bool MCKineticsObserver::run(const mc_control::MCController & ctl)
@@ -185,8 +171,6 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
   K_0_fb.angVel = robot.velW().angular();
 
   stateObservation::kine::Kinematics realK_0_fb(observer_.getGlobalKinematicsOf(K_0_fb));
-  std::cout << std::endl << "realK_0_fb: " << std::endl << realK_0_fb << std::endl;
-  std::cout << std::endl << "worldCentKine: " << std::endl << observer_.getGlobalCentroidKinematics() << std::endl;
   X_0_fb_.rotation() = realK_0_fb.orientation.toMatrix3().transpose();
   X_0_fb_.translation() = realK_0_fb.position();
 
@@ -194,11 +178,6 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
   //X_0_fb_.translation() = newAccPos.rotation().transpose() * X_0_prev.translation() + newAccPos.translation();
 
   //X_0_fb_.translation() = observer_.getGlobalKinematicsOf();
-  //std::cout << std::endl << "zpos: " << std::endl << observer_.getCurrentStateVector().segment<3>(0) << std::endl;
-  std::cout << std::endl << "getLocalCentroidKinematics: " << std::endl << observer_.getLocalCentroidKinematics() << std::endl;
-  std::cout << std::endl << "getGlobalCentroidKinematics: " << std::endl << observer_.getGlobalCentroidKinematics() << std::endl;
-  //std::cout << std::endl << "worldCentroidStateKinematics_: " << std::endl << observer_.getLocalCentroidKinematics() << std::endl;
-  
 
   /* Get free-flyer velocity from res */
   //sva::MotionVecd newAccVel = sva::MotionVecd::Zero();
@@ -242,7 +221,6 @@ void MCKineticsObserver::updateIMUs(const mc_rbdyn::Robot & robot)
   unsigned i = 0;
   for(const auto & imu : IMUs_)
   {
-    std::cout << "imuname" + imu.name();
     mapIMUs_.insertPair(imu.name());
     /** Position of accelerometer **/
     accPos_ = robot.bodySensor(imu.name()).X_b_s();
@@ -298,9 +276,10 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController &,
       });
       i++;
     }
-    
-    for(unsigned j = 0; j < maxContacts_; j++)
+    std::cout << "maxContacts_" + std::to_string(maxContacts_);
+    for(int j = 0; j < maxContacts_; j++)
     { 
+      std::cout << "jdejd" + std::to_string(j);
       logger.addLogEntry(category + "_measured_force" + std::to_string(j), [this, j]() -> Eigen::Vector3d { 
         if(ekfIsSet_) 
         { 
@@ -373,56 +352,8 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController &,
         }
         //return observer_.getEKF().getLastPredictedMeasurement().segment<observer_.sizeAcceleroSignal>(observer_.getIMUMeasIndexByNum(mapIMUs_.getNumFromName(imu.name())));
       });
-      j++;
     }
   }
-  /*
-  logger.addLogEntry(category + "_predicted_force: ", [this]() -> Eigen::Vector3d { 
-    for(const auto & contact : contacts_)
-    {   
-      if(ekfIsSet_) 
-      { 
-        if (observer_.getContactIsSetByNum(mapContacts_.getNumFromName(contact)))
-        {
-          return observer_.getEKF().getLastPredictedMeasurement().segment<observer_.sizeForce>(observer_.getContactMeasIndexByNum(mapContacts_.getNumFromName(contact)) + observer_.sizeAcceleroSignal); 
-        } 
-        else 
-        { 
-          return Eigen::Vector3d::Zero(); 
-        }
-      }
-      else 
-      { 
-        return Eigen::Vector3d::Zero(); 
-      }
-      }
-    
-    //return observer_.getEKF().getLastPredictedMeasurement().segment<observer_.sizeGyroBias>(observer_.getIMUMeasIndexByNum(mapIMUs_.getNumFromName(imu.name())) + observer_.sizeAcceleroSignal);
-  });
-  logger.addLogEntry(category + "_predicted_torque: ", [this]() -> Eigen::Vector3d { 
-    for(const auto & contact : contacts_)
-    {
-      if(ekfIsSet_) 
-      { 
-        if (observer_.getContactIsSetByNum(mapContacts_.getNumFromName(contact)))
-        {
-          return observer_.getEKF().getLastPredictedMeasurement().segment<observer_.sizeTorque>(observer_.getContactMeasIndexByNum(mapContacts_.getNumFromName(contact)) + observer_.sizeForce);
-        } 
-        else 
-        { 
-          return Eigen::Vector3d::Zero(); 
-        }
-      }
-      else 
-      { 
-        return Eigen::Vector3d::Zero(); 
-      }
-      //return observer_.getEKF().getLastPredictedMeasurement().segment<observer_.sizeAcceleroSignal>(observer_.getIMUMeasIndexByNum(mapIMUs_.getNumFromName(imu.name())));
-    }
-    
-  });
-  */
-  
 }
 
 void MCKineticsObserver::removeFromLogger(mc_rtc::Logger & logger, const std::string & category)
@@ -435,6 +366,13 @@ void MCKineticsObserver::removeFromLogger(mc_rtc::Logger & logger, const std::st
     i++;
     logger.removeLogEntry(category + "_velIMU" + std::to_string(i));
     logger.removeLogEntry(category + "_accIMU" + std::to_string(i));
+  }
+  for(int j = 0; j < maxContacts_; j++)
+  {
+    logger.removeLogEntry(category + "_measured_force" + std::to_string(j));
+    logger.removeLogEntry(category + "_predicted_force" + std::to_string(j));
+    logger.removeLogEntry(category + "_measured_torque" + std::to_string(j));
+    logger.removeLogEntry(category + "_predicted_torque" + std::to_string(j));
   }
 }
 
@@ -528,14 +466,7 @@ void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<
     /** Acceleration of the contact **/
 
     sva::PTransformd E_p_0(Eigen::Matrix3d(X_0_p.rotation().transpose()));
-    std::cout << std::endl
-              << "X_0_p.rotation().transpose(): " << std::endl
-              << X_0_p.rotation().transpose() << std::endl;
-    std::cout << std::endl << "oriContactW: " << std::endl << oriContactW.getMatrixRefUnsafe()() << std::endl;
-    std::cout << std::endl << "oriContactW.toVector4: " << std::endl << oriContactW.toVector4() << std::endl;
-    std::cout << std::endl
-              << "oriContactW.toVector4.quaternion: " << std::endl
-              << stateObservation::Quaternion(oriContactW.toVector4()).coeffs() << std::endl;
+
     sva::MotionVecd accContact = contactPos_ * E_p_0 * robot.mbc().bodyAccB[robot.bodyIndexByName(ifs.parentBody())];
 
     /** Use material acceleration, not spatial **/
@@ -545,12 +476,7 @@ void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<
     Eigen::Matrix<double, 3 * 5 + 4, 1> contactVector;
     contactVector << contactPosW.translation(), oriContactW.toVector4(), velContact.linear(), velContact.angular(),
         accContact.linear(), accContact.angular();
-    std::cout << std::endl << "contactVector: " << std::endl << contactVector << std::endl;
     userContactKine.fromVector(contactVector, stateObservation::kine::Kinematics::Flags::all);
-    std::cout << std::endl << "userContactKine: " << std::endl << userContactKine << std::endl;
-    std::cout << std::endl
-              << "userContactKine.quaternion: " << std::endl
-              << userContactKine.orientation.getQuaternionRefUnsafe()().coeffs() << std::endl;
 
     if(oldContacts.find(updatedContact)
        != oldContacts.end()) // checks if the contact already exists, if yes, it is updated
@@ -560,7 +486,6 @@ void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<
     }
     else // checks if the contact already exists, if no, it is added to the observer
     {
-      std::cout << std::endl << "Adding contact: " << std::endl;
       mapContacts_.insertPair(updatedContact);
       observer_.addContact( userContactKine, 
                             mapContacts_.getNumFromName(updatedContact),

@@ -233,6 +233,10 @@ public:
     }
 
   private:
+
+    int maxContacts_ = 2;
+    int maxIMUs_ = 2;
+
     Eigen::VectorXd inputs_;
     Eigen::VectorXd measurements_;
     Eigen::VectorXd res_;
@@ -249,15 +253,15 @@ public:
     std::vector<sva::PTransformd> contactPositions_; ///< Position of the contact frames (force sensor frame when using force sensors)
     sva::MotionVecd flexDamping_{{17, 17, 17}, {250, 250, 250}}; // HRP-4, {25.0, 200} for HRP-2
     sva::MotionVecd flexStiffness_{{727, 727, 727}, {4e4, 4e4, 4e4}}; // HRP-4, {620, 3e5} for HRP-2
-    sva::MotionVecd contactDamping_{{0.17, 0.17, 0.17}, {2.50, 2.50, 2.50}}; // HRP-4, {25.0, 200} for HRP-2
-    sva::MotionVecd contactStiffness_{{7.27, 7.27, 7.27}, {4e1, 4e1, 4e1}}; // HRP-4, {620, 3e5} for HRP-2
     sva::MotionVecd v_fb_0_ = sva::MotionVecd::Zero();
     sva::PTransformd X_0_fb_ = sva::PTransformd::Identity();
     sva::PTransformd accPos_; /**< currently hanled accelerometer pos in body */
     sva::PTransformd accContact_; /**< currently hanled contact pos in body */
     sva::RBInertiad inertiaWaist_; /**< grouped inertia */
 
-    bool simStarted_ = false;
+    bool simStarted_ = false; // this variable is set to true when the robot touches the ground at the beginning of the simulation, 
+                              // allowing to start the estimaion at that time and not when the robot is still in the air, 
+                              // and therefore to avoid the big com's pose jump this transition involves
   };
 
 } // mc_state_observation

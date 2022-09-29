@@ -20,7 +20,7 @@ namespace mc_state_observation
 namespace so = stateObservation;
 
 MCKineticsObserver::MCKineticsObserver(const std::string & type, double dt)
-: mc_observers::Observer(type, dt), observer_(0,0)
+: mc_observers::Observer(type, dt), observer_(maxContacts_, maxIMUs_)
 {
   observer_.setSamplingTime(dt);
   std::cout << std::endl << "dt: " << std::endl << dt << std::endl;
@@ -29,6 +29,7 @@ MCKineticsObserver::MCKineticsObserver(const std::string & type, double dt)
 
 void MCKineticsObserver::configure(const mc_control::MCController & ctl, const mc_rtc::Configuration & config)
 {
+
   robot_ = config("robot", ctl.robot().name());
   // imuSensor_ = config("imuSensor", ctl.robot().bodySensor().name());
   IMUs_ = config("imuSensor", ctl.robot().bodySensors());
@@ -113,6 +114,7 @@ void MCKineticsObserver::initObserverStateVector(const mc_rbdyn::Robot & robot)
 
 bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 {
+
   /*
   using Input = stateObservation::IMUElasticLocalFrameDynamicalSystem::input;
   using State = stateObservation::IMUElasticLocalFrameDynamicalSystem::state;
@@ -216,14 +218,19 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
   v_fb_0_.linear() =
       stateObservation::kine::skewSymmetric(newAccVel.angular()) * newAccPos.rotation() * X_0_prev.translation()
       + newAccVel.linear() + newAccPos.rotation() * v_prev_0.linear();
+  */
+
+
+  
   return true;
 }
 
 void MCKineticsObserver::update(mc_control::MCController & ctl)
 {
-  auto & robot = ctl.realRobot(robot_);
-  robot.posW(X_0_fb_);
-  robot.velW(v_fb_0_.vector());
+  auto & realRobot = ctl.realRobot(robot_);
+  realRobot.posW(X_0_fb_);
+  realRobot.velW(v_fb_0_.vector());
+  
 }
 
 void MCKineticsObserver::updateIMUs(const mc_rbdyn::Robot & robot)

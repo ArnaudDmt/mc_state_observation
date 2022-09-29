@@ -158,12 +158,6 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
   // inputs_.segment<6>(Input::inertia) = inertia;
   observer_.setInertiaMatrix(inertia);
 
-  
-  /** Contacts
-   * Note that when we use force sensors, this should be the position of the force sensor!
-   */
-  updateContacts(robot, findContacts(ctl));
-
   /* Step once, and return result */
 
   // observer_.setMeasurementInput(inputs_);

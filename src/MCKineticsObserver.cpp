@@ -174,7 +174,7 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
   const Eigen::Vector4d & rotVec = res_.segment<4>(observer_.oriIndex());
   Eigen::Quaternion<double> resultRot = Eigen::Quaternion<double>(rotVec);
   sva::PTransformd newAccPos(resultRot.toRotationMatrix().transpose(),
-                             res_.segment<3>(observer_.posIndex()));
+                              res_.segment<3>(observer_.posIndex()));
 
   //const sva::PTransformd & X_0_prev = robot.mbc().bodyPosW[0];
   
@@ -519,7 +519,7 @@ void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<
     sva::PTransformd contactPosW = contactPos_ * X_0_p;
     stateObservation::kine::Orientation oriContactW(Eigen::Matrix3d(contactPosW.rotation().transpose()));
     /** Velocity of the contact **/
-    sva::MotionVecd velContact =
+    sva::MotionVecd velContact = 
       contactPos_ * robot.mbc().bodyVelW[robot.bodyIndexByName(ifs.parentBody())];
 
     /** Acceleration of the contact **/
@@ -539,8 +539,9 @@ void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<
     // inputs_.segment<3>(Input::linAccIMU) = accIMU.linear() + velIMU.angular().cross(velIMU.linear());
 
     stateObservation::kine::Kinematics userContactKine;
-    Eigen::Matrix<double, 3*5+4, 1> contactVector;
-    contactVector << contactPosW.translation(), oriContactW.toVector4(), velContact.linear(), velContact.angular(), accContact.linear(),  accContact.angular();
+    Eigen::Matrix<double, 3 * 5 + 4, 1> contactVector;
+    contactVector << contactPosW.translation(), oriContactW.toVector4(), velContact.linear(), velContact.angular(),
+        accContact.linear(), accContact.angular();
     std::cout << std::endl << "contactVector: " << std::endl << contactVector << std::endl;
     userContactKine.fromVector(contactVector, stateObservation::kine::Kinematics::Flags::all);
     std::cout << std::endl << "userContactKine: " << std::endl << userContactKine << std::endl;
@@ -548,7 +549,8 @@ void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<
               << "userContactKine.quaternion: " << std::endl
               << userContactKine.orientation.getQuaternionRefUnsafe()().coeffs() << std::endl;
 
-    if (oldContacts.find(updatedContact) != oldContacts.end())  // checks if the contact already exists, if yes, it is updated
+    if(oldContacts.find(updatedContact)
+       != oldContacts.end()) // checks if the contact already exists, if yes, it is updated
     {
       observer_.updateContactWithWrenchSensor(fs.wrench().vector(), userContactKine, mapContacts_.getNumFromName(updatedContact));
     }
@@ -556,17 +558,20 @@ void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<
     {
       std::cout << std::endl << "Adding contact: " << std::endl;
       mapContacts_.insertPair(updatedContact);
-      observer_.addContact( userContactKine,
+      observer_.addContact( userContactKine, 
                             mapContacts_.getNumFromName(updatedContact),
-                            contactStiffness_.linear().asDiagonal(), 
-                            contactDamping_.linear().asDiagonal(), 
-                            contactStiffness_.angular().asDiagonal(), 
-                            contactDamping_.angular().asDiagonal() );
-      observer_.updateContactWithWrenchSensor(fs.wrench().vector(), userContactKine, mapContacts_.getNumFromName(updatedContact)); // not sure about that
+                            flexStiffness_.linear().asDiagonal(), 
+                            flexDamping_.linear().asDiagonal(),
+                            flexStiffness_.angular().asDiagonal(), 
+                            flexDamping_.angular().asDiagonal());
+      observer_.updateContactWithWrenchSensor(ifs.wrench().vector(), userContactKine,
+                                              mapContacts_.getNumFromName(updatedContact));
     }
   }
-  std::set<std::string> diffs;  // List of the contact that were available on last iteration but are not set anymore on the current one
-  std::set_difference(oldContacts.begin(), oldContacts.end(), updatedContacts.begin(), updatedContacts.end(), std::inserter(diffs, diffs.end()));
+  std::set<std::string>
+      diffs; // List of the contact that were available on last iteration but are not set anymore on the current one
+  std::set_difference(oldContacts.begin(), oldContacts.end(), updatedContacts.begin(), updatedContacts.end(),
+                      std::inserter(diffs, diffs.end()));
   for(const auto & diff : diffs)
   {
     observer_.removeContact(mapContacts_.getNumFromName(diff));

@@ -555,7 +555,8 @@ void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<
     if(oldContacts.find(updatedContact)
        != oldContacts.end()) // checks if the contact already exists, if yes, it is updated
     {
-      observer_.updateContactWithWrenchSensor(fs.wrench().vector(), userContactKine, mapContacts_.getNumFromName(updatedContact));
+      observer_.updateContactWithWrenchSensor(ifs.wrench().vector(), userContactKine, mapContacts_.getNumFromName(updatedContact)); 
+      //observer_.updateContactWithNoSensor(userContactKine, mapContacts_.getNumFromName(updatedContact));
     }
     else // checks if the contact already exists, if no, it is added to the observer
     {

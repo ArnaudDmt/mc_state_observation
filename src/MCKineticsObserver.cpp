@@ -98,13 +98,18 @@ void MCKineticsObserver::initObserverStateVector(const mc_rbdyn::Robot & robot)
 
   Eigen::VectorXd initStateVector;
   initStateVector = Eigen::VectorXd::Zero(observer_.getStateSize());
-  
-  initStateVector.segment<3>(0) = robot.posW().translation();
+  initStateVector.segment<3>(0) = robot.com();
+  // initStateVector.segment<3>(0) = robot.posW().translation();
   initStateVector.segment<4>(3) = initOrientation.toVector4();
 
   // std::cout << std::endl << "robot position: " << std::endl << robot.posW().translation() << std::endl;
   // std::cout << std::endl << "robot orientation: " << std::endl << initOrientation.toVector4() << std::endl;
 
+  initStateVector.segment<3>(7) = robot.comVelocity();
+  // initStateVector.segment<3>(7) = robot.velW().linear();
+  // initStateVector.segment<3>(10) = robot.velW().angular();
+
+  observer_.initWorldCentroidStateVector(initStateVector);
 
   // std::cout << std::endl << "initStateVector: " << std::endl << initStateVector << std::endl;
   // std::cout << std::endl << "centroidStateVector: " << std::endl << observer_.getCurrentStateVector() << std::endl;

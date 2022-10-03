@@ -87,6 +87,11 @@ void MCKineticsObserver::reset(const mc_control::MCController & ctl)
     mc_rtc::log::info("flexDamping_ = {}", flexDamping_);
   }
 
+  my_robots_ = mc_rbdyn::Robots::make();
+  my_robots_->robotCopy(robot, robot.name());
+  ctl.gui()->addElement({"Robots"}, mc_rtc::gui::Robot("MCKineticsobserver", [this]() -> const mc_rbdyn::Robot & { return my_robots_->robot(); }));
+  ctl.gui()->addElement({"Robots"}, mc_rtc::gui::Robot("Real", [&ctl]() -> const mc_rbdyn::Robot & { return ctl.realRobot(); }));
+
 }
 
 void MCKineticsObserver::initObserverStateVector(const mc_rbdyn::Robot & robot)
@@ -202,7 +207,7 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
       stateObservation::kine::skewSymmetric(newAccVel.angular()) * newAccPos.rotation() * X_0_prev.translation()
       + newAccVel.linear() + newAccPos.rotation() * v_prev_0.linear();
   */
-
+  update(my_robots_->robot());
 
   
   return true;
@@ -211,8 +216,13 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 void MCKineticsObserver::update(mc_control::MCController & ctl)
 {
   auto & realRobot = ctl.realRobot(robot_);
-  realRobot.posW(X_0_fb_);
-  realRobot.velW(v_fb_0_.vector());
+  update(realRobot);
+}
+
+void MCKineticsObserver::update(mc_rbdyn::Robot & robot)
+{
+  robot.posW(X_0_fb_);
+  robot.velW(v_fb_0_.vector());
   
 }
 
@@ -276,16 +286,14 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController &,
       });
       i++;
     }
-    std::cout << "maxContacts_" + std::to_string(maxContacts_);
     for(int j = 0; j < maxContacts_; j++)
     { 
-      std::cout << "jdejd" + std::to_string(j);
       logger.addLogEntry(category + "_measured_force" + std::to_string(j), [this, j]() -> Eigen::Vector3d { 
         if(ekfIsSet_) 
         { 
           if (observer_.getContactIsSetByNum(j))
           {
-            return observer_.getEKF().getLastMeasurement().segment<observer_.sizeForce>(observer_.getContactMeasIndexByNum(j) + observer_.sizeAcceleroSignal); 
+            return observer_.getEKF().getLastMeasurement().segment<observer_.sizeForce>(observer_.getContactMeasIndexByNum(j)); 
           } 
           else 
           { 
@@ -303,7 +311,7 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController &,
         { 
           if (observer_.getContactIsSetByNum(j))
           {
-            return observer_.getEKF().getLastPredictedMeasurement().segment<observer_.sizeForce>(observer_.getContactMeasIndexByNum(j) + observer_.sizeAcceleroSignal); 
+            return observer_.getEKF().getLastPredictedMeasurement().segment<observer_.sizeForce>(observer_.getContactMeasIndexByNum(j)); 
           } 
           else 
           { 
@@ -452,8 +460,9 @@ void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<
   for(const auto & updatedContact : updatedContacts)
   {
     const auto & ifs = robot.indirectSurfaceForceSensor(updatedContact);
-    // contactPositions_.push_back(fs.X_p_f());
-
+    contactWrenchVector_.segment<3>(0) = ifs.wrench().vector().segment<3>(3); // retrieving the torque
+    contactWrenchVector_.segment<3>(3) = ifs.wrench().vector().segment<3>(0); // retrieving the force
+  
     /** Position of the contact **/
     sva::PTransformd contactPos_ = ifs.X_p_f();
     sva::PTransformd X_0_p = robot.bodyPosW(ifs.parentBody());
@@ -481,7 +490,7 @@ void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<
     if(oldContacts.find(updatedContact)
        != oldContacts.end()) // checks if the contact already exists, if yes, it is updated
     {
-      observer_.updateContactWithWrenchSensor(ifs.wrench().vector(), userContactKine, mapContacts_.getNumFromName(updatedContact)); 
+      observer_.updateContactWithWrenchSensor(contactWrenchVector_, userContactKine, mapContacts_.getNumFromName(updatedContact)); 
       //observer_.updateContactWithNoSensor(userContactKine, mapContacts_.getNumFromName(updatedContact));
     }
     else // checks if the contact already exists, if no, it is added to the observer
@@ -493,7 +502,7 @@ void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<
                             flexDamping_.linear().asDiagonal(),
                             flexStiffness_.angular().asDiagonal(), 
                             flexDamping_.angular().asDiagonal());
-      observer_.updateContactWithWrenchSensor(ifs.wrench().vector(), userContactKine,
+      observer_.updateContactWithWrenchSensor(contactWrenchVector_, userContactKine,
                                               mapContacts_.getNumFromName(updatedContact));
     }
   }

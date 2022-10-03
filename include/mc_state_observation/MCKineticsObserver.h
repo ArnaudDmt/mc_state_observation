@@ -98,6 +98,7 @@ protected:
   //std::string imuSensor_ = "";
   mc_rbdyn::BodySensorVector IMUs_; ///< list of IMUs
 
+
 public:
     /** Get robot mass.
      *
@@ -200,20 +201,20 @@ public:
       updateNoiseCovariance();
     }
 
-    /** Get last input vector sent to observer.
-     *
-     */
+    /*
+    // Get last input vector sent to observer.
     inline const Eigen::VectorXd & inputs() const
     {
       return inputs_;
     }
+    */
 
     /** Get last measurement vector sent to observer.
      *
      */
     inline const Eigen::VectorXd & measurements() const
     {
-      return measurements_;
+      return observer_.getEKF().getLastMeasurement();
     }
 
     /** Floating-base transform estimate.
@@ -233,14 +234,15 @@ public:
     }
 
   private:
+    std::shared_ptr<mc_rbdyn::Robots> my_robots_;
 
     bool ekfIsSet_ = false;
     int maxContacts_ = 2;
     int maxIMUs_ = 2;
 
-    Eigen::VectorXd inputs_;
-    Eigen::VectorXd measurements_;
     Eigen::VectorXd res_;
+    stateObservation::Vector6 contactWrenchVector_; // vector shared by all the contacts that allows to build a (force+torque) wrench vector 
+                                                  // from the ForceSensor.wrench() function which returns a (torque+force) wrench vector
 
     //Eigen::VectorXd gyroPredictions_;
     //Eigen::VectorXd accPredictions_;
@@ -268,6 +270,8 @@ public:
     bool simStarted_ = false; // this variable is set to true when the robot touches the ground at the beginning of the simulation, 
                               // allowing to start the estimaion at that time and not when the robot is still in the air, 
                               // and therefore to avoid the big com's pose jump this transition involves
+
+    void update(mc_rbdyn::Robot & robot);
   };
 
 } // mc_state_observation

@@ -139,6 +139,7 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
   /** Accelerometers **/
   updateIMUs(robot);
 
+
   /** Inertias **/
   /** TODO : Merge inertias into CoM inertia and/or get it from fd() **/
   Eigen::Vector6d inertia;
@@ -148,6 +149,7 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
       inertiaAtOrigin(0, 2), inertiaAtOrigin(1, 2);
   // inputs_.segment<6>(Input::inertia) = inertia;
   observer_.setInertiaMatrix(inertia);
+
 
   /* Step once, and return result */
 

@@ -57,6 +57,7 @@ namespace mc_state_observation
     void update(mc_control::MCController & ctl) override;
 
 protected:
+  void update(mc_rbdyn::Robot & robot);
 
   void initObserverStateVector(const mc_rbdyn::Robot & robot);
 

@@ -20,7 +20,7 @@ namespace mc_state_observation
 namespace so = stateObservation;
 
 MCKineticsObserver::MCKineticsObserver(const std::string & type, double dt)
-: mc_observers::Observer(type, dt), observer_(maxContacts_, maxIMUs_)
+: mc_observers::Observer(type, dt), observer_(2, 2)
 {
   observer_.setSamplingTime(dt);
   observer_.useFiniteDifferencesJacobians(true);
@@ -33,12 +33,66 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   IMUs_ = config("imuSensor", ctl.robot().bodySensors());
   config("debug", debug_);
   config("verbose", verbose_);
-
-  config("accelNoiseCovariance", accelNoiseCovariance_);
-  config("forceSensorNoiseCovariance", forceSensorNoiseCovariance_);
-  config("gyroNoiseCovariance", gyroNoiseCovariance_);
+  
   config("flexStiffness", flexStiffness_);
   config("flexDamping", flexDamping_);
+
+  //sva::MotionVecd flexStiffnessTemp(config("flexAngularStiffness"), config("flexLinearStiffness"));
+  //flexStiffness_ = flexStiffnessTemp;
+  /*
+  config("statePoseInitVariance", statePoseInitCovariance_);
+  config("stateOriInitVariance", stateOriInitCovariance_);
+  config("stateLinVelInitVariance", stateLinVelInitCovariance_);
+  config("stateAngVelInitVariance", stateAngVelInitCovariance_);
+  config("gyroBiasInitVariance", gyroBiasInitCovariance_);
+  config("unmodeledWrenchInitVariance", unmodeledWrenchInitCovariance_);
+  config("contactForceInitVariance", contactForceInitCovariance_);
+  config("contactTorqueInitVariance", contactTorqueInitCovariance_);
+
+  config("statePoseProcessVariance", statePoseProcessCovariance_);
+  config("stateOriProcessVariance", stateOriProcessCovariance_);
+  config("stateLinVelProcessVariance", stateLinVelProcessCovariance_);
+  config("stateAngVelProcessVariance", stateAngVelProcessCovariance_);
+  config("gyroBiasProcessVariance", gyroBiasProcessCovariance_);
+  config("unmodeledWrenchProcessVariance", unmodeledWrenchProcessCovariance_);
+  config("contactPositionProcessVariance", contactPositionProcessCovariance_);
+  config("contactOrientationProcessVariance", contactOrientationProcessCovariance_);
+  config("contactForceProcessVariance", contactForceProcessCovariance_);
+  config("contactTorqueProcessVariance", contactTorqueProcessCovariance_);
+
+  config("acceleroVariance", acceleroCovariance_);
+  config("gyroVariance", gyroSensorCovariance_);
+  config("forceSensorVariance", forceSensorCovariance_);
+  config("torqueSensorVariance", torqueSensorCovariance_);
+  config("positionSensorVariance", positionSensorCovariance_);
+  config("orientationSensorVariance", orientationSensorCoVariance_);
+  */
+  statePoseInitCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("statePoseInitVariance"));
+  stateOriInitCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("stateOriInitVariance"));
+  stateLinVelInitCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("stateLinVelInitVariance"));
+  stateAngVelInitCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("stateAngVelInitVariance"));
+  gyroBiasInitCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("gyroBiasInitVariance"));
+  unmodeledWrenchInitCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("unmodeledWrenchInitVariance"));
+  contactForceInitCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactForceInitVariance"));
+  contactTorqueInitCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactTorqueInitVariance"));
+
+  statePoseProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("statePoseProcessVariance"));
+  stateOriProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("stateOriProcessVariance"));
+  stateLinVelProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("stateLinVelProcessVariance"));
+  stateAngVelProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("stateAngVelProcessVariance"));
+  gyroBiasProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("gyroBiasProcessVariance"));
+  unmodeledWrenchProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("unmodeledWrenchProcessVariance"));
+  contactPositionProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactPositionProcessVariance"));
+  contactOrientationProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactOrientationProcessVariance"));
+  contactForceProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactForceProcessVariance"));
+  contactTorqueProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactTorqueProcessVariance"));
+
+  acceleroSensorCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("acceleroSensorVariance"));
+  gyroSensorCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("gyroSensorVariance"));
+  forceSensorCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("forceSensorVariance"));
+  torqueSensorCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("torqueSensorVariance"));
+  positionSensorCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("positionSensorVariance"));
+  orientationSensorCoVariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("orientationSensorVariance"));
 }
 
 void MCKineticsObserver::reset(const mc_control::MCController & ctl)
@@ -393,9 +447,9 @@ void MCKineticsObserver::addToGUI(const mc_control::MCController &,
   using namespace mc_rtc::gui;
   // clang-format off
   gui.addElement(category,
-    make_input_element("Accel Covariance", accelNoiseCovariance_),
-    make_input_element("Force Covariance", forceSensorNoiseCovariance_),
-    make_input_element("Gyro Covariance", gyroNoiseCovariance_),
+    make_input_element("Accel Covariance", acceleroSensorCovariance_(0,0)),
+    make_input_element("Force Covariance", forceSensorCovariance_(0,0)),
+    make_input_element("Gyro Covariance", gyroSensorCovariance_(0,0)),
     make_input_element("Flex Stiffness", flexStiffness_), make_input_element("Flex Damping", flexDamping_),
     Label("contacts", [this]() { return mc_rtc::io::to_string(contacts_); }));
   // clang-format on

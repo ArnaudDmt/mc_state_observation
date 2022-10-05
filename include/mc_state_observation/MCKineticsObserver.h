@@ -140,7 +140,7 @@ public:
      */
     inline double accelNoiseCovariance() const
     {
-      return accelNoiseCovariance_;
+      return acceleroSensorCovariance_(0,0);
     }
 
     /** Change accelerometer measurement noise covariance.
@@ -150,7 +150,7 @@ public:
      */
     inline void accelNoiseCovariance(double covariance)
     {
-      accelNoiseCovariance_ = covariance;
+      acceleroSensorCovariance_ = Eigen::Matrix3d::Identity() * covariance;
       updateNoiseCovariance();
     }
 
@@ -169,7 +169,7 @@ public:
      */
     inline double forceSensorNoiseCovariance() const
     {
-      return forceSensorNoiseCovariance_;
+      return forceSensorCovariance_(0,0);
     }
 
     /** Change force-sensor measurement noise covariance.
@@ -179,7 +179,7 @@ public:
      */
     inline void forceSensorNoiseCovariance(double covariance)
     {
-      forceSensorNoiseCovariance_ = covariance;
+      forceSensorCovariance_ = Eigen::Matrix3d::Identity() * covariance;
       updateNoiseCovariance();
     }
 
@@ -188,7 +188,7 @@ public:
      */
     inline double gyroNoiseCovariance() const
     {
-      return gyroNoiseCovariance_;
+      return gyroSensorCovariance_(0,0);
     }
 
     /** Change gyrometer measurement noise covariance.
@@ -198,7 +198,7 @@ public:
      */
     inline void gyroNoiseCovariance(double covariance)
     {
-      gyroNoiseCovariance_ = covariance;
+      gyroSensorCovariance_ = Eigen::Matrix3d::Identity() * covariance;
       updateNoiseCovariance();
     }
 
@@ -238,8 +238,6 @@ public:
     std::shared_ptr<mc_rbdyn::Robots> my_robots_;
 
     bool ekfIsSet_ = false;
-    int maxContacts_ = 2;
-    int maxIMUs_ = 2;
 
     Eigen::VectorXd res_;
     stateObservation::Vector6 contactWrenchVector_; // vector shared by all the contacts that allows to build a (force+torque) wrench vector 
@@ -251,17 +249,16 @@ public:
 
     bool debug_ = false;
     bool verbose_ = true;
-    double accelNoiseCovariance_ = 1e-4;
-    double forceSensorNoiseCovariance_ = 5.; // from https://gite.lirmm.fr/caron/mc_observers/issues/1#note_10040
-    double gyroNoiseCovariance_ = 1e-9;
+    
     double mass_ = 42; // [kg]
     stateObservation::KineticsObserver observer_;
     std::set<std::string> contacts_; ///< Sorted list of contacts
     MapContactsIMU mapContacts_;
     MapContactsIMU mapIMUs_;
     std::vector<sva::PTransformd> contactPositions_; ///< Position of the contact frames (force sensor frame when using force sensors)
-    sva::MotionVecd flexDamping_{{17, 17, 17}, {250, 250, 250}}; // HRP-4, {25.0, 200} for HRP-2
-    sva::MotionVecd flexStiffness_{{727, 727, 727}, {4e4, 4e4, 4e4}}; // HRP-4, {620, 3e5} for HRP-2
+    //sva::MotionVecd flexDamping_{{17, 17, 17}, {250, 250, 250}}; // HRP-4, {25.0, 200} for HRP-2
+    
+    // sva::MotionVecd flexStiffness_{{727, 727, 727}, {4e4, 4e4, 4e4}}; // HRP-4, {620, 3e5} for HRP-2
     sva::MotionVecd v_fb_0_ = sva::MotionVecd::Zero();
     sva::PTransformd X_0_fb_ = sva::PTransformd::Identity();
     sva::PTransformd accPos_; /**< currently hanled accelerometer pos in body */
@@ -272,7 +269,43 @@ public:
                               // allowing to start the estimaion at that time and not when the robot is still in the air, 
                               // and therefore to avoid the big com's pose jump this transition involves
 
-    void update(mc_rbdyn::Robot & robot);
+
+    /* Config variables */
+    sva::MotionVecd flexStiffness_;
+    sva::MotionVecd flexDamping_;
+
+    int maxContacts_ = 2;
+    int maxIMUs_ = 2;
+
+    Eigen::Matrix3d statePoseInitCovariance_;
+    Eigen::Matrix3d stateOriInitCovariance_;
+    Eigen::Matrix3d stateLinVelInitCovariance_;
+    Eigen::Matrix3d stateAngVelInitCovariance_;
+    Eigen::Matrix3d gyroBiasInitCovariance_;
+    Eigen::Matrix3d unmodeledWrenchInitCovariance_;
+    Eigen::Matrix3d contactForceInitCovariance_;
+    Eigen::Matrix3d contactTorqueInitCovariance_;
+
+    Eigen::Matrix3d statePoseProcessCovariance_;
+    Eigen::Matrix3d stateOriProcessCovariance_;
+    Eigen::Matrix3d stateLinVelProcessCovariance_;
+    Eigen::Matrix3d stateAngVelProcessCovariance_;
+    Eigen::Matrix3d gyroBiasProcessCovariance_;
+    Eigen::Matrix3d unmodeledWrenchProcessCovariance_;
+    Eigen::Matrix3d contactPositionProcessCovariance_;
+    Eigen::Matrix3d contactOrientationProcessCovariance_;
+    Eigen::Matrix3d contactForceProcessCovariance_;
+    Eigen::Matrix3d contactTorqueProcessCovariance_;
+
+    Eigen::Matrix3d acceleroSensorCovariance_;
+    Eigen::Matrix3d gyroSensorCovariance_;
+    Eigen::Matrix3d forceSensorCovariance_;
+    Eigen::Matrix3d torqueSensorCovariance_;
+    Eigen::Matrix3d positionSensorCovariance_;
+    Eigen::Matrix3d orientationSensorCoVariance_;
+
+    /* Config variables */
+
   };
 
 } // mc_state_observation

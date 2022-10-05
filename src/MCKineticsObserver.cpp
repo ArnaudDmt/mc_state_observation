@@ -201,7 +201,11 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
       sva::inertiaToOrigin(inertiaWaist_.inertia(), mass_, robot.com(), Eigen::Matrix3d::Identity().eval());
   inertia << inertiaAtOrigin(0, 0), inertiaAtOrigin(1, 1), inertiaAtOrigin(2, 2), inertiaAtOrigin(0, 1),
       inertiaAtOrigin(0, 2), inertiaAtOrigin(1, 2);
-  // inputs_.segment<6>(Input::inertia) = inertia;
+
+  observer_.setAngularMomentum(
+                rbd::computeCentroidalMomentum(robot.mb(), robot.mbc(), robot.com()).moment(),
+                rbd::computeCentroidalMomentumDot(robot.mb(), robot.mbc(), robot.com(), robot.comVelocity()).moment());
+  rbd::computeCentroidalMomentumDot(robot.mb(), robot.mbc(), robot.com(), robot.comVelocity());
   observer_.setInertiaMatrix(inertia);
 
 

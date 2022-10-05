@@ -327,6 +327,7 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController &,
 {
   logger.addLogEntry(category + "_posW", [this]() -> const sva::PTransformd & { return X_0_fb_; });
   logger.addLogEntry(category + "_velW", [this]() -> const sva::MotionVecd & { return v_fb_0_; });
+  logger.addLogEntry(category + "_mass", [this]() -> const double & { return observer_.getMass(); });
   //if (ekfIsSet_)
   {
     unsigned i = 0;
@@ -428,6 +429,7 @@ void MCKineticsObserver::removeFromLogger(mc_rtc::Logger & logger, const std::st
 {
   logger.removeLogEntry(category + "_posW");
   logger.removeLogEntry(category + "_velW");
+  logger.removeLogEntry(category + "_mass");
   unsigned i = 0;
   for(const auto & imu : IMUs_)
   {

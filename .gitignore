@@ -1,3 +1,4 @@
 build/
 build-dbg/
+build_release/
 .vscode/settings.json

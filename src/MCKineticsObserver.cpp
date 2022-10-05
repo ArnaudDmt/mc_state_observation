@@ -150,8 +150,8 @@ void MCKineticsObserver::reset(const mc_control::MCController & ctl)
 
 void MCKineticsObserver::initObserverStateVector(const mc_rbdyn::Robot & robot)
 {
-  stateObservation::kine::Orientation initOrientation(Eigen::Matrix3d(robot.posW().rotation().transpose()));
-
+  stateObservation::kine::Orientation initOrientation; //(stateObservation::Matrix3::Identity());
+  initOrientation.setZeroRotation<stateObservation::Quaternion>();
   Eigen::VectorXd initStateVector;
   initStateVector = Eigen::VectorXd::Zero(observer_.getStateSize());
   initStateVector.segment<3>(0) = robot.com();

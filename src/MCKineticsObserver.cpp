@@ -256,6 +256,7 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
       so::kine::skewSymmetric(newAccVel.angular()) * newAccPos.rotation() * X_0_prev.translation()
       + newAccVel.linear() + newAccPos.rotation() * v_prev_0.linear();
   */
+  my_robots_->robot().mbc().q = ctl.realRobot().mbc().q;
   update(my_robots_->robot());
 
   

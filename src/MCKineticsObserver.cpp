@@ -160,8 +160,6 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
   const auto & robot = ctl.robot(robot_);
   Eigen::Matrix<double, 3, 2> initCom;
   initCom << robot.com(), robot.comVelocity();
-  std::cout << std::endl << "com: " << std::endl << initCom.transpose() << std::endl;
-
 
   /** Center of mass (assumes FK, FV and FA are already done) **/
   
@@ -201,7 +199,6 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
   /* Step once, and return result */
 
   // observer_.setMeasurementInput(inputs_);
-  std::cout << std::endl << "time ekf: " << std::endl << observer_.getStateVectorTimeIndex() << std::endl;
   res_ = observer_.update();
     
   ekfIsSet_ = true;

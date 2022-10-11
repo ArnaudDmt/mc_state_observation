@@ -301,8 +301,12 @@ void MCKineticsObserver::updateIMUs(const mc_rbdyn::Robot & robot)
         accIMU.angular();
     userImuKinematics.fromVector(imuVector, so::kine::Kinematics::Flags::all);
 
-    observer_.setIMU(robot.bodySensor().linearAcceleration(), robot.bodySensor().angularVelocity(),
-                                                userImuKinematics, mapIMUs_.getNumFromName(imu.name()));
+    observer_.setIMU( robot.bodySensor().linearAcceleration(), 
+                      robot.bodySensor().angularVelocity(),
+                      acceleroSensorCovariance_,
+                      gyroSensorCovariance_,
+                      userImuKinematics, 
+                      mapIMUs_.getNumFromName(imu.name()));
 
     ++i;
   }
@@ -530,28 +534,34 @@ void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<
     /** Use material acceleration, not spatial **/
     // inputs_.segment<3>(Input::linAccIMU) = accIMU.linear() + velIMU.angular().cross(velIMU.linear());
 
-    stateObservation::kine::Kinematics userContactKine;
+    so::kine::Kinematics userContactKine;
     Eigen::Matrix<double, 3 * 5 + 4, 1> contactVector;
     contactVector << contactPosW.translation(), oriContactW.toVector4(), velContact.linear(), velContact.angular(),
         accContact.linear(), accContact.angular();
-    userContactKine.fromVector(contactVector, stateObservation::kine::Kinematics::Flags::all);
+    userContactKine.fromVector(contactVector, so::kine::Kinematics::Flags::all);
 
     if(oldContacts.find(updatedContact)
        != oldContacts.end()) // checks if the contact already exists, if yes, it is updated
     {
-      observer_.updateContactWithWrenchSensor(contactWrenchVector_, userContactKine, mapContacts_.getNumFromName(updatedContact)); 
-      //observer_.updateContactWithNoSensor(userContactKine, mapContacts_.getNumFromName(updatedContact));
+      observer_.updateContactWithWrenchSensor(contactWrenchVector_, 
+                                              contactSensorCovariance_,
+                                              userContactKine,
+                                              mapContacts_.getNumFromName(updatedContact));
     }
     else // checks if the contact already exists, if no, it is added to the observer
     {
       mapContacts_.insertPair(updatedContact);
       observer_.addContact( userContactKine, 
+                            contactInitCovariance_,
+                            contactProcessCovariance_,
                             mapContacts_.getNumFromName(updatedContact),
                             flexStiffness_.linear().asDiagonal(), 
                             flexDamping_.linear().asDiagonal(),
                             flexStiffness_.angular().asDiagonal(), 
                             flexDamping_.angular().asDiagonal());
-      observer_.updateContactWithWrenchSensor(contactWrenchVector_, userContactKine,
+      observer_.updateContactWithWrenchSensor(contactWrenchVector_, 
+                                              contactSensorCovariance_,
+                                              userContactKine,
                                               mapContacts_.getNumFromName(updatedContact));
     }
   }

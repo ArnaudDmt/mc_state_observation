@@ -29,7 +29,6 @@ MCKineticsObserver::MCKineticsObserver(const std::string & type, double dt)
 void MCKineticsObserver::configure(const mc_control::MCController & ctl, const mc_rtc::Configuration & config)
 {
   robot_ = config("robot", ctl.robot().name());
-  // imuSensor_ = config("imuSensor", ctl.robot().bodySensor().name());
   IMUs_ = config("imuSensor", ctl.robot().bodySensors());
   config("debug", debug_);
   config("verbose", verbose_);
@@ -49,13 +48,6 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   contactInitCovariance_.block<3, 3>(6, 6) = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactForceInitVariance"));
   contactInitCovariance_.block<3, 3>(9, 9) = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactTorqueInitVariance"));
 
-  /*
-  contactPositionInitVariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactPositionInitVariance"));
-  contactOriInitVariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactOriInitVariance"));
-  contactForceInitCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactForceInitVariance"));
-  contactTorqueInitCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactTorqueInitVariance"));
-  */
-
   statePositionProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("statePositionProcessVariance"));
   stateOriProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("stateOriProcessVariance"));
   stateLinVelProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("stateLinVelProcessVariance"));
@@ -67,13 +59,6 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   contactProcessCovariance_.block<3, 3>(3, 3) = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactOrientationProcessVariance"));
   contactProcessCovariance_.block<3, 3>(6, 6) = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactForceProcessVariance"));
   contactProcessCovariance_.block<3, 3>(9, 9) = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactTorqueProcessVariance"));
-
-  /*
-  contactPositionProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactPositionProcessVariance"));
-  contactOrientationProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactOrientationProcessVariance"));
-  contactForceProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactForceProcessVariance"));
-  contactTorqueProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactTorqueProcessVariance"));
-  */
 
   positionSensorCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("positionSensorVariance"));
   orientationSensorCoVariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("orientationSensorVariance"));
@@ -139,12 +124,11 @@ void MCKineticsObserver::reset(const mc_control::MCController & ctl)
 
 void MCKineticsObserver::initObserverStateVector(const mc_rbdyn::Robot & robot)
 {
-  so::kine::Orientation initOrientation; //(so::Matrix3::Identity());
+  so::kine::Orientation initOrientation;
   initOrientation.setZeroRotation<so::Quaternion>();
   Eigen::VectorXd initStateVector;
   initStateVector = Eigen::VectorXd::Zero(observer_.getStateSize());
   initStateVector.segment<3>(0) = robot.com();
-  // initStateVector.segment<3>(0) = robot.posW().translation();
   initStateVector.segment<4>(3) = initOrientation.toVector4();
   initStateVector.segment<3>(7) = robot.comVelocity();
 
@@ -153,10 +137,6 @@ void MCKineticsObserver::initObserverStateVector(const mc_rbdyn::Robot & robot)
 
 bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 {
-  /*
-  using Input = so::IMUElasticLocalFrameDynamicalSystem::input;
-  using State = so::IMUElasticLocalFrameDynamicalSystem::state;
-  */
   const auto & robot = ctl.robot(robot_);
   Eigen::Matrix<double, 3, 2> initCom;
   initCom << robot.com(), robot.comVelocity();
@@ -198,23 +178,15 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 
   /* Step once, and return result */
 
-  // observer_.setMeasurementInput(inputs_);
   res_ = observer_.update();
     
   ekfIsSet_ = true;
-
-  /* Get IMU position from res, and set the free-flyer accordingly. Note that
-   * the result of the estimator is a difference from the reference, not an
-   * absolute value */
 
   const Eigen::Vector4d & rotVec = res_.segment<4>(observer_.oriIndex());
   Eigen::Quaternion<double> resultRot = Eigen::Quaternion<double>(rotVec);
   sva::PTransformd newAccPos(resultRot.toRotationMatrix().transpose(),
                               res_.segment<3>(observer_.posIndex()));
 
-  //const sva::PTransformd & X_0_prev = robot.mbc().bodyPosW[0];
-  
-  //X_0_fb_.rotation() = newAccPos.rotation() * X_0_prev.rotation();
   so::kine::Kinematics K_0_fb;
   K_0_fb.position = robot.posW().translation();
   K_0_fb.orientation = so::Matrix3(robot.posW().rotation().transpose());
@@ -225,34 +197,12 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
   X_0_fb_.rotation() = realK_0_fb.orientation.toMatrix3().transpose();
   X_0_fb_.translation() = realK_0_fb.position();
 
-  //X_0_fb_.rotation() = observer_.getGlobalCentroidKinematics().orientation.toMatrix3().transpose();
-  //X_0_fb_.translation() = newAccPos.rotation().transpose() * X_0_prev.translation() + newAccPos.translation();
-
-  //X_0_fb_.translation() = observer_.getGlobalKinematicsOf();
-
-  /* Get free-flyer velocity from res */
-  //sva::MotionVecd newAccVel = sva::MotionVecd::Zero();
-
-  //newAccVel.linear() = res_.segment<3>(observer_.linVelIndex());
-  //newAccVel.angular() = res_.segment<3>(observer_.angVelIndex());
-
-  /* "Inverse velocity" : find velocity of the base that gives you velocity
-   * of the accelerometer */
-
   /* Bring velocity of the IMU to the origin of the joint : we want the
    * velocity of joint 0, so stop one before the first joint */
 
   v_fb_0_.angular() = X_0_fb_.rotation()*realK_0_fb.angVel(); //  X_0_fb_.rotation() = realK_0_fb.orientation.toMatrix3().transpose()
   v_fb_0_.linear() = X_0_fb_.rotation()*realK_0_fb.linVel();
-  /*
-  sva::PTransformd E_0_prev(X_0_prev.rotation());
-  sva::MotionVecd v_prev_0 = robot.mbc().bodyVelW[0];
 
-  v_fb_0_.angular() = newAccVel.angular() + newAccPos.rotation() * v_prev_0.angular();
-  v_fb_0_.linear() =
-      so::kine::skewSymmetric(newAccVel.angular()) * newAccPos.rotation() * X_0_prev.translation()
-      + newAccVel.linear() + newAccPos.rotation() * v_prev_0.linear();
-  */
   my_robots_->robot().mbc().q = ctl.realRobot().mbc().q;
   update(my_robots_->robot());
 
@@ -321,7 +271,6 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController &,
   logger.addLogEntry(category + "_mass", [this]() -> const double & { return observer_.getMass(); });
   logger.addLogEntry(category + "_flexStiffness", [this]() -> const sva::MotionVecd & { return flexStiffness_; });
   logger.addLogEntry(category + "_flexDamping", [this]() -> const sva::MotionVecd & { return flexDamping_; });
-  //if (ekfIsSet_)
   {
     unsigned i = 0;
     for(const auto & imu : IMUs_)
@@ -358,7 +307,6 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController &,
         { 
           return Eigen::Vector3d::Zero(); 
         }
-        //return observer_.getEKF().getLastPredictedMeasurement().segment<observer_.sizeGyroBias>(observer_.getIMUMeasIndexByNum(mapIMUs_.getNumFromName(imu.name())) + observer_.sizeAcceleroSignal);
       });
       logger.addLogEntry(category + "_predicted_force" + std::to_string(j), [this, j]() -> Eigen::Vector3d { 
         if(ekfIsSet_) 
@@ -376,7 +324,6 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController &,
         { 
           return Eigen::Vector3d::Zero(); 
         }
-        //return observer_.getEKF().getLastPredictedMeasurement().segment<observer_.sizeGyroBias>(observer_.getIMUMeasIndexByNum(mapIMUs_.getNumFromName(imu.name())) + observer_.sizeAcceleroSignal);
       });
       logger.addLogEntry(category + "_measured_torque" + std::to_string(j), [this, j]() -> Eigen::Vector3d { 
         if(ekfIsSet_) 
@@ -394,7 +341,6 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController &,
         { 
           return Eigen::Vector3d::Zero(); 
         }
-        //return observer_.getEKF().getLastPredictedMeasurement().segment<observer_.sizeAcceleroSignal>(observer_.getIMUMeasIndexByNum(mapIMUs_.getNumFromName(imu.name())));
       });
       logger.addLogEntry(category + "_predicted_torque" + std::to_string(j), [this, j]() -> Eigen::Vector3d { 
         if(ekfIsSet_) 
@@ -412,7 +358,6 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController &,
         { 
           return Eigen::Vector3d::Zero(); 
         }
-        //return observer_.getEKF().getLastPredictedMeasurement().segment<observer_.sizeAcceleroSignal>(observer_.getIMUMeasIndexByNum(mapIMUs_.getNumFromName(imu.name())));
       });
     }
   }
@@ -466,15 +411,11 @@ void MCKineticsObserver::mass(double mass)
 void MCKineticsObserver::flexStiffness(const sva::MotionVecd & stiffness)
 {
   flexStiffness_ = stiffness;
-  // observer_.setKfe(flexStiffness_.linear().asDiagonal());
-  // observer_.setKte(flexStiffness_.angular().asDiagonal());
 }
 
 void MCKineticsObserver::flexDamping(const sva::MotionVecd & damping)
 {
   flexDamping_ = damping;
-  // observer_.setKfv(flexDamping_.linear().asDiagonal());
-  // observer_.setKtv(flexDamping_.angular().asDiagonal());
 }
 
 std::set<std::string> MCKineticsObserver::findContacts(const mc_control::MCController & ctl)
@@ -509,7 +450,6 @@ std::set<std::string> MCKineticsObserver::findContacts(const mc_control::MCContr
 
 void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<std::string> updatedContacts)
 {
-  // if(contacts_ == updatedContacts) return;
   std::set<std::string> & oldContacts = contacts_; // alias
 
   if(verbose_ && updatedContacts != oldContacts) mc_rtc::log::info("[{}] Contacts changed: {}", name(), mc_rtc::io::to_string(updatedContacts));

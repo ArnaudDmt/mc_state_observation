@@ -17,8 +17,6 @@
 namespace mc_state_observation
 
 {
-//namespace so = stateObservation;
-
 MCKineticsObserver::MCKineticsObserver(const std::string & type, double dt)
 : mc_observers::Observer(type, dt), observer_(2, 2)
 {
@@ -275,23 +273,23 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController &,
     unsigned i = 0;
     for(const auto & imu : IMUs_)
     { 
-      logger.addLogEntry(category + "_measured_gyro: " + imu.name(), [this, imu]() -> Eigen::Vector3d { 
+      logger.addLogEntry(category + "_gyro" + imu.name() + "_measured", [this, imu]() -> Eigen::Vector3d { 
         if(ekfIsSet_) { return observer_.getEKF().getLastMeasurement().segment<observer_.sizeGyroBias>(observer_.getIMUMeasIndexByNum(mapIMUs_.getNumFromName(imu.name())) + observer_.sizeAcceleroSignal); } else { return Eigen::Vector3d::Zero(); }
       });
-      logger.addLogEntry(category + "_predicted_gyro: " + imu.name(), [this, imu]() -> Eigen::Vector3d { 
+      logger.addLogEntry(category + "_gyro" + imu.name() + "_predicted", [this, imu]() -> Eigen::Vector3d { 
         if(ekfIsSet_) { return observer_.getEKF().getLastPredictedMeasurement().segment<observer_.sizeGyroBias>(observer_.getIMUMeasIndexByNum(mapIMUs_.getNumFromName(imu.name())) + observer_.sizeAcceleroSignal); } else { return Eigen::Vector3d::Zero(); }
       });
-      logger.addLogEntry(category + "_measured_acc: " + imu.name(), [this, imu]() -> Eigen::Vector3d { 
+      logger.addLogEntry(category + "_accelerometer" + imu.name() + "_measured", [this, imu]() -> Eigen::Vector3d { 
         if(ekfIsSet_) { return observer_.getEKF().getLastMeasurement().segment<observer_.sizeAcceleroSignal>(observer_.getIMUMeasIndexByNum(mapIMUs_.getNumFromName(imu.name()))); } else { return Eigen::Vector3d::Zero(); }
       });
-      logger.addLogEntry(category + "_predicted_acc: " + imu.name(), [this, imu]() -> Eigen::Vector3d { 
+      logger.addLogEntry(category + "_accelerometer" + imu.name() + "_predicted", [this, imu]() -> Eigen::Vector3d { 
         if(ekfIsSet_) { return observer_.getEKF().getLastPredictedMeasurement().segment<observer_.sizeAcceleroSignal>(observer_.getIMUMeasIndexByNum(mapIMUs_.getNumFromName(imu.name()))); } else { return Eigen::Vector3d::Zero(); }
       });
       i++;
     }
     for(int j = 0; j < maxContacts_; j++)
     { 
-      logger.addLogEntry(category + "_measured_force" + std::to_string(j), [this, j]() -> Eigen::Vector3d { 
+      logger.addLogEntry(category + "_force" + std::to_string(j) + "_measured", [this, j]() -> Eigen::Vector3d { 
         if(ekfIsSet_) 
         { 
           if (observer_.getContactIsSetByNum(j))
@@ -308,7 +306,7 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController &,
           return Eigen::Vector3d::Zero(); 
         }
       });
-      logger.addLogEntry(category + "_predicted_force" + std::to_string(j), [this, j]() -> Eigen::Vector3d { 
+      logger.addLogEntry(category + "_force" + std::to_string(j) + "_predicted", [this, j]() -> Eigen::Vector3d { 
         if(ekfIsSet_) 
         { 
           if (observer_.getContactIsSetByNum(j))
@@ -325,7 +323,7 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController &,
           return Eigen::Vector3d::Zero(); 
         }
       });
-      logger.addLogEntry(category + "_measured_torque" + std::to_string(j), [this, j]() -> Eigen::Vector3d { 
+      logger.addLogEntry(category + "_torque" + std::to_string(j) + "_measured", [this, j]() -> Eigen::Vector3d { 
         if(ekfIsSet_) 
         { 
           if (observer_.getContactIsSetByNum(j))
@@ -342,7 +340,7 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController &,
           return Eigen::Vector3d::Zero(); 
         }
       });
-      logger.addLogEntry(category + "_predicted_torque" + std::to_string(j), [this, j]() -> Eigen::Vector3d { 
+      logger.addLogEntry(category + "_torque" + std::to_string(j) + "_predicted", [this, j]() -> Eigen::Vector3d { 
         if(ekfIsSet_) 
         { 
           if (observer_.getContactIsSetByNum(j))

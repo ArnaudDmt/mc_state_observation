@@ -512,7 +512,7 @@ void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<
   // if(contacts_ == updatedContacts) return;
   std::set<std::string> & oldContacts = contacts_; // alias
 
-  if(verbose_) mc_rtc::log::info("[{}] Contacts changed: {}", name(), mc_rtc::io::to_string(updatedContacts));
+  if(verbose_ && updatedContacts != oldContacts) mc_rtc::log::info("[{}] Contacts changed: {}", name(), mc_rtc::io::to_string(updatedContacts));
   contactPositions_.clear();
 
   for(const auto & updatedContact : updatedContacts)

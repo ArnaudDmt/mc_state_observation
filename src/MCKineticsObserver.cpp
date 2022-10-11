@@ -17,7 +17,7 @@
 namespace mc_state_observation
 
 {
-namespace so = stateObservation;
+//namespace so = stateObservation;
 
 MCKineticsObserver::MCKineticsObserver(const std::string & type, double dt)
 : mc_observers::Observer(type, dt), observer_(2, 2)
@@ -75,6 +75,7 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   unmodeledWrenchInitCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("unmodeledWrenchInitVariance"));
   contactForceInitCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactForceInitVariance"));
   contactTorqueInitCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactTorqueInitVariance"));
+  */
 
   statePoseProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("statePoseProcessVariance"));
   stateOriProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("stateOriProcessVariance"));
@@ -86,6 +87,7 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   contactOrientationProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactOrientationProcessVariance"));
   contactForceProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactForceProcessVariance"));
   contactTorqueProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactTorqueProcessVariance"));
+  */
 
   acceleroSensorCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("acceleroSensorVariance"));
   gyroSensorCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("gyroSensorVariance"));
@@ -150,8 +152,8 @@ void MCKineticsObserver::reset(const mc_control::MCController & ctl)
 
 void MCKineticsObserver::initObserverStateVector(const mc_rbdyn::Robot & robot)
 {
-  stateObservation::kine::Orientation initOrientation; //(stateObservation::Matrix3::Identity());
-  initOrientation.setZeroRotation<stateObservation::Quaternion>();
+  so::kine::Orientation initOrientation; //(so::Matrix3::Identity());
+  initOrientation.setZeroRotation<so::Quaternion>();
   Eigen::VectorXd initStateVector;
   initStateVector = Eigen::VectorXd::Zero(observer_.getStateSize());
   initStateVector.segment<3>(0) = robot.com();
@@ -165,8 +167,8 @@ void MCKineticsObserver::initObserverStateVector(const mc_rbdyn::Robot & robot)
 bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 {
   /*
-  using Input = stateObservation::IMUElasticLocalFrameDynamicalSystem::input;
-  using State = stateObservation::IMUElasticLocalFrameDynamicalSystem::state;
+  using Input = so::IMUElasticLocalFrameDynamicalSystem::input;
+  using State = so::IMUElasticLocalFrameDynamicalSystem::state;
   */
   const auto & robot = ctl.robot(robot_);
   Eigen::Matrix<double, 3, 2> initCom;
@@ -229,13 +231,13 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
   //const sva::PTransformd & X_0_prev = robot.mbc().bodyPosW[0];
   
   //X_0_fb_.rotation() = newAccPos.rotation() * X_0_prev.rotation();
-  stateObservation::kine::Kinematics K_0_fb;
+  so::kine::Kinematics K_0_fb;
   K_0_fb.position = robot.posW().translation();
-  K_0_fb.orientation = stateObservation::Matrix3(robot.posW().rotation().transpose());
+  K_0_fb.orientation = so::Matrix3(robot.posW().rotation().transpose());
   K_0_fb.linVel = robot.velW().linear();
   K_0_fb.angVel = robot.velW().angular();
 
-  stateObservation::kine::Kinematics realK_0_fb(observer_.getGlobalKinematicsOf(K_0_fb));
+  so::kine::Kinematics realK_0_fb(observer_.getGlobalKinematicsOf(K_0_fb));
   X_0_fb_.rotation() = realK_0_fb.orientation.toMatrix3().transpose();
   X_0_fb_.translation() = realK_0_fb.position();
 
@@ -264,7 +266,7 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 
   v_fb_0_.angular() = newAccVel.angular() + newAccPos.rotation() * v_prev_0.angular();
   v_fb_0_.linear() =
-      stateObservation::kine::skewSymmetric(newAccVel.angular()) * newAccPos.rotation() * X_0_prev.translation()
+      so::kine::skewSymmetric(newAccVel.angular()) * newAccPos.rotation() * X_0_prev.translation()
       + newAccVel.linear() + newAccPos.rotation() * v_prev_0.linear();
   */
   update(my_robots_->robot());
@@ -296,7 +298,7 @@ void MCKineticsObserver::updateIMUs(const mc_rbdyn::Robot & robot)
     accPos_ = robot.bodySensor(imu.name()).X_b_s();
     const sva::PTransformd & X_0_p = robot.bodyPosW(robot.bodySensor(imu.name()).parentBody());
     sva::PTransformd accPosW = accPos_ * X_0_p;
-    stateObservation::kine::Orientation oriAccW(Eigen::Matrix3d(accPosW.rotation().transpose()));
+    so::kine::Orientation oriAccW(Eigen::Matrix3d(accPosW.rotation().transpose()));
     /** Velocity of accelerometer **/
     sva::MotionVecd velIMU =
         accPos_ * robot.mbc().bodyVelW[robot.bodyIndexByName(robot.bodySensor(imu.name()).parentBody())];
@@ -308,11 +310,11 @@ void MCKineticsObserver::updateIMUs(const mc_rbdyn::Robot & robot)
     /** Use material acceleration, not spatial **/
     // inputs_.segment<3>(Input::linAccIMU) = accIMU.linear() + velIMU.angular().cross(velIMU.linear());
 
-    stateObservation::kine::Kinematics userImuKinematics;
+    so::kine::Kinematics userImuKinematics;
     Eigen::Matrix<double, 3 * 5 + 4, 1> imuVector;
     imuVector << accPosW.translation(), oriAccW.toVector4(), velIMU.linear(), velIMU.angular(), accIMU.linear(),
         accIMU.angular();
-    userImuKinematics.fromVector(imuVector, stateObservation::kine::Kinematics::Flags::all);
+    userImuKinematics.fromVector(imuVector, so::kine::Kinematics::Flags::all);
 
     observer_.setIMU(robot.bodySensor().linearAcceleration(), robot.bodySensor().angularVelocity(),
                                                 userImuKinematics, mapIMUs_.getNumFromName(imu.name()));
@@ -529,7 +531,7 @@ void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<
     sva::PTransformd contactPos_ = ifs.X_p_f();
     sva::PTransformd X_0_p = robot.bodyPosW(ifs.parentBody());
     sva::PTransformd contactPosW = contactPos_ * X_0_p;
-    stateObservation::kine::Orientation oriContactW(Eigen::Matrix3d(contactPosW.rotation().transpose()));
+    so::kine::Orientation oriContactW(Eigen::Matrix3d(contactPosW.rotation().transpose()));
     /** Velocity of the contact **/
     sva::MotionVecd velContact = 
       contactPos_ * robot.mbc().bodyVelW[robot.bodyIndexByName(ifs.parentBody())];

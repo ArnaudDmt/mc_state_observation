@@ -11,6 +11,7 @@
 
 namespace mc_state_observation
 {
+  namespace so = stateObservation;
   /** Flexibility observer from:
    *
    *    "Tilt estimator for 3D non-rigid pendulum based on a tri-axial
@@ -150,7 +151,7 @@ public:
      */
     inline void accelNoiseCovariance(double covariance)
     {
-      acceleroSensorCovariance_ = Eigen::Matrix3d::Identity() * covariance;
+      acceleroSensorCovariance_ = so::Matrix3::Identity() * covariance;
       updateNoiseCovariance();
     }
 
@@ -169,7 +170,7 @@ public:
      */
     inline double forceSensorNoiseCovariance() const
     {
-      return forceSensorCovariance_(0,0);
+      return contactSensorCovariance_(0,0);
     }
 
     /** Change force-sensor measurement noise covariance.
@@ -179,7 +180,7 @@ public:
      */
     inline void forceSensorNoiseCovariance(double covariance)
     {
-      forceSensorCovariance_ = Eigen::Matrix3d::Identity() * covariance;
+      contactSensorCovariance_.block<3, 3>(0, 0) =  so::Matrix3::Identity() * covariance;
       updateNoiseCovariance();
     }
 
@@ -198,7 +199,7 @@ public:
      */
     inline void gyroNoiseCovariance(double covariance)
     {
-      gyroSensorCovariance_ = Eigen::Matrix3d::Identity() * covariance;
+      gyroSensorCovariance_ = so::Matrix3::Identity() * covariance;
       updateNoiseCovariance();
     }
 
@@ -277,32 +278,27 @@ public:
     int maxContacts_ = 2;
     int maxIMUs_ = 2;
 
-    Eigen::Matrix3d statePoseInitCovariance_;
-    Eigen::Matrix3d stateOriInitCovariance_;
-    Eigen::Matrix3d stateLinVelInitCovariance_;
-    Eigen::Matrix3d stateAngVelInitCovariance_;
-    Eigen::Matrix3d gyroBiasInitCovariance_;
-    Eigen::Matrix3d unmodeledWrenchInitCovariance_;
-    Eigen::Matrix3d contactForceInitCovariance_;
-    Eigen::Matrix3d contactTorqueInitCovariance_;
+    so::Matrix3 statePositionInitCovariance_;
+    so::Matrix3 stateOriInitCovariance_;
+    so::Matrix3 stateLinVelInitCovariance_;
+    so::Matrix3 stateAngVelInitCovariance_;
+    so::Matrix3 gyroBiasInitCovariance_;
+    so::Matrix3 unmodeledWrenchInitCovariance_;
+    so::Matrix12 contactInitCovariance_;
 
-    Eigen::Matrix3d statePoseProcessCovariance_;
-    Eigen::Matrix3d stateOriProcessCovariance_;
-    Eigen::Matrix3d stateLinVelProcessCovariance_;
-    Eigen::Matrix3d stateAngVelProcessCovariance_;
-    Eigen::Matrix3d gyroBiasProcessCovariance_;
-    Eigen::Matrix3d unmodeledWrenchProcessCovariance_;
-    Eigen::Matrix3d contactPositionProcessCovariance_;
-    Eigen::Matrix3d contactOrientationProcessCovariance_;
-    Eigen::Matrix3d contactForceProcessCovariance_;
-    Eigen::Matrix3d contactTorqueProcessCovariance_;
+    so::Matrix3 statePositionProcessCovariance_;
+    so::Matrix3 stateOriProcessCovariance_;
+    so::Matrix3 stateLinVelProcessCovariance_;
+    so::Matrix3 stateAngVelProcessCovariance_;
+    so::Matrix3 gyroBiasProcessCovariance_;
+    so::Matrix3 unmodeledWrenchProcessCovariance_;
+    so::Matrix12 contactProcessCovariance_;
 
-    Eigen::Matrix3d acceleroSensorCovariance_;
-    Eigen::Matrix3d gyroSensorCovariance_;
-    Eigen::Matrix3d forceSensorCovariance_;
-    Eigen::Matrix3d torqueSensorCovariance_;
-    Eigen::Matrix3d positionSensorCovariance_;
-    Eigen::Matrix3d orientationSensorCoVariance_;
+    so::Matrix3 positionSensorCovariance_;
+    so::Matrix3 orientationSensorCoVariance_;
+    so::Matrix3 acceleroSensorCovariance_;
+    so::Matrix3 gyroSensorCovariance_;
+    so::Matrix6 contactSensorCovariance_;
 
     /* Config variables */
 

@@ -244,9 +244,14 @@ public:
     stateObservation::Vector6 contactWrenchVector_; // vector shared by all the contacts that allows to build a (force+torque) wrench vector 
                                                   // from the ForceSensor.wrench() function which returns a (torque+force) wrench vector
 
-    //Eigen::VectorXd gyroPredictions_;
-    //Eigen::VectorXd accPredictions_;
-    Eigen::VectorXd measurePredictions_ = Eigen::VectorXd::Zero(3,1);
+
+    so::Vector correctedMeasurements_;
+    so::kine::Kinematics globalCentroidKinematics_;
+    so::kine::Kinematics predictedGlobalCentroidKinematics_;
+    std::vector<so::Vector> predictedAccelerometersGravityComponent_;
+    std::vector<so::Vector> predictedWorldIMUsLinAcc_;
+
+    so::Vector innovation_;
 
     bool debug_ = false;
     bool verbose_ = true;

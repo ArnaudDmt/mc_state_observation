@@ -947,8 +947,8 @@ void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<
   for(const auto & updatedContact : updatedContacts)
   {
     const auto & ifs = robot.indirectSurfaceForceSensor(updatedContact);
-    contactWrenchVector_.segment<3>(0) = ifs.wrench().vector().segment<3>(3); // retrieving the torque
-    contactWrenchVector_.segment<3>(3) = ifs.wrench().vector().segment<3>(0); // retrieving the force
+    contactWrenchVector_.segment<3>(0) = ifs.wrenchWithoutGravity(robot).vector().segment<3>(3); // retrieving the torque
+    contactWrenchVector_.segment<3>(3) = ifs.wrenchWithoutGravity(robot).vector().segment<3>(0); // retrieving the force
   
     /** Position of the contact **/
     sva::PTransformd contactPos_ = ifs.X_p_f();

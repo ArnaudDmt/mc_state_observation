@@ -21,7 +21,12 @@ namespace mc_state_observation
    */
 
 
-  class MapContactsIMU{
+  class MapContactsIMU {
+    /*
+    Care with the use of getNameFromNum() : the mapping remains the same but the list of contacts returned buy the controller might differ over time 
+    (contacts broken, etc) and the id of a contact in this list might not match with its rank in the controller's list. 
+    Use this function preferably only to perform tasks performed on all the contacts and that require their name.
+    */
 
   public:
     

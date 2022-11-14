@@ -194,20 +194,20 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
   K_0_fb.linVel = robot.velW().linear();
   K_0_fb.angVel = robot.velW().angular();
 
-  so::kine::Kinematics realK_0_fb(observer_.getGlobalKinematicsOf(K_0_fb));
-  X_0_fb_.rotation() = realK_0_fb.orientation.toMatrix3().transpose();
-  X_0_fb_.translation() = realK_0_fb.position();
+  so::kine::Kinematics mcko_K_0_fb(observer_.getGlobalKinematicsOf(K_0_fb)); // Floating base in the 'real' world frame. The resulting state kinematics are used here
+  X_0_fb_.rotation() = mcko_K_0_fb.orientation.toMatrix3().transpose();
+  X_0_fb_.translation() = mcko_K_0_fb.position();
 
   /* Bring velocity of the IMU to the origin of the joint : we want the
    * velocity of joint 0, so stop one before the first joint */
 
-  v_fb_0_.angular() = X_0_fb_.rotation()*realK_0_fb.angVel(); //  X_0_fb_.rotation() = realK_0_fb.orientation.toMatrix3().transpose()
-  v_fb_0_.linear() = X_0_fb_.rotation()*realK_0_fb.linVel();
+  v_fb_0_.angular() = X_0_fb_.rotation()*mcko_K_0_fb.angVel(); //  X_0_fb_.rotation() = mcko_K_0_fb.orientation.toMatrix3().transpose()
+  v_fb_0_.linear() = X_0_fb_.rotation()*mcko_K_0_fb.linVel();
 
   /* Updates of the logged variables */
   correctedMeasurements_ = observer_.getEKF().getSimulatedMeasurement(observer_.getEKF().getCurrentTime()); // Used only in the logger as debugging help
   globalCentroidKinematics_ = observer_.getGlobalCentroidKinematics();// Used only in the logger as debugging help
-  predictedGlobalCentroidKinematics_ = observer_.getPredictedGlobalCentroidKinematics();// Used only in the logger as debugging help
+  predictedGlobalCentroidState_ = observer_.getPredictedGlobalCentroidState();// Used only in the logger as debugging help
   predictedAccelerometersGravityComponent_ = observer_.getPredictedAccelerometersGravityComponent();// Used only in the logger as debugging help
   predictedWorldIMUsLinAcc_ = observer_.getPredictedAccelerometersLinAccComponent();// Used only in the logger as debugging help
   predictedAccelerometers_ = observer_.getPredictedAccelerometers();// Used only in the logger as debugging help
@@ -216,13 +216,15 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 
   /* Update of the visual representation (only a visual feature) of the observed robot */
   my_robots_->robot().mbc().q = ctl.realRobot().mbc().q;
+
+  /* Update of the observed robot */
   update(my_robots_->robot());
 
   
   return true;
 }
 
-void MCKineticsObserver::update(mc_control::MCController & ctl)
+void MCKineticsObserver::update(mc_control::MCController & ctl) // this function is called by the pipeline if the update is set to true in the configuration file
 {
   auto & realRobot = ctl.realRobot(robot_);
   update(realRobot);
@@ -263,6 +265,7 @@ void MCKineticsObserver::updateIMUs(const mc_rbdyn::Robot & robot)
         accIMU.angular();
     userImuKinematics.fromVector(imuVector, so::kine::Kinematics::Flags::all);
 
+    //std::cout << std::endl << "y_" << mapIMUs_.getNumFromName(imu.name()) << " : " << std::endl << robot.bodySensor().linearAcceleration() << std::endl;
     observer_.setIMU( robot.bodySensor().linearAcceleration(), 
                       robot.bodySensor().angularVelocity(),
                       acceleroSensorCovariance_,

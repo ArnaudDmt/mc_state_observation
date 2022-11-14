@@ -264,9 +264,11 @@ public:
 
     so::Vector correctedMeasurements_;
     so::kine::Kinematics globalCentroidKinematics_;
-    so::kine::Kinematics predictedGlobalCentroidKinematics_;
+    Eigen::VectorXd predictedGlobalCentroidState_;
     std::vector<so::Vector> predictedAccelerometersGravityComponent_;
     std::vector<so::Vector> predictedWorldIMUsLinAcc_;
+    std::vector<so::Vector> predictedAccelerometers_;
+    std::vector<so::kine::Kinematics> contactKinematics_;
 
     so::Vector innovation_;
 

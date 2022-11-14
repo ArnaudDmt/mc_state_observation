@@ -36,6 +36,18 @@ namespace mc_state_observation
       return mapNameNum.find(name)->second;
     }
 
+    inline std::string getNameFromNum(int num)
+    {
+      for(auto &it : mapNameNum) 
+      { 
+        if(it.second == num) 
+        { 
+          return it.first;
+        } 
+      }
+      BOOST_ASSERT(false && "This id isn't attributed");
+    }
+
     inline void insertPair(std::string name) {
       if (mapNameNum.find(name) != mapNameNum.end()) return;
       

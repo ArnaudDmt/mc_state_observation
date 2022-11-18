@@ -253,9 +253,11 @@ public:
     }
 
   private:
+    /* custom list of robots to display */
     std::shared_ptr<mc_rbdyn::Robots> my_robots_;
 
     bool ekfIsSet_ = false;
+    std::set<std::string> contactsFound_; //contacts found on each iteration
 
     Eigen::VectorXd res_;
     stateObservation::Vector6 contactWrenchVector_; // vector shared by all the contacts that allows to build a (force+torque) wrench vector 

@@ -188,7 +188,7 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
   sva::PTransformd newAccPos(resultRot.toRotationMatrix().transpose(),
                               res_.segment<3>(observer_.posIndex()));
 
-  so::kine::Kinematics K_0_fb;
+  so::kine::Kinematics K_0_fb; // floating base in the user frame (world of the controller)
   K_0_fb.position = robot.posW().translation();
   K_0_fb.orientation = so::Matrix3(robot.posW().rotation().transpose());
   K_0_fb.linVel = robot.velW().linear();
@@ -221,7 +221,6 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
   /* Update of the observed robot */
   update(my_robots_->robot());
 
-  
   return true;
 }
 
@@ -235,7 +234,6 @@ void MCKineticsObserver::update(mc_rbdyn::Robot & robot)
 {
   robot.posW(X_0_fb_);
   robot.velW(v_fb_0_.vector());
-  
 }
 
 void MCKineticsObserver::updateIMUs(const mc_rbdyn::Robot & robot)
@@ -278,12 +276,12 @@ void MCKineticsObserver::updateIMUs(const mc_rbdyn::Robot & robot)
   }
 }
 
-void MCKineticsObserver::addToLogger(const mc_control::MCController &,
+void MCKineticsObserver::addToLogger(const mc_control::MCController & ctl,
                                      mc_rtc::Logger & logger,
                                      const std::string & category)
 {
-  logger.addLogEntry(category + "_realRobot_posW", [this]() -> const sva::PTransformd & { return X_0_fb_; });
-  logger.addLogEntry(category + "_realRobot_velW", [this]() -> const sva::MotionVecd & { return v_fb_0_; });
+  logger.addLogEntry(category + "_mcko_fb_posW", [this]() -> const sva::PTransformd & { return X_0_fb_; });
+  logger.addLogEntry(category + "_mcko_fb_velW", [this]() -> const sva::MotionVecd & { return v_fb_0_; });
 
   logger.addLogEntry(category + "_constants_mass", [this]() -> const double & { return observer_.getMass(); });
   logger.addLogEntry(category + "_constants_flexStiffness", [this]() -> const sva::MotionVecd & { return flexStiffness_; });
@@ -720,7 +718,6 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController &,
 
   /* Plots of the measurements */
   {
-    unsigned i = 0;
     for(const auto & imu : IMUs_)
     { 
       logger.addLogEntry(category + "_measurements_gyro" + imu.name() + "_measured", [this, imu]() -> Eigen::Vector3d { 
@@ -910,7 +907,7 @@ void MCKineticsObserver::flexDamping(const sva::MotionVecd & damping)
 std::set<std::string> MCKineticsObserver::findContacts(const mc_control::MCController & ctl)
 {
   const auto & robot = ctl.robot(robot_);
-  std::set<std::string> contactsFound;
+  contactsFound_.clear();
   for(const auto & contact : ctl.solver().contacts())
   {
 
@@ -918,27 +915,31 @@ std::set<std::string> MCKineticsObserver::findContacts(const mc_control::MCContr
     {
       if(ctl.robots().robot(contact.r2Index()).mb().joint(0).type() == rbd::Joint::Fixed)
       {
-        contactsFound.insert(contact.r1Surface()->name());
+        contactsFound_.insert(contact.r1Surface()->name());
       }
     }
     else if(ctl.robots().robot(contact.r2Index()).name() == robot.name())
     {
       if(ctl.robots().robot(contact.r1Index()).mb().joint(0).type() == rbd::Joint::Fixed)
       {
-        contactsFound.insert(contact.r2Surface()->name());
+        contactsFound_.insert(contact.r2Surface()->name());
       }
     }
   }
-  if (!contactsFound.empty() && !simStarted_)
+  if (!contactsFound_.empty() && !simStarted_)
   {
     simStarted_ = true;
     initObserverStateVector(robot);
   }
-  return contactsFound;
+  return contactsFound_;
 }
 
 void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<std::string> updatedContacts)
 {
+  if (updatedContacts.empty())
+  {
+     mc_rtc::log::warning("No contact detected");
+  }
   std::set<std::string> & oldContacts = contacts_; // alias
 
   if(verbose_ && updatedContacts != oldContacts) mc_rtc::log::info("[{}] Contacts changed: {}", name(), mc_rtc::io::to_string(updatedContacts));

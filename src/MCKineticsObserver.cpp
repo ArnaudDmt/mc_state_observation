@@ -33,6 +33,7 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
 
   observer_.setWithAccelerationEstimation(config("withAccelerationEstimation"));
   observer_.setWithInnovation(config("withInnovation"));
+  //observer_.useRungeKutta(config("withRungeKutta"));
   
   config("flexStiffness", flexStiffness_);
   config("flexDamping", flexDamping_);
@@ -42,9 +43,9 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   stateLinVelInitCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("stateLinVelInitVariance"));
   stateAngVelInitCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("stateAngVelInitVariance"));
   gyroBiasInitCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("gyroBiasInitVariance"));
-  unmodeledWrenchInitCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("unmodeledWrenchInitVariance"));
+  unmodeledWrenchInitCovariance_ = so::Matrix6::Identity() * static_cast<double>(config("unmodeledWrenchInitVariance"));
   contactInitCovariance_.setZero();
-  contactInitCovariance_.block<3, 3>(0, 0) = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactPositionInitVariance"));
+  contactInitCovariance_.block<3, 3>(0, 0) = static_cast<so::Vector3>(config("contactPositionInitVariance")).matrix().asDiagonal();
   contactInitCovariance_.block<3, 3>(3, 3) = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactOriInitVariance"));
   contactInitCovariance_.block<3, 3>(6, 6) = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactForceInitVariance"));
   contactInitCovariance_.block<3, 3>(9, 9) = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactTorqueInitVariance"));
@@ -54,7 +55,7 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   stateLinVelProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("stateLinVelProcessVariance"));
   stateAngVelProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("stateAngVelProcessVariance"));
   gyroBiasProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("gyroBiasProcessVariance"));
-  unmodeledWrenchProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("unmodeledWrenchProcessVariance"));
+  unmodeledWrenchProcessCovariance_ = so::Matrix6::Identity() * static_cast<double>(config("unmodeledWrenchProcessVariance"));
   contactProcessCovariance_.setZero();
   contactProcessCovariance_.block<3, 3>(0, 0) = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactPositionProcessVariance"));
   contactProcessCovariance_.block<3, 3>(3, 3) = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactOrientationProcessVariance"));
@@ -68,6 +69,14 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   contactSensorCovariance_.setZero();
   contactSensorCovariance_.block<3, 3>(0, 0) = Eigen::Matrix3d::Identity() * static_cast<double>(config("forceSensorVariance"));
   contactSensorCovariance_.block<3, 3>(3, 3) = Eigen::Matrix3d::Identity() * static_cast<double>(config("torqueSensorVariance"));
+
+  observer_.setAllCovariances(statePositionInitCovariance_, stateOriInitCovariance_,
+        stateLinVelInitCovariance_, stateAngVelInitCovariance_, gyroBiasInitCovariance_, 
+        unmodeledWrenchInitCovariance_, contactInitCovariance_, statePositionProcessCovariance_,
+        stateOriProcessCovariance_, stateLinVelProcessCovariance_, stateAngVelProcessCovariance_,
+        gyroBiasProcessCovariance_, unmodeledWrenchProcessCovariance_,contactProcessCovariance_, 
+        positionSensorCovariance_, orientationSensorCoVariance_, acceleroSensorCovariance_,
+        gyroSensorCovariance_, contactSensorCovariance_);
 }
 
 void MCKineticsObserver::reset(const mc_control::MCController & ctl)
@@ -120,7 +129,6 @@ void MCKineticsObserver::reset(const mc_control::MCController & ctl)
   my_robots_->robotCopy(robot, robot.name());
   ctl.gui()->addElement({"Robots"}, mc_rtc::gui::Robot("MCKineticsobserver", [this]() -> const mc_rbdyn::Robot & { return my_robots_->robot(); }));
   ctl.gui()->addElement({"Robots"}, mc_rtc::gui::Robot("Real", [&ctl]() -> const mc_rbdyn::Robot & { return ctl.realRobot(); }));
-
 }
 
 void MCKineticsObserver::initObserverStateVector(const mc_rbdyn::Robot & robot)
@@ -133,12 +141,17 @@ void MCKineticsObserver::initObserverStateVector(const mc_rbdyn::Robot & robot)
   initStateVector.segment<4>(3) = initOrientation.toVector4();
   initStateVector.segment<3>(7) = robot.comVelocity();
 
-  observer_.initWorldCentroidStateVector(initStateVector);
+  observer_.setInitWorldCentroidStateVector(initStateVector);
+
 }
+
+
+
 
 bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 {
   const auto & robot = ctl.robot(robot_);
+
   Eigen::Matrix<double, 3, 2> initCom;
   initCom << robot.com(), robot.comVelocity();
 
@@ -152,7 +165,8 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
    */
   updateContacts(robot, findContacts(ctl));
   
-  if (!simStarted_)
+  if (!simStarted_) // this allows to ignore the first step on which the contacts are still not detected 
+                    // and to avoid the jump of the com's position between this step and the following one
   {
     return true;
   }
@@ -179,7 +193,8 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 
   /* Step once, and return result */
 
-  res_ = observer_.update();
+  res_ = observer_.update(); 
+
     
   ekfIsSet_ = true;
 
@@ -212,6 +227,19 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
   predictedWorldIMUsLinAcc_ = observer_.getPredictedAccelerometersLinAccComponent();// Used only in the logger as debugging help
   contactKinematics_ = observer_.getContactPoses(); // Used only in the logger as debugging help
   predictedAccelerometers_ = observer_.getPredictedAccelerometers();// Used only in the logger as debugging help
+  predictedAccelerationByStateDynamics_ = observer_.getPredictedAccelerationByStateDynamics();
+
+  controlRobotContactKinematics_.clear();
+  for(int j = 0; j < maxContacts_; j++)
+  { 
+    so::kine::Kinematics controlContactKine;
+    if (observer_.getContactIsSetByNum(j))
+    {
+      controlContactKine.position = robot.indirectSurfaceForceSensor(mapContacts_.getNameFromNum(j)).X_0_f(robot).translation();
+      controlContactKine.orientation = so::Matrix3(robot.indirectSurfaceForceSensor(mapContacts_.getNameFromNum(j)).X_0_f(robot).rotation().transpose());   
+    }
+    controlRobotContactKinematics_.push_back(controlContactKine);    // even if the contact is not set, we add an empty Kinematics object to keep the corresponding with the indexes
+  }
 
   innovation_ = observer_.getEKF().getInnovation();// Used only in the logger as debugging help
 
@@ -222,6 +250,7 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
   update(my_robots_->robot());
 
   return true;
+
 }
 
 void MCKineticsObserver::update(mc_control::MCController & ctl) // this function is called by the pipeline if the update is set to true in the configuration file
@@ -286,6 +315,9 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController & ctl,
   logger.addLogEntry(category + "_constants_mass", [this]() -> const double & { return observer_.getMass(); });
   logger.addLogEntry(category + "_constants_flexStiffness", [this]() -> const sva::MotionVecd & { return flexStiffness_; });
   logger.addLogEntry(category + "_constants_flexDamping", [this]() -> const sva::MotionVecd & { return flexDamping_; });
+
+  logger.addLogEntry(category + "_predictedAccelerationByStateDynamics_", [this]() -> Eigen::Vector3d { 
+      if(ekfIsSet_) { return predictedAccelerationByStateDynamics_; } else { return Eigen::Vector3d::Zero(); }});
 
   /* Plots of the components of the accelerometers prediction */
   int i = 0;
@@ -466,7 +498,41 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController & ctl,
         return Eigen::Vector3d::Zero(); 
       }
     });
-    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_position"  + "_corrected", [this, j]() -> Eigen::Vector3d {
+    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_position"  + "_controlRobot", [this, j]() -> Eigen::Vector3d {
+      if(ekfIsSet_) 
+      { 
+        if (observer_.getContactIsSetByNum(j) && controlRobotContactKinematics_.at(j).position.isSet())
+        {
+          return controlRobotContactKinematics_.at(j).position();
+        } 
+        else 
+        { 
+          return Eigen::Vector3d::Zero(); 
+        }
+      }
+      else 
+      { 
+        return Eigen::Vector3d::Zero(); 
+      }
+    });
+    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_orientation"  + "_controlRobot", [this, j]() -> Eigen::Vector3d {
+      if(ekfIsSet_) 
+      { 
+        if (observer_.getContactIsSetByNum(j) && controlRobotContactKinematics_.at(j).orientation.isSet())
+        {
+          return controlRobotContactKinematics_.at(j).orientation.toRotationVector();
+        } 
+        else 
+        { 
+          return Eigen::Vector3d::Zero(); 
+        }
+      }
+      else 
+      { 
+        return Eigen::Vector3d::Zero(); 
+      }
+    });
+    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_position"  + "_fromCorrectedCentroid", [this, j]() -> Eigen::Vector3d {
       if(ekfIsSet_) 
       { 
         if (observer_.getContactIsSetByNum(j) && contactKinematics_.at(2*j+1).position.isSet())
@@ -483,7 +549,24 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController & ctl,
         return Eigen::Vector3d::Zero(); 
       }
     });
-    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_orientation"  + "_corrected", [this, j]() -> Eigen::Vector3d {
+    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_position"  + "_fromCorrectedCentroid", [this, j]() -> Eigen::Vector3d {
+      if(ekfIsSet_) 
+      { 
+        if (observer_.getContactIsSetByNum(j) && contactKinematics_.at(2*j+1).position.isSet())
+        {
+          return contactKinematics_.at(2*j+1).position();
+        } 
+        else 
+        { 
+          return Eigen::Vector3d::Zero(); 
+        }
+      }
+      else 
+      { 
+        return Eigen::Vector3d::Zero(); 
+      }
+    });
+    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_orientation"  + "_fromCorrectedCentroid", [this, j]() -> Eigen::Vector3d {
       if(ekfIsSet_) 
       { 
         if (observer_.getContactIsSetByNum(j) && contactKinematics_.at(2*j+1).orientation.isSet())
@@ -500,7 +583,7 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController & ctl,
         return Eigen::Vector3d::Zero(); 
       }
     });
-    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_linVel"  + "_corrected", [this, j]() -> Eigen::Vector3d {
+    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_linVel"  + "_fromCorrectedCentroid", [this, j]() -> Eigen::Vector3d {
       if(ekfIsSet_) 
       { 
         if (observer_.getContactIsSetByNum(j) && contactKinematics_.at(2*j+1).linVel.isSet())
@@ -517,7 +600,7 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController & ctl,
         return Eigen::Vector3d::Zero(); 
       }
     });
-    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_angVel"  + "_corrected", [this, j]() -> Eigen::Vector3d {
+    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_angVel"  + "_fromCorrectedCentroid", [this, j]() -> Eigen::Vector3d {
       if(ekfIsSet_) 
       { 
         if (observer_.getContactIsSetByNum(j) && contactKinematics_.at(2*j+1).angVel.isSet())
@@ -533,6 +616,59 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController & ctl,
       { 
         return Eigen::Vector3d::Zero(); 
       }
+    });
+  }
+
+  /* State covariances */
+  logger.addLogEntry(category + "_stateCovariances_positionW_", [this]() -> Eigen::Vector3d { 
+          return observer_.getEKF().getStateCovariance().block<3,3>(0,0).diagonal();});
+  logger.addLogEntry(category + "_stateCovariances_orientationW_", [this]() -> Eigen::Vector3d { 
+             return observer_.getEKF().getStateCovariance().block<3,3>(3,3).diagonal();});
+  logger.addLogEntry(category + "_stateCovariances_linVelW_", [this]() -> Eigen::Vector3d { 
+          return observer_.getEKF().getStateCovariance().block<3,3>(6,6).diagonal();});
+  logger.addLogEntry(category + "_stateCovariances_angVelW_", [this]() -> Eigen::Vector3d { 
+          return observer_.getEKF().getStateCovariance().block<3,3>(9,9).diagonal();});
+  for(int j = 0; j < maxContacts_; j++)
+  { 
+    logger.addLogEntry(category + "_stateCovariances_contact_" + std::to_string(j) + "_positionW_", [this, j]() -> Eigen::Vector3d { 
+        if (observer_.getContactIsSetByNum(j))
+        {
+          return observer_.getEKF().getStateCovariance().block<3,3>(observer_.contactPosIndexTangent(j),observer_.contactPosIndexTangent(j)).diagonal();
+        } 
+        else 
+        { 
+          return Eigen::Vector3d::Zero(); 
+        }
+    });
+    logger.addLogEntry(category + "_stateCovariances_contact_" + std::to_string(j) + "_orientationW_", [this, j]() -> Eigen::Vector3d { 
+        if (observer_.getContactIsSetByNum(j))
+          {
+            return observer_.getEKF().getStateCovariance().block<3,3>(observer_.contactOriIndexTangent(j),observer_.contactOriIndexTangent(j)).diagonal(); 
+          } 
+          else 
+          { 
+            return Eigen::Vector3d::Zero(); 
+          }
+    });
+    logger.addLogEntry(category + "_stateCovariances_contact_" + std::to_string(j) + "_ForceW_", [this, j]() -> Eigen::Vector3d { 
+        if (observer_.getContactIsSetByNum(j))
+        {
+          return observer_.getEKF().getStateCovariance().block<3,3>(observer_.contactForceIndexTangent(j),observer_.contactForceIndexTangent(j)).diagonal();
+        } 
+        else 
+        { 
+          return Eigen::Vector3d::Zero(); 
+        }
+    });
+    logger.addLogEntry(category + "_stateCovariances_contact_" + std::to_string(j) + "_TorqueW_", [this, j]() -> Eigen::Vector3d { 
+        if (observer_.getContactIsSetByNum(j))
+        {
+          return observer_.getEKF().getStateCovariance().block<3,3>(observer_.contactTorqueIndexTangent(j),observer_.contactTorqueIndexTangent(j)).diagonal();
+        } 
+        else 
+        { 
+          return Eigen::Vector3d::Zero(); 
+        }
     });
   }
 
@@ -884,7 +1020,7 @@ void MCKineticsObserver::addToGUI(const mc_control::MCController &,
     make_input_element("Force Covariance", contactSensorCovariance_(0,0)),
     make_input_element("Gyro Covariance", gyroSensorCovariance_(0,0)),
     make_input_element("Flex Stiffness", flexStiffness_), make_input_element("Flex Damping", flexDamping_),
-    Label("contacts", [this]() { return mc_rtc::io::to_string(contacts_); }));
+    Label("contacts", [this]() { return mc_rtc::io::to_string(oldContacts_); }));
   // clang-format on
 }
 
@@ -910,7 +1046,7 @@ std::set<std::string> MCKineticsObserver::findContacts(const mc_control::MCContr
   contactsFound_.clear();
   for(const auto & contact : ctl.solver().contacts())
   {
-
+    //std::cout << std::endl << contact.toStr() << std::endl;
     if(ctl.robots().robot(contact.r1Index()).name() == robot.name())
     {
       if(ctl.robots().robot(contact.r2Index()).mb().joint(0).type() == rbd::Joint::Fixed)
@@ -926,7 +1062,7 @@ std::set<std::string> MCKineticsObserver::findContacts(const mc_control::MCContr
       }
     }
   }
-  if (!contactsFound_.empty() && !simStarted_)
+  if (!contactsFound_.empty() && !simStarted_)  // we start the observation once a contact has been detected.
   {
     simStarted_ = true;
     initObserverStateVector(robot);
@@ -936,20 +1072,56 @@ std::set<std::string> MCKineticsObserver::findContacts(const mc_control::MCContr
 
 void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<std::string> updatedContacts)
 {
+  /** Debugging output **/
+
   if (updatedContacts.empty())
   {
-     mc_rtc::log::warning("No contact detected");
+    if (noContact_ == 0)
+    {
+      mc_rtc::log::warning("No contact detected");
+    }
+    if (noContact_ % 1000 == 0)
+    {
+      mc_rtc::log::warning("No contact detected     :     x" + std::to_string(noContact_) + " iterations");
+    }
+    noContact_++;
+    if (robot.indirectSurfaceForceSensor("LeftFootCenter").wrenchWithoutGravity(robot).vector()(5) > 0.3) // threshold on the force along z
+    {
+      updatedContacts.insert("LeftFootCenter");  // only to use the contacts even if they are mistakenly not detect by find contacts, to remove after
+    }
+    if (robot.indirectSurfaceForceSensor("RightFootCenter").wrenchWithoutGravity(robot).vector()(5) > 0.3)
+    {
+      updatedContacts.insert("RightFootCenter");  // only to use the contacts even if they are mistakenly not detect by find contacts, to remove after
+    }
+
+
+    if (!simStarted_ && !updatedContacts.empty())
+    {
+      simStarted_ = true;
+      initObserverStateVector(robot);
+    }
   }
-  std::set<std::string> & oldContacts = contacts_; // alias
+  else
+  {
+    noContact_ = 0;
+  }
 
-  if(verbose_ && updatedContacts != oldContacts) mc_rtc::log::info("[{}] Contacts changed: {}", name(), mc_rtc::io::to_string(updatedContacts));
+
+        /** Debugging output **/
+  if(verbose_ && updatedContacts != oldContacts_) mc_rtc::log::info("[{}] Contacts changed: {}", name(), mc_rtc::io::to_string(updatedContacts));
   contactPositions_.clear();
-
+  
   for(const auto & updatedContact : updatedContacts)
   {
     const auto & ifs = robot.indirectSurfaceForceSensor(updatedContact);
     contactWrenchVector_.segment<3>(0) = ifs.wrenchWithoutGravity(robot).vector().segment<3>(3); // retrieving the torque
     contactWrenchVector_.segment<3>(3) = ifs.wrenchWithoutGravity(robot).vector().segment<3>(0); // retrieving the force
+
+    if (contactWrenchVector_.coeff(5) > maxContactForceZ)
+    {
+      maxContactForceZ = contactWrenchVector_.coeff(5);
+    }
+    
   
     /** Position of the contact **/
     sva::PTransformd contactPos_ = ifs.X_p_f();
@@ -974,9 +1146,9 @@ void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<
     contactVector << contactPosW.translation(), oriContactW.toVector4(), velContact.linear(), velContact.angular(),
         accContact.linear(), accContact.angular();
     userContactKine.fromVector(contactVector, so::kine::Kinematics::Flags::all);
-
-    if(oldContacts.find(updatedContact)
-       != oldContacts.end()) // checks if the contact already exists, if yes, it is updated
+    //std::cout << std::endl << "Contact position : " << std::endl << userContactKine.position() << std::endl;
+    if(oldContacts_.find(updatedContact)
+       != oldContacts_.end()) // checks if the contact already exists, if yes, it is updated
     {
       observer_.updateContactWithWrenchSensor(contactWrenchVector_, 
                                               contactSensorCovariance_,
@@ -987,7 +1159,7 @@ void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<
     {
       mapContacts_.insertPair(updatedContact);
       observer_.addContact( userContactKine, 
-                            contactInitCovariance_,
+                            contactInitCovariance_,     //  * (maxContactForceZ / contactWrenchVector_.coeff(5)),
                             contactProcessCovariance_,
                             mapContacts_.getNumFromName(updatedContact),
                             flexStiffness_.linear().asDiagonal(), 
@@ -995,22 +1167,22 @@ void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<
                             flexStiffness_.angular().asDiagonal(), 
                             flexDamping_.angular().asDiagonal());
       observer_.updateContactWithWrenchSensor(contactWrenchVector_, 
-                                              contactSensorCovariance_,
+                                              contactSensorCovariance_, //contactInitCovariance_.block<6,6>(6,6)
                                               userContactKine,
                                               mapContacts_.getNumFromName(updatedContact));
     }
   }
   std::set<std::string>
       diffs; // List of the contact that were available on last iteration but are not set anymore on the current one
-  std::set_difference(oldContacts.begin(), oldContacts.end(), updatedContacts.begin(), updatedContacts.end(),
+  std::set_difference(oldContacts_.begin(), oldContacts_.end(), updatedContacts.begin(), updatedContacts.end(),
                       std::inserter(diffs, diffs.end()));
   for(const auto & diff : diffs)
   {
     observer_.removeContact(mapContacts_.getNumFromName(diff));
   }
 
-  oldContacts = updatedContacts;
-  unsigned nbContacts = static_cast<unsigned>(oldContacts.size());
+  oldContacts_ = updatedContacts;
+  unsigned nbContacts = static_cast<unsigned>(oldContacts_.size());
   // observer_.setContactsNumber(nbContacts);
   if(debug_)
   {

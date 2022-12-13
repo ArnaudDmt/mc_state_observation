@@ -263,7 +263,7 @@ public:
     stateObservation::Vector6 contactWrenchVector_; // vector shared by all the contacts that allows to build a (force+torque) wrench vector 
                                                   // from the ForceSensor.wrench() function which returns a (torque+force) wrench vector
 
-
+    unsigned noContact_ = 0;
     so::Vector correctedMeasurements_;
     so::kine::Kinematics globalCentroidKinematics_;
     Eigen::VectorXd predictedGlobalCentroidState_;
@@ -271,6 +271,10 @@ public:
     std::vector<so::Vector> predictedWorldIMUsLinAcc_;
     std::vector<so::Vector> predictedAccelerometers_;
     std::vector<so::kine::Kinematics> contactKinematics_;
+    so::Vector predictedAccelerationByStateDynamics_;
+    std::vector<so::kine::Kinematics> controlRobotContactKinematics_;
+
+    double maxContactForceZ = 0; // allows to adapt the covariance on the contact based on how much set it is
 
     so::Vector innovation_;
 
@@ -279,7 +283,8 @@ public:
     
     double mass_ = 42; // [kg]
     stateObservation::KineticsObserver observer_;
-    std::set<std::string> contacts_; ///< Sorted list of contacts
+    //std::set<std::string> contacts_; ///< Sorted list of contacts
+    std::set<std::string> oldContacts_;
     MapContactsIMU mapContacts_;
     MapContactsIMU mapIMUs_;
     std::vector<sva::PTransformd> contactPositions_; ///< Position of the contact frames (force sensor frame when using force sensors)
@@ -309,7 +314,7 @@ public:
     so::Matrix3 stateLinVelInitCovariance_;
     so::Matrix3 stateAngVelInitCovariance_;
     so::Matrix3 gyroBiasInitCovariance_;
-    so::Matrix3 unmodeledWrenchInitCovariance_;
+    so::Matrix6 unmodeledWrenchInitCovariance_;
     so::Matrix12 contactInitCovariance_;
 
     so::Matrix3 statePositionProcessCovariance_;
@@ -317,7 +322,7 @@ public:
     so::Matrix3 stateLinVelProcessCovariance_;
     so::Matrix3 stateAngVelProcessCovariance_;
     so::Matrix3 gyroBiasProcessCovariance_;
-    so::Matrix3 unmodeledWrenchProcessCovariance_;
+    so::Matrix6 unmodeledWrenchProcessCovariance_;
     so::Matrix12 contactProcessCovariance_;
 
     so::Matrix3 positionSensorCovariance_;

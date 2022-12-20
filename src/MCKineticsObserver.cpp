@@ -38,7 +38,7 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   config("flexStiffness", flexStiffness_);
   config("flexDamping", flexDamping_);
 
-  statePositionInitCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("statePositionInitVariance"));
+  statePositionInitCovariance_ = static_cast<so::Vector3>(config("statePositionInitVariance")).matrix().asDiagonal();
   stateOriInitCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("stateOriInitVariance"));
   stateLinVelInitCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("stateLinVelInitVariance"));
   stateAngVelInitCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("stateAngVelInitVariance"));
@@ -50,14 +50,15 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   contactInitCovariance_.block<3, 3>(6, 6) = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactForceInitVariance"));
   contactInitCovariance_.block<3, 3>(9, 9) = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactTorqueInitVariance"));
 
-  statePositionProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("statePositionProcessVariance"));
+  statePositionProcessCovariance_ =
+      static_cast<so::Vector3>(config("statePositionProcessVariance")).matrix().asDiagonal();
   stateOriProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("stateOriProcessVariance"));
   stateLinVelProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("stateLinVelProcessVariance"));
   stateAngVelProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("stateAngVelProcessVariance"));
   gyroBiasProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("gyroBiasProcessVariance"));
   unmodeledWrenchProcessCovariance_ = so::Matrix6::Identity() * static_cast<double>(config("unmodeledWrenchProcessVariance"));
-  contactProcessCovariance_.setZero();
-  contactProcessCovariance_.block<3, 3>(0, 0) = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactPositionProcessVariance"));
+  contactProcessCovariance_.block<3, 3>(0, 0) =
+      static_cast<so::Vector3>(config("contactPositionProcessVariance")).matrix().asDiagonal();
   contactProcessCovariance_.block<3, 3>(3, 3) = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactOrientationProcessVariance"));
   contactProcessCovariance_.block<3, 3>(6, 6) = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactForceProcessVariance"));
   contactProcessCovariance_.block<3, 3>(9, 9) = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactTorqueProcessVariance"));

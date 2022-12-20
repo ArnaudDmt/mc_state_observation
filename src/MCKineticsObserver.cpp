@@ -33,7 +33,7 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
 
   observer_.setWithAccelerationEstimation(config("withAccelerationEstimation"));
   observer_.setWithInnovation(config("withInnovation"));
-  //observer_.useRungeKutta(config("withRungeKutta"));
+  observer_.useRungeKutta(config("withRungeKutta"));
   
   config("flexStiffness", flexStiffness_);
   config("flexDamping", flexDamping_);

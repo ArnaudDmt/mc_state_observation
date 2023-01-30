@@ -271,7 +271,6 @@ public:
     std::vector<so::Vector> predictedWorldIMUsLinAcc_;
     std::vector<so::Vector> predictedAccelerometers_;
     std::vector<so::kine::Kinematics> contactKinematics_;
-    so::Vector predictedAccelerationByStateDynamics_;
     std::vector<so::kine::Kinematics> controlRobotContactKinematics_;
 
     double maxContactForceZ = 0; // allows to adapt the covariance on the contact based on how much set it is

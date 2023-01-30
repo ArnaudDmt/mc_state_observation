@@ -34,10 +34,11 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   observer_.setWithAccelerationEstimation(config("withAccelerationEstimation"));
   observer_.setWithInnovation(config("withInnovation"));
   observer_.useRungeKutta(config("withRungeKutta"));
-  
+
   config("flexStiffness", flexStiffness_);
   config("flexDamping", flexDamping_);
 
+  // State
   statePositionInitCovariance_ = static_cast<so::Vector3>(config("statePositionInitVariance")).matrix().asDiagonal();
   stateOriInitCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("stateOriInitVariance"));
   stateLinVelInitCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("stateLinVelInitVariance"));
@@ -50,6 +51,7 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   contactInitCovariance_.block<3, 3>(6, 6) = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactForceInitVariance"));
   contactInitCovariance_.block<3, 3>(9, 9) = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactTorqueInitVariance"));
 
+  // Process //
   statePositionProcessCovariance_ =
       static_cast<so::Vector3>(config("statePositionProcessVariance")).matrix().asDiagonal();
   stateOriProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("stateOriProcessVariance"));
@@ -63,6 +65,7 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   contactProcessCovariance_.block<3, 3>(6, 6) = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactForceProcessVariance"));
   contactProcessCovariance_.block<3, 3>(9, 9) = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactTorqueProcessVariance"));
 
+  // Sensor //
   positionSensorCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("positionSensorVariance"));
   orientationSensorCoVariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("orientationSensorVariance"));
   acceleroSensorCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("acceleroSensorVariance"));
@@ -143,11 +146,7 @@ void MCKineticsObserver::initObserverStateVector(const mc_rbdyn::Robot & robot)
   initStateVector.segment<3>(7) = robot.comVelocity();
 
   observer_.setInitWorldCentroidStateVector(initStateVector);
-
 }
-
-
-
 
 bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 {
@@ -227,8 +226,7 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
   predictedAccelerometersGravityComponent_ = observer_.getPredictedAccelerometersGravityComponent();// Used only in the logger as debugging help
   predictedWorldIMUsLinAcc_ = observer_.getPredictedAccelerometersLinAccComponent();// Used only in the logger as debugging help
   contactKinematics_ = observer_.getContactPoses(); // Used only in the logger as debugging help
-  predictedAccelerometers_ = observer_.getPredictedAccelerometers();// Used only in the logger as debugging help
-  predictedAccelerationByStateDynamics_ = observer_.getPredictedAccelerationByStateDynamics();
+  predictedAccelerometers_ = observer_.getPredictedAccelerometers(); // Used only in the logger as debugging help
 
   controlRobotContactKinematics_.clear();
   for(int j = 0; j < maxContacts_; j++)
@@ -317,24 +315,25 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController & ctl,
   logger.addLogEntry(category + "_constants_flexStiffness", [this]() -> const sva::MotionVecd & { return flexStiffness_; });
   logger.addLogEntry(category + "_constants_flexDamping", [this]() -> const sva::MotionVecd & { return flexDamping_; });
 
-  logger.addLogEntry(category + "_predictedAccelerationByStateDynamics_", [this]() -> Eigen::Vector3d { 
-      if(ekfIsSet_) { return predictedAccelerationByStateDynamics_; } else { return Eigen::Vector3d::Zero(); }});
-
   /* Plots of the components of the accelerometers prediction */
+  /*
   int i = 0;
   for(const auto & imu : IMUs_)
-  { 
-    logger.addLogEntry(category + "_predictedAccelerometersComponents_" + imu.name() + "_gravityComponent", [this, imu, i]() -> Eigen::Vector3d { 
-      if(ekfIsSet_) { return predictedAccelerometersGravityComponent_.at(i); } else { return Eigen::Vector3d::Zero(); }
+  {
+    logger.addLogEntry(category + "_predictedAccelerometersComponents_" + imu.name() + "_gravityComponent", [this, imu,
+  i]() -> Eigen::Vector3d { if(ekfIsSet_) { return predictedAccelerometersGravityComponent_.at(i); } else { return
+  Eigen::Vector3d::Zero(); }
     });
-    logger.addLogEntry(category + "_predictedAccelerometersComponents_" + imu.name() + "_linAccComponent", [this, imu, i]() -> Eigen::Vector3d { 
-      if(ekfIsSet_) { return predictedWorldIMUsLinAcc_.at(i); } else { return Eigen::Vector3d::Zero(); }
+    logger.addLogEntry(category + "_predictedAccelerometersComponents_" + imu.name() + "_linAccComponent", [this, imu,
+  i]() -> Eigen::Vector3d { if(ekfIsSet_) { return predictedWorldIMUsLinAcc_.at(i); } else { return
+  Eigen::Vector3d::Zero(); }
     });
-    logger.addLogEntry(category + "_predictedAccelerometersComponents_" + imu.name() + "_total", [this, imu, i]() -> Eigen::Vector3d { 
-      if(ekfIsSet_) { return predictedAccelerometers_.at(i); } else { return Eigen::Vector3d::Zero(); }
+    logger.addLogEntry(category + "_predictedAccelerometersComponents_" + imu.name() + "_total", [this, imu, i]() ->
+  Eigen::Vector3d { if(ekfIsSet_) { return predictedAccelerometers_.at(i); } else { return Eigen::Vector3d::Zero(); }
     });
     i++;
   }
+  */
   /* Plots of the predicted state */
   logger.addLogEntry(category + "_predictedGlobalCentroidKinematics_positionW_", [this]() -> Eigen::Vector3d { 
           if(ekfIsSet_) {
@@ -428,198 +427,198 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController & ctl,
 
 
   /* Plots of the estimated and reference contact Kinematics after the update */
-  
+  /*
   for(int j = 0; j < maxContacts_; j++)
-  { 
-    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_position"  + "_reference", [this, j]() -> Eigen::Vector3d {
-      if(ekfIsSet_) 
-      { 
+  {
+    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_position"  + "_reference", [this, j]()
+  -> Eigen::Vector3d { if(ekfIsSet_)
+      {
         if (observer_.getContactIsSetByNum(j) && contactKinematics_.at(2*j).position.isSet())
         {
           return contactKinematics_.at(2*j).position();
-        } 
-        else 
-        { 
-          return Eigen::Vector3d::Zero(); 
+        }
+        else
+        {
+          return Eigen::Vector3d::Zero();
         }
       }
-      else 
-      { 
-        return Eigen::Vector3d::Zero(); 
+      else
+      {
+        return Eigen::Vector3d::Zero();
       }
     });
-    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_orientation"  + "_reference", [this, j]() -> Eigen::Vector3d {
-      if(ekfIsSet_) 
-      { 
+    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_orientation"  + "_reference", [this,
+  j]() -> Eigen::Vector3d { if(ekfIsSet_)
+      {
         if (observer_.getContactIsSetByNum(j) && contactKinematics_.at(2*j).orientation.isSet())
         {
           return contactKinematics_.at(2*j).orientation.toRotationVector();
-        } 
-        else 
-        { 
-          return Eigen::Vector3d::Zero(); 
+        }
+        else
+        {
+          return Eigen::Vector3d::Zero();
         }
       }
-      else 
-      { 
-        return Eigen::Vector3d::Zero(); 
+      else
+      {
+        return Eigen::Vector3d::Zero();
       }
     });
-    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_linVel"  + "_reference", [this, j]() -> Eigen::Vector3d {
-      if(ekfIsSet_) 
-      { 
+    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_linVel"  + "_reference", [this, j]() ->
+  Eigen::Vector3d { if(ekfIsSet_)
+      {
         if (observer_.getContactIsSetByNum(j) && contactKinematics_.at(2*j).linVel.isSet())
         {
           return contactKinematics_.at(2*j).linVel();
-        } 
-        else 
-        { 
-          return Eigen::Vector3d::Zero(); 
+        }
+        else
+        {
+          return Eigen::Vector3d::Zero();
         }
       }
-      else 
-      { 
-        return Eigen::Vector3d::Zero(); 
+      else
+      {
+        return Eigen::Vector3d::Zero();
       }
     });
-    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_angVel"  + "_reference", [this, j]() -> Eigen::Vector3d {
-      if(ekfIsSet_) 
-      { 
+    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_angVel"  + "_reference", [this, j]() ->
+  Eigen::Vector3d { if(ekfIsSet_)
+      {
         if (observer_.getContactIsSetByNum(j) && contactKinematics_.at(2*j).angVel.isSet())
         {
           return contactKinematics_.at(2*j).angVel();
-        } 
-        else 
-        { 
-          return Eigen::Vector3d::Zero(); 
+        }
+        else
+        {
+          return Eigen::Vector3d::Zero();
         }
       }
-      else 
-      { 
-        return Eigen::Vector3d::Zero(); 
+      else
+      {
+        return Eigen::Vector3d::Zero();
       }
     });
-    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_position"  + "_controlRobot", [this, j]() -> Eigen::Vector3d {
-      if(ekfIsSet_) 
-      { 
+    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_position"  + "_controlRobot", [this,
+  j]() -> Eigen::Vector3d { if(ekfIsSet_)
+      {
         if (observer_.getContactIsSetByNum(j) && controlRobotContactKinematics_.at(j).position.isSet())
         {
           return controlRobotContactKinematics_.at(j).position();
-        } 
-        else 
-        { 
-          return Eigen::Vector3d::Zero(); 
+        }
+        else
+        {
+          return Eigen::Vector3d::Zero();
         }
       }
-      else 
-      { 
-        return Eigen::Vector3d::Zero(); 
+      else
+      {
+        return Eigen::Vector3d::Zero();
       }
     });
-    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_orientation"  + "_controlRobot", [this, j]() -> Eigen::Vector3d {
-      if(ekfIsSet_) 
-      { 
+    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_orientation"  + "_controlRobot", [this,
+  j]() -> Eigen::Vector3d { if(ekfIsSet_)
+      {
         if (observer_.getContactIsSetByNum(j) && controlRobotContactKinematics_.at(j).orientation.isSet())
         {
           return controlRobotContactKinematics_.at(j).orientation.toRotationVector();
-        } 
-        else 
-        { 
-          return Eigen::Vector3d::Zero(); 
+        }
+        else
+        {
+          return Eigen::Vector3d::Zero();
         }
       }
-      else 
-      { 
-        return Eigen::Vector3d::Zero(); 
+      else
+      {
+        return Eigen::Vector3d::Zero();
       }
     });
-    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_position"  + "_fromCorrectedCentroid", [this, j]() -> Eigen::Vector3d {
-      if(ekfIsSet_) 
-      { 
+    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_position"  + "_fromCorrectedCentroid",
+  [this, j]() -> Eigen::Vector3d { if(ekfIsSet_)
+      {
         if (observer_.getContactIsSetByNum(j) && contactKinematics_.at(2*j+1).position.isSet())
         {
           return contactKinematics_.at(2*j+1).position();
-        } 
-        else 
-        { 
-          return Eigen::Vector3d::Zero(); 
+        }
+        else
+        {
+          return Eigen::Vector3d::Zero();
         }
       }
-      else 
-      { 
-        return Eigen::Vector3d::Zero(); 
+      else
+      {
+        return Eigen::Vector3d::Zero();
       }
     });
-    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_position"  + "_fromCorrectedCentroid", [this, j]() -> Eigen::Vector3d {
-      if(ekfIsSet_) 
-      { 
+    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_position"  + "_fromCorrectedCentroid",
+  [this, j]() -> Eigen::Vector3d { if(ekfIsSet_)
+      {
         if (observer_.getContactIsSetByNum(j) && contactKinematics_.at(2*j+1).position.isSet())
         {
           return contactKinematics_.at(2*j+1).position();
-        } 
-        else 
-        { 
-          return Eigen::Vector3d::Zero(); 
+        }
+        else
+        {
+          return Eigen::Vector3d::Zero();
         }
       }
-      else 
-      { 
-        return Eigen::Vector3d::Zero(); 
+      else
+      {
+        return Eigen::Vector3d::Zero();
       }
     });
-    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_orientation"  + "_fromCorrectedCentroid", [this, j]() -> Eigen::Vector3d {
-      if(ekfIsSet_) 
-      { 
+    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_orientation"  +
+  "_fromCorrectedCentroid", [this, j]() -> Eigen::Vector3d { if(ekfIsSet_)
+      {
         if (observer_.getContactIsSetByNum(j) && contactKinematics_.at(2*j+1).orientation.isSet())
         {
           return contactKinematics_.at(2*j+1).orientation.toRotationVector();
-        } 
-        else 
-        { 
-          return Eigen::Vector3d::Zero(); 
+        }
+        else
+        {
+          return Eigen::Vector3d::Zero();
         }
       }
-      else 
-      { 
-        return Eigen::Vector3d::Zero(); 
+      else
+      {
+        return Eigen::Vector3d::Zero();
       }
     });
-    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_linVel"  + "_fromCorrectedCentroid", [this, j]() -> Eigen::Vector3d {
-      if(ekfIsSet_) 
-      { 
+    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_linVel"  + "_fromCorrectedCentroid",
+  [this, j]() -> Eigen::Vector3d { if(ekfIsSet_)
+      {
         if (observer_.getContactIsSetByNum(j) && contactKinematics_.at(2*j+1).linVel.isSet())
         {
           return contactKinematics_.at(2*j+1).linVel();
-        } 
-        else 
-        { 
-          return Eigen::Vector3d::Zero(); 
+        }
+        else
+        {
+          return Eigen::Vector3d::Zero();
         }
       }
-      else 
-      { 
-        return Eigen::Vector3d::Zero(); 
+      else
+      {
+        return Eigen::Vector3d::Zero();
       }
     });
-    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_angVel"  + "_fromCorrectedCentroid", [this, j]() -> Eigen::Vector3d {
-      if(ekfIsSet_) 
-      { 
+    logger.addLogEntry(category + "_contactKinematics_" + std::to_string(j) + "_angVel"  + "_fromCorrectedCentroid",
+  [this, j]() -> Eigen::Vector3d { if(ekfIsSet_)
+      {
         if (observer_.getContactIsSetByNum(j) && contactKinematics_.at(2*j+1).angVel.isSet())
         {
           return contactKinematics_.at(2*j+1).angVel();
-        } 
-        else 
-        { 
-          return Eigen::Vector3d::Zero(); 
+        }
+        else
+        {
+          return Eigen::Vector3d::Zero();
         }
       }
-      else 
-      { 
-        return Eigen::Vector3d::Zero(); 
+      else
+      {
+        return Eigen::Vector3d::Zero();
       }
     });
   }
-
+  */
   /* State covariances */
   logger.addLogEntry(category + "_stateCovariances_positionW_", [this]() -> Eigen::Vector3d { 
           return observer_.getEKF().getStateCovariance().block<3,3>(0,0).diagonal();});

@@ -59,6 +59,8 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   stateAngVelProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("stateAngVelProcessVariance"));
   gyroBiasProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("gyroBiasProcessVariance"));
   unmodeledWrenchProcessCovariance_ = so::Matrix6::Identity() * static_cast<double>(config("unmodeledWrenchProcessVariance"));
+
+  contactProcessCovariance_.setZero();
   contactProcessCovariance_.block<3, 3>(0, 0) =
       static_cast<so::Vector3>(config("contactPositionProcessVariance")).matrix().asDiagonal();
   contactProcessCovariance_.block<3, 3>(3, 3) = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactOrientationProcessVariance"));
@@ -171,6 +173,7 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
     return true;
   }
 
+  // std::cout << std::endl << "Time: " << std::endl << observer_.getEKF().getCurrentTime() << std::endl;
 
   /** Accelerometers **/
   updateIMUs(robot);

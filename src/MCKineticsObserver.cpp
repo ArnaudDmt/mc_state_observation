@@ -193,6 +193,21 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
   rbd::computeCentroidalMomentumDot(robot.mb(), robot.mbc(), robot.com(), robot.comVelocity());
   observer_.setInertiaMatrix(inertia);
 
+  /* Checking that the contact forces won't be negative on next prediction*/
+  Eigen::VectorXd prediction = observer_.getEKF().updateStatePrediction();
+  for(int j = 0; j < maxContacts_; j++)
+  {
+    if(observer_.getContactIsSetByNum(j))
+    {
+      std::cout << std::endl << prediction(observer_.contactForceIndex(j) + 2) << std::endl;
+      if(prediction.coeff(observer_.contactForceIndex(j) + 2) < 0)
+      {
+        observer_.removeContact(j);
+        oldContacts_.erase(mapContacts_.getNameFromNum(j));
+        observer_.getEKF().resetPrediction();
+      }
+    }
+  }
 
   /* Step once, and return result */
 

@@ -31,6 +31,8 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   config("debug", debug_);
   config("verbose", verbose_);
 
+  observer_.setWithUnmodeledWrench(config("withUnmodeledWrench"));
+  observer_.useFiniteDifferencesJacobians(config("withFiniteDifferences"));
   observer_.setWithAccelerationEstimation(config("withAccelerationEstimation"));
   observer_.setWithInnovation(config("withInnovation"));
   observer_.useRungeKutta(config("withRungeKutta"));
@@ -64,17 +66,21 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   contactProcessCovariance_.block<3, 3>(0, 0) =
       static_cast<so::Vector3>(config("contactPositionProcessVariance")).matrix().asDiagonal();
   contactProcessCovariance_.block<3, 3>(3, 3) = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactOrientationProcessVariance"));
-  contactProcessCovariance_.block<3, 3>(6, 6) = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactForceProcessVariance"));
-  contactProcessCovariance_.block<3, 3>(9, 9) = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactTorqueProcessVariance"));
+  contactProcessCovariance_.block<3, 3>(6, 6) =
+      static_cast<so::Vector3>(config("contactForceProcessVariance")).matrix().asDiagonal();
+  contactProcessCovariance_.block<3, 3>(9, 9) =
+      static_cast<so::Vector3>(config("contactTorqueProcessVariance")).matrix().asDiagonal();
 
   // Sensor //
   positionSensorCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("positionSensorVariance"));
   orientationSensorCoVariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("orientationSensorVariance"));
-  acceleroSensorCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("acceleroSensorVariance"));
-  gyroSensorCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("gyroSensorVariance"));
+  acceleroSensorCovariance_ = static_cast<so::Vector3>(config("acceleroSensorVariance")).matrix().asDiagonal();
+  gyroSensorCovariance_ = static_cast<so::Vector3>(config("gyroSensorVariance")).matrix().asDiagonal();
   contactSensorCovariance_.setZero();
-  contactSensorCovariance_.block<3, 3>(0, 0) = Eigen::Matrix3d::Identity() * static_cast<double>(config("forceSensorVariance"));
-  contactSensorCovariance_.block<3, 3>(3, 3) = Eigen::Matrix3d::Identity() * static_cast<double>(config("torqueSensorVariance"));
+  contactSensorCovariance_.block<3, 3>(0, 0) =
+      static_cast<so::Vector3>(config("forceSensorVariance")).matrix().asDiagonal();
+  contactSensorCovariance_.block<3, 3>(3, 3) =
+      static_cast<so::Vector3>(config("torqueSensorVariance")).matrix().asDiagonal();
 
   observer_.setAllCovariances(statePositionInitCovariance_, stateOriInitCovariance_,
         stateLinVelInitCovariance_, stateAngVelInitCovariance_, gyroBiasInitCovariance_, 

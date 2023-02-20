@@ -21,7 +21,6 @@ MCKineticsObserver::MCKineticsObserver(const std::string & type, double dt)
 : mc_observers::Observer(type, dt), observer_(2, 2)
 {
   observer_.setSamplingTime(dt);
-  observer_.useFiniteDifferencesJacobians(true);
 }
 
 void MCKineticsObserver::configure(const mc_control::MCController & ctl, const mc_rtc::Configuration & config)
@@ -201,15 +200,13 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 
   /* Step once, and return result */
 
-  res_ = observer_.update(); 
+  res_ = observer_.update();
 
-    
   ekfIsSet_ = true;
 
   const Eigen::Vector4d & rotVec = res_.segment<4>(observer_.oriIndex());
   Eigen::Quaternion<double> resultRot = Eigen::Quaternion<double>(rotVec);
-  sva::PTransformd newAccPos(resultRot.toRotationMatrix().transpose(),
-                              res_.segment<3>(observer_.posIndex()));
+  sva::PTransformd newAccPos(resultRot.toRotationMatrix().transpose(), res_.segment<3>(observer_.posIndex()));
 
   so::kine::Kinematics K_0_fb; // floating base in the user frame (world of the controller)
   K_0_fb.position = robot.posW().translation();
@@ -217,38 +214,48 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
   K_0_fb.linVel = robot.velW().linear();
   K_0_fb.angVel = robot.velW().angular();
 
-  so::kine::Kinematics mcko_K_0_fb(observer_.getGlobalKinematicsOf(K_0_fb)); // Floating base in the 'real' world frame. The resulting state kinematics are used here
+  so::kine::Kinematics mcko_K_0_fb(observer_.getGlobalKinematicsOf(
+      K_0_fb)); // Floating base in the 'real' world frame. The resulting state kinematics are used here
   X_0_fb_.rotation() = mcko_K_0_fb.orientation.toMatrix3().transpose();
   X_0_fb_.translation() = mcko_K_0_fb.position();
 
   /* Bring velocity of the IMU to the origin of the joint : we want the
    * velocity of joint 0, so stop one before the first joint */
 
-  v_fb_0_.angular() = X_0_fb_.rotation()*mcko_K_0_fb.angVel(); //  X_0_fb_.rotation() = mcko_K_0_fb.orientation.toMatrix3().transpose()
-  v_fb_0_.linear() = X_0_fb_.rotation()*mcko_K_0_fb.linVel();
+  v_fb_0_.angular() = X_0_fb_.rotation()
+                      * mcko_K_0_fb.angVel(); //  X_0_fb_.rotation() = mcko_K_0_fb.orientation.toMatrix3().transpose()
+  v_fb_0_.linear() = X_0_fb_.rotation() * mcko_K_0_fb.linVel();
 
   /* Updates of the logged variables */
-  correctedMeasurements_ = observer_.getEKF().getSimulatedMeasurement(observer_.getEKF().getCurrentTime()); // Used only in the logger as debugging help
-  globalCentroidKinematics_ = observer_.getGlobalCentroidKinematics();// Used only in the logger as debugging help
-  predictedGlobalCentroidState_ = observer_.getPredictedGlobalCentroidState();// Used only in the logger as debugging help
-  predictedAccelerometersGravityComponent_ = observer_.getPredictedAccelerometersGravityComponent();// Used only in the logger as debugging help
-  predictedWorldIMUsLinAcc_ = observer_.getPredictedAccelerometersLinAccComponent();// Used only in the logger as debugging help
+  correctedMeasurements_ = observer_.getEKF().getSimulatedMeasurement(
+      observer_.getEKF().getCurrentTime()); // Used only in the logger as debugging help
+  globalCentroidKinematics_ = observer_.getGlobalCentroidKinematics(); // Used only in the logger as debugging help
+  predictedGlobalCentroidState_ =
+      observer_.getPredictedGlobalCentroidState(); // Used only in the logger as debugging help
+  predictedAccelerometersGravityComponent_ =
+      observer_.getPredictedAccelerometersGravityComponent(); // Used only in the logger as debugging help
+  predictedWorldIMUsLinAcc_ =
+      observer_.getPredictedAccelerometersLinAccComponent(); // Used only in the logger as debugging help
   contactKinematics_ = observer_.getContactPoses(); // Used only in the logger as debugging help
   predictedAccelerometers_ = observer_.getPredictedAccelerometers(); // Used only in the logger as debugging help
 
   controlRobotContactKinematics_.clear();
   for(int j = 0; j < maxContacts_; j++)
-  { 
+  {
     so::kine::Kinematics controlContactKine;
-    if (observer_.getContactIsSetByNum(j))
+    if(observer_.getContactIsSetByNum(j))
     {
-      controlContactKine.position = robot.indirectSurfaceForceSensor(mapContacts_.getNameFromNum(j)).X_0_f(robot).translation();
-      controlContactKine.orientation = so::Matrix3(robot.indirectSurfaceForceSensor(mapContacts_.getNameFromNum(j)).X_0_f(robot).rotation().transpose());   
+      controlContactKine.position =
+          robot.indirectSurfaceForceSensor(mapContacts_.getNameFromNum(j)).X_0_f(robot).translation();
+      controlContactKine.orientation = so::Matrix3(
+          robot.indirectSurfaceForceSensor(mapContacts_.getNameFromNum(j)).X_0_f(robot).rotation().transpose());
     }
-    controlRobotContactKinematics_.push_back(controlContactKine);    // even if the contact is not set, we add an empty Kinematics object to keep the corresponding with the indexes
+    controlRobotContactKinematics_.push_back(
+        controlContactKine); // even if the contact is not set, we add an empty Kinematics object to keep the
+                             // corresponding with the indexes
   }
 
-  innovation_ = observer_.getEKF().getInnovation();// Used only in the logger as debugging help
+  innovation_ = observer_.getEKF().getInnovation(); // Used only in the logger as debugging help
 
   /* Update of the visual representation (only a visual feature) of the observed robot */
   my_robots_->robot().mbc().q = ctl.realRobot().mbc().q;
@@ -257,7 +264,6 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
   update(my_robots_->robot());
 
   return true;
-
 }
 
 void MCKineticsObserver::update(mc_control::MCController & ctl) // this function is called by the pipeline if the update is set to true in the configuration file
@@ -1154,13 +1160,11 @@ void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<
     contactVector << contactPosW.translation(), oriContactW.toVector4(), velContact.linear(), velContact.angular(),
         accContact.linear(), accContact.angular();
     userContactKine.fromVector(contactVector, so::kine::Kinematics::Flags::all);
-    //std::cout << std::endl << "Contact position : " << std::endl << userContactKine.position() << std::endl;
+
     if(oldContacts_.find(updatedContact)
        != oldContacts_.end()) // checks if the contact already exists, if yes, it is updated
     {
-      observer_.updateContactWithWrenchSensor(contactWrenchVector_, 
-                                              contactSensorCovariance_,
-                                              userContactKine,
+      observer_.updateContactWithWrenchSensor(contactWrenchVector_, contactSensorCovariance_, userContactKine,
                                               mapContacts_.getNumFromName(updatedContact));
     }
     else // checks if the contact already exists, if no, it is added to the observer

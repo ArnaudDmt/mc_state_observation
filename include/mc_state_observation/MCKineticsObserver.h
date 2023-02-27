@@ -305,6 +305,9 @@ public:
     sva::MotionVecd flexStiffness_;
     sva::MotionVecd flexDamping_;
 
+    bool withUnmodeledWrench_ = true;
+    bool withGyroBias_ = true;
+
     int maxContacts_ = 2;
     int maxIMUs_ = 2;
 

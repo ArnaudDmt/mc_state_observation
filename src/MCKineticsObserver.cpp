@@ -30,8 +30,15 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   config("debug", debug_);
   config("verbose", verbose_);
 
-  observer_.setWithUnmodeledWrench(config("withUnmodeledWrench"));
+  config("withUnmodeledWrench", withUnmodeledWrench_);
+  config("withGyroBias", withGyroBias_);
+
+  observer_.setWithUnmodeledWrench(withUnmodeledWrench_);
+  observer_.setWithGyroBias(withGyroBias_);
   observer_.useFiniteDifferencesJacobians(config("withFiniteDifferences"));
+  so::Vector dx(observer_.getStateSize());
+  dx.setConstant(static_cast<double>(config("finiteDifferenceStep")));
+  observer_.setFiniteDifferenceStep(dx);
   observer_.setWithAccelerationEstimation(config("withAccelerationEstimation"));
   observer_.setWithInnovation(config("withInnovation"));
   observer_.useRungeKutta(config("withRungeKutta"));
@@ -39,13 +46,13 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   config("flexStiffness", flexStiffness_);
   config("flexDamping", flexDamping_);
 
-  // State
+  // Initial State
   statePositionInitCovariance_ = static_cast<so::Vector3>(config("statePositionInitVariance")).matrix().asDiagonal();
   stateOriInitCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("stateOriInitVariance"));
   stateLinVelInitCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("stateLinVelInitVariance"));
   stateAngVelInitCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("stateAngVelInitVariance"));
-  gyroBiasInitCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("gyroBiasInitVariance"));
-  unmodeledWrenchInitCovariance_ = so::Matrix6::Identity() * static_cast<double>(config("unmodeledWrenchInitVariance"));
+  gyroBiasInitCovariance_.setZero();
+  unmodeledWrenchInitCovariance_.setZero();
   contactInitCovariance_.setZero();
   contactInitCovariance_.block<3, 3>(0, 0) = static_cast<so::Vector3>(config("contactPositionInitVariance")).matrix().asDiagonal();
   contactInitCovariance_.block<3, 3>(3, 3) = Eigen::Matrix3d::Identity() * static_cast<double>(config("contactOriInitVariance"));
@@ -58,8 +65,8 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   stateOriProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("stateOriProcessVariance"));
   stateLinVelProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("stateLinVelProcessVariance"));
   stateAngVelProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("stateAngVelProcessVariance"));
-  gyroBiasProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("gyroBiasProcessVariance"));
-  unmodeledWrenchProcessCovariance_ = so::Matrix6::Identity() * static_cast<double>(config("unmodeledWrenchProcessVariance"));
+  gyroBiasProcessCovariance_.setZero();
+  unmodeledWrenchProcessCovariance_.setZero();
 
   contactProcessCovariance_.setZero();
   contactProcessCovariance_.block<3, 3>(0, 0) =
@@ -69,6 +76,28 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
       static_cast<so::Vector3>(config("contactForceProcessVariance")).matrix().asDiagonal();
   contactProcessCovariance_.block<3, 3>(9, 9) =
       static_cast<so::Vector3>(config("contactTorqueProcessVariance")).matrix().asDiagonal();
+
+  // Unmodeled Wrench //
+  if(withUnmodeledWrench_)
+  {
+    // initial
+    unmodeledWrenchInitCovariance_.block<3, 3>(0, 0) =
+        static_cast<so::Vector3>(config("unmodeledForceInitVariance")).matrix().asDiagonal();
+    unmodeledWrenchInitCovariance_.block<3, 3>(3, 3) =
+        static_cast<so::Vector3>(config("unmodeledTorqueInitVariance")).matrix().asDiagonal();
+
+    // process
+    unmodeledWrenchProcessCovariance_.block<3, 3>(0, 0) =
+        static_cast<so::Vector3>(config("unmodeledForceProcessVariance")).matrix().asDiagonal();
+    unmodeledWrenchProcessCovariance_.block<3, 3>(3, 3) =
+        static_cast<so::Vector3>(config("unmodeledTorqueProcessVariance")).matrix().asDiagonal();
+  }
+  // Gyrometer Bias
+  if(withGyroBias_)
+  {
+    gyroBiasInitCovariance_ = static_cast<so::Vector3>(config("gyroBiasInitVariance")).matrix().asDiagonal();
+    gyroBiasProcessCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("gyroBiasProcessVariance"));
+  }
 
   // Sensor //
   positionSensorCovariance_ = Eigen::Matrix3d::Identity() * static_cast<double>(config("positionSensorVariance"));
@@ -158,9 +187,6 @@ void MCKineticsObserver::initObserverStateVector(const mc_rbdyn::Robot & robot)
 bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 {
   const auto & robot = ctl.robot(robot_);
-
-  Eigen::Matrix<double, 3, 2> initCom;
-  initCom << robot.com(), robot.comVelocity();
 
   /** Center of mass (assumes FK, FV and FA are already done) **/
   
@@ -1086,8 +1112,7 @@ std::set<std::string> MCKineticsObserver::findContacts(const mc_control::MCContr
 
 void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<std::string> updatedContacts)
 {
-  /** Debugging output **/
-
+  /*
   if (updatedContacts.empty())
   {
     if (noContact_ == 0)
@@ -1099,13 +1124,16 @@ void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<
       mc_rtc::log::warning("No contact detected     :     x" + std::to_string(noContact_) + " iterations");
     }
     noContact_++;
-    if (robot.indirectSurfaceForceSensor("LeftFootCenter").wrenchWithoutGravity(robot).vector()(5) > 0.3) // threshold on the force along z
+    if (robot.indirectSurfaceForceSensor("LeftFootCenter").wrenchWithoutGravity(robot).vector()(5) > 0.3) // threshold
+  on the force along z
     {
-      updatedContacts.insert("LeftFootCenter");  // only to use the contacts even if they are mistakenly not detect by find contacts, to remove after
+      updatedContacts.insert("LeftFootCenter");  // only to use the contacts even if they are mistakenly not detect by
+  find contacts, to remove after
     }
     if (robot.indirectSurfaceForceSensor("RightFootCenter").wrenchWithoutGravity(robot).vector()(5) > 0.3)
     {
-      updatedContacts.insert("RightFootCenter");  // only to use the contacts even if they are mistakenly not detect by find contacts, to remove after
+      updatedContacts.insert("RightFootCenter");  // only to use the contacts even if they are mistakenly not detect by
+  find contacts, to remove after
     }
 
 
@@ -1119,9 +1147,9 @@ void MCKineticsObserver::updateContacts(const mc_rbdyn::Robot & robot, std::set<
   {
     noContact_ = 0;
   }
+  */
 
-
-        /** Debugging output **/
+  /** Debugging output **/
   if(verbose_ && updatedContacts != oldContacts_) mc_rtc::log::info("[{}] Contacts changed: {}", name(), mc_rtc::io::to_string(updatedContacts));
   contactPositions_.clear();
   

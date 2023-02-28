@@ -85,6 +85,15 @@ protected:
    *
    * @param category Category in which to log this observer
    */
+
+  void plotVariablesBeforeUpdate(mc_rtc::Logger & logger);
+
+  void plotVariablesAfterUpdate(mc_rtc::Logger & logger);
+
+  void addContactLogEntries(mc_rtc::Logger & logger, const int & numContact);
+
+  void removeContactLogEntries(mc_rtc::Logger & logger, const int & numContact);
+
   void addToLogger(const mc_control::MCController &, mc_rtc::Logger &, const std::string & category) override;
 
   /*! \brief Remove observer from logger
@@ -110,7 +119,7 @@ protected:
    */
   std::set<std::string> findContacts(const mc_control::MCController & solver);
 
-  void updateContacts(const mc_rbdyn::Robot& robot, std::set<std::string> contacts);
+  void updateContacts(const mc_rbdyn::Robot & robot, std::set<std::string> contacts, mc_rtc::Logger & logger);
 
 protected:
   std::string robot_ = "";
@@ -253,6 +262,7 @@ public:
     }
 
   private:
+    std::string category_ = "Observer_LIPMStabilizerObserverPipeline";
     /* custom list of robots to display */
     std::shared_ptr<mc_rbdyn::Robots> my_robots_;
 

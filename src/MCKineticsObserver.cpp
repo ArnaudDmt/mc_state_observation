@@ -654,7 +654,7 @@ std::set<std::string> MCKineticsObserver::findContacts(const mc_control::MCContr
   auto & inputRobot = my_robots_->robot("inputRobot");
 
   contactsFound_.clear();
-
+  so::Vector3 measuredForce;
   if(withContactsDetection_)
   {
     for(const auto & contact : ctl.solver().contacts())
@@ -671,7 +671,8 @@ std::set<std::string> MCKineticsObserver::findContacts(const mc_control::MCContr
                 false; // if the sensor attached to the contact is not enabled, it must not be considered as an external
                        // perturbation in any case
           }
-          if(wrenchSensor.wrenchWithoutGravity(measRobot).force().z() > contactDetectionThreshold_)
+          measuredForce = wrenchSensor.wrenchWithoutGravity(measRobot).force();
+          if(measuredForce.z() > contactDetectionThreshold_)
           {
             if(wrenchSensor.name().find("LeftHandForceSensor") == std::string::npos
                || (wrenchSensor.name().find("LeftHandForceSensor") != std::string::npos
@@ -697,7 +698,8 @@ std::set<std::string> MCKineticsObserver::findContacts(const mc_control::MCContr
                 false; // if the sensor attached to the contact is not enabled, it must not be considered as an external
                        // perturbation in any case
           }
-          if(wrenchSensor.wrenchWithoutGravity(measRobot).force().z() > contactDetectionThreshold_)
+          measuredForce = wrenchSensor.wrenchWithoutGravity(measRobot).force();
+          if(measuredForce.z() > contactDetectionThreshold_)
           {
             if(wrenchSensor.name().find("LeftHandForceSensor") == std::string::npos
                || (wrenchSensor.name().find("LeftHandForceSensor") != std::string::npos
@@ -719,6 +721,7 @@ std::set<std::string> MCKineticsObserver::findContacts(const mc_control::MCContr
     for(auto wrenchSensor : measRobot.forceSensors())
     {
       const std::string & fsName = wrenchSensor.name();
+      measuredForce = wrenchSensor.wrenchWithoutGravity(measRobot).force();
       if(!mapContacts_.contactWithSensor(fsName).sensorEnabled)
       {
         mapContacts_.contactWithSensor(fsName).isExternalWrench =
@@ -734,9 +737,8 @@ std::set<std::string> MCKineticsObserver::findContacts(const mc_control::MCContr
         if(withFilteredForcesContactDetection_) // NOT WORKING FOR NOW
         {
           ContactWithSensor & contact = mapContacts_.contactWithSensor(fsName);
-          contact.filteredForce =
-              (1 - ctl.timeStep * contact.lambda) * contact.filteredForce
-              + contact.lambda * ctl.timeStep * wrenchSensor.wrenchWithoutGravity(measRobot).force();
+          contact.filteredForce = (1 - ctl.timeStep * contact.lambda) * contact.filteredForce
+                                  + contact.lambda * ctl.timeStep * measuredForce;
 
           if(contact.filteredForce.norm() > contactDetectionThreshold_)
           {
@@ -746,7 +748,7 @@ std::set<std::string> MCKineticsObserver::findContacts(const mc_control::MCContr
         }
         else
         {
-          if(wrenchSensor.wrenchWithoutGravity(measRobot).force().z() > contactDetectionThreshold_)
+          if(measuredForce.z() > contactDetectionThreshold_)
           {
             contactsFound_.insert(fsName);
             mapContacts_.contactWithSensor(fsName).isExternalWrench = false;

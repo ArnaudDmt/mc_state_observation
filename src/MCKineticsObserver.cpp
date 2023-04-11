@@ -64,6 +64,7 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   config("withDebugLogs", withDebugLogs_);
   config("withContactsDetection", withContactsDetection_);
   config("contactDetectionPropThreshold", contactDetectionPropThreshold_);
+  config("weakContactPropThreshold", weakContactPropThreshold_);
   config("withFilteredForcesContactDetection", withFilteredForcesContactDetection_);
   config("withUnmodeledWrench", withUnmodeledWrench_);
   config("withGyroBias", withGyroBias_);
@@ -132,6 +133,16 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
       static_cast<so::Vector3>(config("contactForceProcessVariance")).matrix().asDiagonal();
   contactProcessCovariance_.block<3, 3>(9, 9) =
       static_cast<so::Vector3>(config("contactTorqueProcessVariance")).matrix().asDiagonal();
+
+  contactInitCovarianceWeakContacts_.setZero();
+  contactInitCovarianceWeakContacts_.block<3, 3>(0, 0) =
+      static_cast<so::Vector3>(config("contactPositionInitVarianceWeakContacts")).matrix().asDiagonal();
+  contactInitCovarianceWeakContacts_.block<3, 3>(3, 3) =
+      static_cast<so::Vector3>(config("contactOriInitVarianceWeakContacts")).matrix().asDiagonal();
+  contactInitCovarianceWeakContacts_.block<3, 3>(6, 6) =
+      static_cast<so::Vector3>(config("contactForceInitVarianceWeakContacts")).matrix().asDiagonal();
+  contactInitCovarianceWeakContacts_.block<3, 3>(9, 9) =
+      static_cast<so::Vector3>(config("contactTorqueInitVarianceWeakContacts")).matrix().asDiagonal();
 
   // Unmodeled Wrench //
   if(withUnmodeledWrench_)
@@ -759,6 +770,7 @@ void MCKineticsObserver::updateContact(const mc_control::MCController & ctl,
 {
   const auto & robot = ctl.robot(robot_);
   const std::string & fsName = forceSensor.name();
+  ContactWithSensor & contact = mapContacts_.contactWithSensor(fsName);
 
   contactWrenchVector_.segment<3>(0) = forceSensor.wrenchWithoutGravity(robot).force(); // retrieving the force
   contactWrenchVector_.segment<3>(3) = forceSensor.wrenchWithoutGravity(robot).moment(); // retrieving the torque
@@ -789,10 +801,9 @@ void MCKineticsObserver::updateContact(const mc_control::MCController & ctl,
   so::kine::Kinematics worldContactKineInputRobot = worldBodyKineInputRobot * bodyContactKine;
   const so::kine::Kinematics & fbContactKineInputRobot = worldContactKineInputRobot;
 
-  if(mapContacts_.contactWithSensor(fsName)
-         .wasAlreadySet) // checks if the contact already exists, if yes, it is updated
+  if(contact.wasAlreadySet) // checks if the contact already exists, if yes, it is updated
   {
-    if(mapContacts_.contactWithSensor(fsName).sensorEnabled)
+    if(contact.sensorEnabled)
     {
       observer_.updateContactWithWrenchSensor(contactWrenchVector_, contactSensorCovariance_, fbContactKineInputRobot,
                                               mapContacts_.getNumFromName(fsName));
@@ -804,17 +815,15 @@ void MCKineticsObserver::updateContact(const mc_control::MCController & ctl,
 
     if(withDebugLogs_)
     {
-      if(mapContacts_.contactWithSensor(fsName).sensorEnabled
-         && !mapContacts_.contactWithSensor(fsName).sensorWasEnabled)
+      if(contact.sensorEnabled && !contact.sensorWasEnabled)
       {
         addContactMeasurementsLogEntries(logger, mapContacts_.getNumFromName(fsName));
-        mapContacts_.contactWithSensor(fsName).sensorWasEnabled = true;
+        contact.sensorWasEnabled = true;
       }
-      if(!mapContacts_.contactWithSensor(fsName).sensorEnabled
-         && mapContacts_.contactWithSensor(fsName).sensorWasEnabled)
+      if(!contact.sensorEnabled && contact.sensorWasEnabled)
       {
         removeContactMeasurementsLogEntries(logger, mapContacts_.getNumFromName(fsName));
-        mapContacts_.contactWithSensor(fsName).sensorWasEnabled = false;
+        contact.sensorWasEnabled = false;
       }
     }
   }
@@ -828,7 +837,7 @@ void MCKineticsObserver::updateContact(const mc_control::MCController & ctl,
 
     if(withOdometry_)
     {
-      if(!mapContacts_.contactWithSensor(fsName).sensorEnabled)
+      if(!contact.sensorEnabled)
       {
         mc_rtc::log::info("The sensor is disabled but is required for the odometry");
       }
@@ -892,15 +901,28 @@ void MCKineticsObserver::updateContact(const mc_control::MCController & ctl,
 
     if(observer_.getNumberOfSetContacts() > 0) // checks if another contact is already set
     {
+
+      if(contact.isWeakContact)
+      {
+        observer_.addContact(worldContactKineRef, contactInitCovarianceWeakContacts_, weakContactProcessCovariance_,
+                             numContact, linStiffness_, linDamping_, angStiffness_, angDamping_);
+      }
+      else
+      {
+        observer_.addContact(worldContactKineRef, contactInitCovarianceNewContacts_, contactProcessCovariance_,
+                             numContact, linStiffness_, linDamping_, angStiffness_, angDamping_);
+      }
+      /*
       observer_.addContact(worldContactKineRef, contactInitCovarianceNewContacts_, contactProcessCovariance_,
                            numContact, linStiffness_, linDamping_, angStiffness_, angDamping_);
+                           */
     }
     else
     {
       observer_.addContact(worldContactKineRef, contactInitCovarianceFirstContacts_, contactProcessCovariance_,
                            numContact, linStiffness_, linDamping_, angStiffness_, angDamping_);
     }
-    if(mapContacts_.contactWithSensor(fsName).sensorEnabled)
+    if(contact.sensorEnabled)
     {
       observer_.updateContactWithWrenchSensor(contactWrenchVector_,
                                               contactSensorCovariance_, // contactInitCovariance_.block<6,6>(6,6)
@@ -959,14 +981,12 @@ void MCKineticsObserver::updateContacts(const mc_control::MCController & ctl,
   {
     int numDiff = mapContacts_.getNumFromName(diff);
     observer_.removeContact(numDiff);
-    mapContacts_.contactWithSensor(diff).wasAlreadySet = false;
-    mapContacts_.contactWithSensor(diff).isSet = false;
+    mapContacts_.contactWithSensor(diff).resetContact();
 
     if(withDebugLogs_)
     {
       removeContactLogEntries(logger, numDiff);
       removeContactMeasurementsLogEntries(logger, numDiff);
-      mapContacts_.contactWithSensor(diff).sensorWasEnabled = false;
     }
   }
   oldContacts_ = updatedContacts;
@@ -1000,6 +1020,8 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController &,
 
   logger.addLogEntry(category + "_constants_forceThreshold",
                      [this]() -> double { return mass_ * so::cst::gravityConstant * contactDetectionPropThreshold_; });
+  logger.addLogEntry(category + "_constants_weakContactForceThreshold",
+                     [this]() -> double { return mass_ * so::cst::gravityConstant * weakContactPropThreshold_; });
 }
 
 void MCKineticsObserver::removeFromLogger(mc_rtc::Logger & logger, const std::string & category)
@@ -1659,6 +1681,14 @@ void MCKineticsObserver::addContactLogEntries(mc_rtc::Logger & logger, const int
                            + "_inputUserContactKine_orientation",
                        [this, numContact]() -> Eigen::Quaternion<double>
                        { return observer_.getUserContactInputPose(numContact).orientation.inverse().toQuaternion(); });
+    logger.addLogEntry(category_ + "_debug_contactState_isWeakContact_" + mapContacts_.getNameFromNum(numContact),
+                       [this, numContact]() -> int
+                       { return int(mapContacts_.contactWithSensor(numContact).isWeakContact); });
+    logger.addLogEntry(category_ + "_debug_contactState_isExternalWrench_" + mapContacts_.getNameFromNum(numContact),
+                       [this, numContact]() -> int
+                       { return int(mapContacts_.contactWithSensor(numContact).isExternalWrench); });
+    logger.addLogEntry(category_ + "_debug_contactState_isSet_" + mapContacts_.getNameFromNum(numContact),
+                       [this, numContact]() -> int { return int(mapContacts_.contactWithSensor(numContact).isSet); });
   }
 }
 
@@ -1779,6 +1809,9 @@ void MCKineticsObserver::removeContactLogEntries(mc_rtc::Logger & logger, const 
 
   logger.removeLogEntry(category_ + "_debug_contactPose_" + mapContacts_.getNameFromNum(numContact)
                         + "_inputUserContactKine_orientation");
+  logger.removeLogEntry(category_ + "_debug_contactState_isWeakContact_" + mapContacts_.getNameFromNum(numContact));
+  logger.removeLogEntry(category_ + "_debug_contactState_isExternalWrench_" + mapContacts_.getNameFromNum(numContact));
+  logger.removeLogEntry(category_ + "_debug_contactState_isSet_" + mapContacts_.getNameFromNum(numContact));
 }
 
 void MCKineticsObserver::removeContactMeasurementsLogEntries(mc_rtc::Logger & logger, const int & numContact)

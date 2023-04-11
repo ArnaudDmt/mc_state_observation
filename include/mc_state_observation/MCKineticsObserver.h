@@ -63,12 +63,37 @@ namespace mc_state_observation
     {
       id_ = id;
       name_ = name;
+      resetContact();
+    }
+
+  public:
+    inline void resetContact()
+    {
+      wasAlreadySet = false;
+      isSet = false;
+
+      if(name_.find("Hand") != std::string::npos) // we consider the hands as weak contacts
+      {
+        isWeakContact = true;
+        wasWeakContact = true;
+      }
+      isWeakContact = false;
+      wasWeakContact = false;
+
+      /*
+      else
+      {
+        isWeakContact = false;
+        wasWeakContact = false;
+      }
+      */
     }
 
   public:
     bool isSet = false;
     bool wasAlreadySet = false;
     bool isWeakContact = false;
+    bool wasWeakContact = false; // defines if the contact was weak at its creation
   };
 
   struct ContactWithSensor : virtual public Contact
@@ -79,12 +104,36 @@ namespace mc_state_observation
     {
       id_ = id;
       name_ = name;
+      resetContact();
     }
     ~ContactWithSensor() {}
+    inline void resetContact()
+    {
+      wasAlreadySet = false;
+      isSet = false;
+      sensorWasEnabled = false;
+
+      if(name_.find("Hand") != std::string::npos) // we consider the hands as weak contacts
+      {
+        isWeakContact = true;
+        wasWeakContact = true;
+      }
+      isWeakContact = false;
+      wasWeakContact = false;
+
+      /*
+      else
+      {
+        isWeakContact = false;
+        wasWeakContact = false;
+      }
+      */
+      // also filtered force? see when this feature will be corrected
+    }
 
   public:
     so::Vector6 wrenchInCentroid = so::Vector6::Zero();
-    bool isExternalWrench = false;
+    bool isExternalWrench = true;
     bool sensorEnabled = true;
     bool sensorWasEnabled = false; // allows to know if the contact's measurements have to be added during the update
 
@@ -112,9 +161,19 @@ namespace mc_state_observation
       return mapContactsWithSensors_.at(name);
     }
 
+    inline ContactWithSensor & contactWithSensor(const int & num)
+    {
+      return mapContactsWithSensors_.at(getNameFromNum(num));
+    }
+
     inline ContactWithoutSensor & contactWithoutSensor(const std::string & name)
     {
       return mapContactsWithoutSensors_.at(name);
+    }
+
+    inline ContactWithoutSensor & contactWithoutSensor(const int & num)
+    {
+      return mapContactsWithoutSensors_.at(getNameFromNum(num));
     }
 
     inline std::map<std::string, ContactWithSensor> & contactsWithSensors()
@@ -507,6 +566,7 @@ public:
     std::vector<so::Vector> predictedAccelerometers_;
 
     double contactDetectionPropThreshold_ = 0.0;
+    double weakContactPropThreshold_ = 0.0;
 
     so::Vector innovation_;
 
@@ -588,6 +648,7 @@ public:
     so::Matrix6 unmodeledWrenchInitCovariance_;
     so::Matrix12 contactInitCovarianceFirstContacts_;
     so::Matrix12 contactInitCovarianceNewContacts_;
+    so::Matrix12 contactInitCovarianceWeakContacts_;
 
     so::Matrix3 statePositionProcessCovariance_;
     so::Matrix3 stateOriProcessCovariance_;
@@ -596,6 +657,7 @@ public:
     so::Matrix3 gyroBiasProcessCovariance_;
     so::Matrix6 unmodeledWrenchProcessCovariance_;
     so::Matrix12 contactProcessCovariance_;
+    so::Matrix12 weakContactProcessCovariance_;
 
     so::Matrix3 positionSensorCovariance_;
     so::Matrix3 orientationSensorCoVariance_;

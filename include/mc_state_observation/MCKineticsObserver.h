@@ -71,29 +71,13 @@ namespace mc_state_observation
     {
       wasAlreadySet = false;
       isSet = false;
-
-      if(name_.find("Hand") != std::string::npos) // we consider the hands as weak contacts
-      {
-        isWeakContact = true;
-        wasWeakContact = true;
-      }
       isWeakContact = false;
-      wasWeakContact = false;
-
-      /*
-      else
-      {
-        isWeakContact = false;
-        wasWeakContact = false;
-      }
-      */
     }
 
   public:
     bool isSet = false;
     bool wasAlreadySet = false;
     bool isWeakContact = false;
-    bool wasWeakContact = false; // defines if the contact was weak at its creation
   };
 
   struct ContactWithSensor : virtual public Contact
@@ -112,22 +96,8 @@ namespace mc_state_observation
       wasAlreadySet = false;
       isSet = false;
       sensorWasEnabled = false;
-
-      if(name_.find("Hand") != std::string::npos) // we consider the hands as weak contacts
-      {
-        isWeakContact = true;
-        wasWeakContact = true;
-      }
       isWeakContact = false;
-      wasWeakContact = false;
 
-      /*
-      else
-      {
-        isWeakContact = false;
-        wasWeakContact = false;
-      }
-      */
       // also filtered force? see when this feature will be corrected
     }
 
@@ -391,7 +361,7 @@ protected:
                       mc_rtc::Logger & logger);
   void updateContact(const mc_control::MCController & ctl,
                      const mc_rbdyn::Robot & inputRobot,
-                     const mc_rbdyn::ForceSensor forceSensor,
+                     const mc_rbdyn::ForceSensor wrenchSensor,
                      mc_rtc::Logger & logger);
 
 protected:
@@ -567,6 +537,8 @@ public:
 
     double contactDetectionPropThreshold_ = 0.0;
     double weakContactPropThreshold_ = 0.0;
+    double contactDetectionThreshold_ = 0.0;
+    double weakContactThreshold_ = 0.0;
 
     so::Vector innovation_;
 

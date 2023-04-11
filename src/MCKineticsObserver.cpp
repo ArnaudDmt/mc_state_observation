@@ -65,6 +65,7 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   config("withContactsDetection", withContactsDetection_);
   config("contactDetectionPropThreshold", contactDetectionPropThreshold_);
   config("weakContactPropThreshold", weakContactPropThreshold_);
+
   config("withFilteredForcesContactDetection", withFilteredForcesContactDetection_);
   config("withUnmodeledWrench", withUnmodeledWrench_);
   config("withGyroBias", withGyroBias_);
@@ -233,10 +234,10 @@ void MCKineticsObserver::reset(const mc_control::MCController & ctl)
     mapIMUs_.insertIMU(imu.name());
   }
 
-  for(auto forceSensor : realRobot.forceSensors())
+  for(auto wrenchSensor : realRobot.forceSensors())
   {
-    const std::string & fsName = forceSensor.name();
-    mapContacts_.insertContact(forceSensor.name(), true);
+    const std::string & fsName = wrenchSensor.name();
+    mapContacts_.insertContact(wrenchSensor.name(), true);
     ctl.gui()->addElement(
         {"MCKineticsObserver", "Contacts"},
         mc_rtc::gui::Checkbox(
@@ -253,6 +254,9 @@ void MCKineticsObserver::reset(const mc_control::MCController & ctl)
                         << std::endl;
             }));
   }
+
+  contactDetectionThreshold_ = robot.mass() * so::cst::gravityConstant * contactDetectionPropThreshold_;
+  weakContactThreshold_ = robot.mass() * so::cst::gravityConstant * weakContactPropThreshold_;
 
   if(debug_)
   {
@@ -660,24 +664,24 @@ std::set<std::string> MCKineticsObserver::findContacts(const mc_control::MCContr
       {
         if(ctl.robots().robot(contact.r2Index()).mb().joint(0).type() == rbd::Joint::Fixed)
         {
-          const auto & ifs = measRobot.indirectSurfaceForceSensor(contact.r1Surface()->name());
-          if(!mapContacts_.contactWithSensor(ifs.name()).sensorEnabled)
+          const auto & wrenchSensor = measRobot.indirectSurfaceForceSensor(contact.r1Surface()->name());
+          if(!mapContacts_.contactWithSensor(wrenchSensor.name()).sensorEnabled)
           {
-            mapContacts_.contactWithSensor(ifs.name()).isExternalWrench =
+            mapContacts_.contactWithSensor(wrenchSensor.name()).isExternalWrench =
                 false; // if the sensor attached to the contact is not enabled, it must not be considered as an external
                        // perturbation in any case
           }
-          if(ifs.wrenchWithoutGravity(measRobot).force().z() > measRobot.mass() * so::cst::gravityConstant * 0.05)
+          if(wrenchSensor.wrenchWithoutGravity(measRobot).force().z() > contactDetectionThreshold_)
           {
-            if(ifs.name().find("LeftHandForceSensor") == std::string::npos
-               || (ifs.name().find("LeftHandForceSensor") != std::string::npos
+            if(wrenchSensor.name().find("LeftHandForceSensor") == std::string::npos
+               || (wrenchSensor.name().find("LeftHandForceSensor") != std::string::npos
                    && leftHandDetection_
                           == "asContact")) // checks that the contact is not attached to the left hand and if it is,
                                            // checks that it must be considered as a contact in the Kinetics Observer
                                            // and not as an external input wrench
             {
-              contactsFound_.insert(ifs.name());
-              mapContacts_.contactWithSensor(ifs.name()).isExternalWrench = false;
+              contactsFound_.insert(wrenchSensor.name());
+              mapContacts_.contactWithSensor(wrenchSensor.name()).isExternalWrench = false;
             }
           }
         }
@@ -686,24 +690,24 @@ std::set<std::string> MCKineticsObserver::findContacts(const mc_control::MCContr
       {
         if(ctl.robots().robot(contact.r1Index()).mb().joint(0).type() == rbd::Joint::Fixed)
         {
-          const auto & ifs = measRobot.indirectSurfaceForceSensor(contact.r2Surface()->name());
-          if(!mapContacts_.contactWithSensor(ifs.name()).sensorEnabled)
+          const auto & wrenchSensor = measRobot.indirectSurfaceForceSensor(contact.r2Surface()->name());
+          if(!mapContacts_.contactWithSensor(wrenchSensor.name()).sensorEnabled)
           {
-            mapContacts_.contactWithSensor(ifs.name()).isExternalWrench =
+            mapContacts_.contactWithSensor(wrenchSensor.name()).isExternalWrench =
                 false; // if the sensor attached to the contact is not enabled, it must not be considered as an external
                        // perturbation in any case
           }
-          if(ifs.wrenchWithoutGravity(measRobot).force().z() > measRobot.mass() * so::cst::gravityConstant * 0.05)
+          if(wrenchSensor.wrenchWithoutGravity(measRobot).force().z() > contactDetectionThreshold_)
           {
-            if(ifs.name().find("LeftHandForceSensor") == std::string::npos
-               || (ifs.name().find("LeftHandForceSensor") != std::string::npos
+            if(wrenchSensor.name().find("LeftHandForceSensor") == std::string::npos
+               || (wrenchSensor.name().find("LeftHandForceSensor") != std::string::npos
                    && leftHandDetection_
                           == "asContact")) // checks that the contact is not attached to the left hand and if it is,
                                            // checks that it must be considered as a contact in the Kinetics Observer
                                            // and not as an external input wrench
             {
-              contactsFound_.insert(ifs.name());
-              mapContacts_.contactWithSensor(ifs.name()).isExternalWrench = false;
+              contactsFound_.insert(wrenchSensor.name());
+              mapContacts_.contactWithSensor(wrenchSensor.name()).isExternalWrench = false;
             }
           }
         }
@@ -712,9 +716,9 @@ std::set<std::string> MCKineticsObserver::findContacts(const mc_control::MCContr
   }
   else
   {
-    for(auto forceSensor : measRobot.forceSensors())
+    for(auto wrenchSensor : measRobot.forceSensors())
     {
-      const std::string & fsName = forceSensor.name();
+      const std::string & fsName = wrenchSensor.name();
       if(!mapContacts_.contactWithSensor(fsName).sensorEnabled)
       {
         mapContacts_.contactWithSensor(fsName).isExternalWrench =
@@ -730,11 +734,11 @@ std::set<std::string> MCKineticsObserver::findContacts(const mc_control::MCContr
         if(withFilteredForcesContactDetection_) // NOT WORKING FOR NOW
         {
           ContactWithSensor & contact = mapContacts_.contactWithSensor(fsName);
-          contact.filteredForce = (1 - ctl.timeStep * contact.lambda) * contact.filteredForce
-                                  + contact.lambda * ctl.timeStep * forceSensor.wrenchWithoutGravity(measRobot).force();
+          contact.filteredForce =
+              (1 - ctl.timeStep * contact.lambda) * contact.filteredForce
+              + contact.lambda * ctl.timeStep * wrenchSensor.wrenchWithoutGravity(measRobot).force();
 
-          if(contact.filteredForce.norm()
-             > measRobot.mass() * so::cst::gravityConstant * contactDetectionPropThreshold_)
+          if(contact.filteredForce.norm() > contactDetectionThreshold_)
           {
             contactsFound_.insert(fsName);
             contact.isExternalWrench = false;
@@ -742,8 +746,7 @@ std::set<std::string> MCKineticsObserver::findContacts(const mc_control::MCContr
         }
         else
         {
-          if(forceSensor.wrenchWithoutGravity(measRobot).force().z()
-             > measRobot.mass() * so::cst::gravityConstant * contactDetectionPropThreshold_)
+          if(wrenchSensor.wrenchWithoutGravity(measRobot).force().z() > contactDetectionThreshold_)
           {
             contactsFound_.insert(fsName);
             mapContacts_.contactWithSensor(fsName).isExternalWrench = false;
@@ -765,17 +768,17 @@ std::set<std::string> MCKineticsObserver::findContacts(const mc_control::MCContr
 
 void MCKineticsObserver::updateContact(const mc_control::MCController & ctl,
                                        const mc_rbdyn::Robot & inputRobot,
-                                       const mc_rbdyn::ForceSensor forceSensor,
+                                       const mc_rbdyn::ForceSensor wrenchSensor,
                                        mc_rtc::Logger & logger)
 {
   const auto & robot = ctl.robot(robot_);
-  const std::string & fsName = forceSensor.name();
+  const std::string & fsName = wrenchSensor.name();
   ContactWithSensor & contact = mapContacts_.contactWithSensor(fsName);
 
-  contactWrenchVector_.segment<3>(0) = forceSensor.wrenchWithoutGravity(robot).force(); // retrieving the force
-  contactWrenchVector_.segment<3>(3) = forceSensor.wrenchWithoutGravity(robot).moment(); // retrieving the torque
+  contactWrenchVector_.segment<3>(0) = wrenchSensor.wrenchWithoutGravity(robot).force(); // retrieving the force
+  contactWrenchVector_.segment<3>(3) = wrenchSensor.wrenchWithoutGravity(robot).moment(); // retrieving the torque
 
-  const sva::PTransformd & bodyContactPoseRobot = forceSensor.X_p_f();
+  const sva::PTransformd & bodyContactPoseRobot = wrenchSensor.X_p_f();
   so::kine::Kinematics bodyContactKine;
   bodyContactKine.setZero(so::kine::Kinematics::Flags::all);
   bodyContactKine.position = bodyContactPoseRobot.translation();
@@ -784,19 +787,19 @@ void MCKineticsObserver::updateContact(const mc_control::MCController & ctl,
   so::kine::Kinematics worldBodyKineInputRobot;
 
   worldBodyKineInputRobot.position =
-      inputRobot.mbc().bodyPosW[inputRobot.bodyIndexByName(forceSensor.parentBody())].translation();
+      inputRobot.mbc().bodyPosW[inputRobot.bodyIndexByName(wrenchSensor.parentBody())].translation();
   worldBodyKineInputRobot.orientation = so::Matrix3(
-      inputRobot.mbc().bodyPosW[inputRobot.bodyIndexByName(forceSensor.parentBody())].rotation().transpose());
+      inputRobot.mbc().bodyPosW[inputRobot.bodyIndexByName(wrenchSensor.parentBody())].rotation().transpose());
   worldBodyKineInputRobot.linVel =
-      inputRobot.mbc().bodyVelW[inputRobot.bodyIndexByName(forceSensor.parentBody())].linear();
+      inputRobot.mbc().bodyVelW[inputRobot.bodyIndexByName(wrenchSensor.parentBody())].linear();
   worldBodyKineInputRobot.angVel =
-      inputRobot.mbc().bodyVelW[inputRobot.bodyIndexByName(forceSensor.parentBody())].angular();
+      inputRobot.mbc().bodyVelW[inputRobot.bodyIndexByName(wrenchSensor.parentBody())].angular();
   worldBodyKineInputRobot.linAcc =
       worldBodyKineInputRobot.orientation.toMatrix3()
-      * inputRobot.mbc().bodyAccB[inputRobot.bodyIndexByName(forceSensor.parentBody())].linear();
+      * inputRobot.mbc().bodyAccB[inputRobot.bodyIndexByName(wrenchSensor.parentBody())].linear();
   worldBodyKineInputRobot.angAcc =
       worldBodyKineInputRobot.orientation.toMatrix3()
-      * inputRobot.mbc().bodyAccB[inputRobot.bodyIndexByName(forceSensor.parentBody())].angular();
+      * inputRobot.mbc().bodyAccB[inputRobot.bodyIndexByName(wrenchSensor.parentBody())].angular();
 
   so::kine::Kinematics worldContactKineInputRobot = worldBodyKineInputRobot * bodyContactKine;
   const so::kine::Kinematics & fbContactKineInputRobot = worldContactKineInputRobot;
@@ -805,6 +808,17 @@ void MCKineticsObserver::updateContact(const mc_control::MCController & ctl,
   {
     if(contact.sensorEnabled)
     {
+      if(contact.isWeakContact && wrenchSensor.wrenchWithoutGravity(robot).force().norm() > weakContactThreshold_)
+      {
+        contact.isWeakContact = false;
+        observer_.setContactProcessCovMat(mapContacts_.getNumFromName(fsName), contactProcessCovariance_);
+      }
+      else if(!contact.isWeakContact && wrenchSensor.wrenchWithoutGravity(robot).force().norm() < weakContactThreshold_)
+      {
+        contact.isWeakContact = true;
+        observer_.setContactProcessCovMat(mapContacts_.getNumFromName(fsName), weakContactProcessCovariance_);
+      }
+
       observer_.updateContactWithWrenchSensor(contactWrenchVector_, contactSensorCovariance_, fbContactKineInputRobot,
                                               mapContacts_.getNumFromName(fsName));
     }
@@ -879,9 +893,9 @@ void MCKineticsObserver::updateContact(const mc_control::MCController & ctl,
         so::kine::Kinematics worldBodyKineRobot;
         so::kine::Kinematics worldContactKineRobot;
         worldBodyKineRobot.position =
-            robot.mbc().bodyPosW[robot.bodyIndexByName(forceSensor.parentBody())].translation();
+            robot.mbc().bodyPosW[robot.bodyIndexByName(wrenchSensor.parentBody())].translation();
         worldBodyKineRobot.orientation =
-            so::Matrix3(robot.mbc().bodyPosW[robot.bodyIndexByName(forceSensor.parentBody())].rotation().transpose());
+            so::Matrix3(robot.mbc().bodyPosW[robot.bodyIndexByName(wrenchSensor.parentBody())].rotation().transpose());
 
         worldContactKineRobot = worldBodyKineRobot * bodyContactKine;
 
@@ -892,9 +906,10 @@ void MCKineticsObserver::updateContact(const mc_control::MCController & ctl,
     else
     {
       so::kine::Kinematics worldBodyKineRobot;
-      worldBodyKineRobot.position = robot.mbc().bodyPosW[robot.bodyIndexByName(forceSensor.parentBody())].translation();
+      worldBodyKineRobot.position =
+          robot.mbc().bodyPosW[robot.bodyIndexByName(wrenchSensor.parentBody())].translation();
       worldBodyKineRobot.orientation =
-          so::Matrix3(robot.mbc().bodyPosW[robot.bodyIndexByName(forceSensor.parentBody())].rotation().transpose());
+          so::Matrix3(robot.mbc().bodyPosW[robot.bodyIndexByName(wrenchSensor.parentBody())].rotation().transpose());
 
       worldContactKineRef = worldBodyKineRobot * bodyContactKine;
     }
@@ -902,13 +917,15 @@ void MCKineticsObserver::updateContact(const mc_control::MCController & ctl,
     if(observer_.getNumberOfSetContacts() > 0) // checks if another contact is already set
     {
 
-      if(contact.isWeakContact)
+      if(wrenchSensor.wrenchWithoutGravity(robot).force().norm() < weakContactThreshold_)
       {
+        contact.isWeakContact = true;
         observer_.addContact(worldContactKineRef, contactInitCovarianceWeakContacts_, weakContactProcessCovariance_,
                              numContact, linStiffness_, linDamping_, angStiffness_, angDamping_);
       }
       else
       {
+        contact.isWeakContact = false;
         observer_.addContact(worldContactKineRef, contactInitCovarianceNewContacts_, contactProcessCovariance_,
                              numContact, linStiffness_, linDamping_, angStiffness_, angDamping_);
       }

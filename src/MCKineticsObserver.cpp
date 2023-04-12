@@ -672,7 +672,7 @@ std::set<std::string> MCKineticsObserver::findContacts(const mc_control::MCContr
                        // perturbation in any case
           }
           measuredForce = wrenchSensor.wrenchWithoutGravity(measRobot).force();
-          if(measuredForce.z() > contactDetectionThreshold_)
+          if(measuredForce.norm() > contactDetectionThreshold_)
           {
             if(wrenchSensor.name().find("LeftHandForceSensor") == std::string::npos
                || (wrenchSensor.name().find("LeftHandForceSensor") != std::string::npos
@@ -699,7 +699,7 @@ std::set<std::string> MCKineticsObserver::findContacts(const mc_control::MCContr
                        // perturbation in any case
           }
           measuredForce = wrenchSensor.wrenchWithoutGravity(measRobot).force();
-          if(measuredForce.z() > contactDetectionThreshold_)
+          if(measuredForce.norm() > contactDetectionThreshold_)
           {
             if(wrenchSensor.name().find("LeftHandForceSensor") == std::string::npos
                || (wrenchSensor.name().find("LeftHandForceSensor") != std::string::npos
@@ -752,6 +752,14 @@ std::set<std::string> MCKineticsObserver::findContacts(const mc_control::MCContr
           {
             contactsFound_.insert(fsName);
             mapContacts_.contactWithSensor(fsName).isExternalWrench = false;
+            if(measuredForce.norm() < weakContactThreshold_)
+            {
+              mapContacts_.contactWithSensor(fsName).isWeakContact = true;
+            }
+            else
+            {
+              mapContacts_.contactWithSensor(fsName).isWeakContact = false;
+            }
           }
         }
       }
@@ -810,15 +818,14 @@ void MCKineticsObserver::updateContact(const mc_control::MCController & ctl,
   {
     if(contact.sensorEnabled)
     {
-      if(contact.isWeakContact && wrenchSensor.wrenchWithoutGravity(robot).force().norm() > weakContactThreshold_)
+      if(contact.isWeakContact && !contact.wasWeakContact)
       {
-        contact.isWeakContact = false;
-        observer_.setContactProcessCovMat(mapContacts_.getNumFromName(fsName), contactProcessCovariance_);
-      }
-      else if(!contact.isWeakContact && wrenchSensor.wrenchWithoutGravity(robot).force().norm() < weakContactThreshold_)
-      {
-        contact.isWeakContact = true;
+        std::cout << "New weak contact";
         observer_.setContactProcessCovMat(mapContacts_.getNumFromName(fsName), weakContactProcessCovariance_);
+      }
+      else if(!contact.isWeakContact && contact.wasWeakContact)
+      {
+        observer_.setContactProcessCovMat(mapContacts_.getNumFromName(fsName), contactProcessCovariance_);
       }
 
       observer_.updateContactWithWrenchSensor(contactWrenchVector_, contactSensorCovariance_, fbContactKineInputRobot,
@@ -919,15 +926,13 @@ void MCKineticsObserver::updateContact(const mc_control::MCController & ctl,
     if(observer_.getNumberOfSetContacts() > 0) // checks if another contact is already set
     {
 
-      if(wrenchSensor.wrenchWithoutGravity(robot).force().norm() < weakContactThreshold_)
+      if(contact.isWeakContact)
       {
-        contact.isWeakContact = true;
         observer_.addContact(worldContactKineRef, contactInitCovarianceWeakContacts_, weakContactProcessCovariance_,
                              numContact, linStiffness_, linDamping_, angStiffness_, angDamping_);
       }
       else
       {
-        contact.isWeakContact = false;
         observer_.addContact(worldContactKineRef, contactInitCovarianceNewContacts_, contactProcessCovariance_,
                              numContact, linStiffness_, linDamping_, angStiffness_, angDamping_);
       }
@@ -957,6 +962,7 @@ void MCKineticsObserver::updateContact(const mc_control::MCController & ctl,
       addContactLogEntries(logger, numContact);
     }
   }
+  contact.wasWeakContact = contact.isWeakContact;
 }
 
 void MCKineticsObserver::updateContacts(const mc_control::MCController & ctl,
@@ -1708,6 +1714,9 @@ void MCKineticsObserver::addContactLogEntries(mc_rtc::Logger & logger, const int
                        { return int(mapContacts_.contactWithSensor(numContact).isExternalWrench); });
     logger.addLogEntry(category_ + "_debug_contactState_isSet_" + mapContacts_.getNameFromNum(numContact),
                        [this, numContact]() -> int { return int(mapContacts_.contactWithSensor(numContact).isSet); });
+    logger.addLogEntry(category_ + "_debug_contactState_sensorEnabled_" + mapContacts_.getNameFromNum(numContact),
+                       [this, numContact]() -> int
+                       { return int(mapContacts_.contactWithSensor(numContact).sensorEnabled); });
   }
 }
 
@@ -1831,6 +1840,7 @@ void MCKineticsObserver::removeContactLogEntries(mc_rtc::Logger & logger, const 
   logger.removeLogEntry(category_ + "_debug_contactState_isWeakContact_" + mapContacts_.getNameFromNum(numContact));
   logger.removeLogEntry(category_ + "_debug_contactState_isExternalWrench_" + mapContacts_.getNameFromNum(numContact));
   logger.removeLogEntry(category_ + "_debug_contactState_isSet_" + mapContacts_.getNameFromNum(numContact));
+  logger.removeLogEntry(category_ + "_debug_contactState_sensorEnabled_" + mapContacts_.getNameFromNum(numContact));
 }
 
 void MCKineticsObserver::removeContactMeasurementsLogEntries(mc_rtc::Logger & logger, const int & numContact)

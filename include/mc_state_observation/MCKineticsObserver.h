@@ -78,6 +78,7 @@ namespace mc_state_observation
     bool isSet = false;
     bool wasAlreadySet = false;
     bool isWeakContact = false;
+    bool wasWeakContact = false;
   };
 
   struct ContactWithSensor : virtual public Contact
@@ -97,6 +98,7 @@ namespace mc_state_observation
       isSet = false;
       sensorWasEnabled = false;
       isWeakContact = false;
+      wasWeakContact = false;
 
       // also filtered force? see when this feature will be corrected
     }

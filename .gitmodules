@@ -4,3 +4,6 @@
 [submodule "state-observation"]
 	path = state-observation
 	url = git@github.com:ArnaudDmt/state-observation.git
+[submodule "controller_config"]
+	path = controller_config
+	url = git@github.com:ArnaudDmt/controller_config.git

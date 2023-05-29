@@ -45,6 +45,7 @@ namespace mc_state_observation
     std::string name_;
   };
 
+  /* Contains the important variables associated to the IMU */
   struct IMU : virtual public Sensor
   {
   public:
@@ -60,6 +61,7 @@ namespace mc_state_observation
     stateObservation::Vector3 gyroBias;
   };
 
+  /* Contains the important variables associated to the contact */
   struct Contact : virtual public Sensor
   {
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -114,11 +116,19 @@ namespace mc_state_observation
   public:
     stateObservation::Vector6 wrenchInCentroid = stateObservation::Vector6::Zero(); // for debug only
     double normForce = 0.0; // for debug only
+    // the measurement of the sensor has to be considered as an input for the Kinetics Observer
     bool isExternalWrench = true;
+    // the sensor measurement have to be used in the correction by the Kinetics Observer
     bool sensorEnabled = true;
-    bool sensorWasEnabled = false; // allows to know if the contact's measurements have to be added during the update
+    // allows to know if the contact's measurements have to be added during the update
+    bool sensorWasEnabled = false;
 
-    bool isAttachedToSurface = true;
+    // indicates if the sensor is directly attached to a surface (true) or not (false). Default is true because in the
+    // case of detection of contacts by thresholding the measured force (@contactsDetection_ = fromThreshold), we cannot
+    // know precisely the surface of contact, so we will consider that the kinematics of the contact surface are the
+    // ones of the sensor
+    bool sensorAttachedToSurface = true;
+    // surface of contact
     std::string surface;
 
     /* Force filtering for the contact detection */
@@ -141,52 +151,85 @@ namespace mc_state_observation
   struct MapContacts
   {
   public:
+    /// @brief Accessor for the a contact associated to a sensor contained in the map
+    ///
+    /// @param name The name of the contact to access
+    /// @return ContactWithSensor&
     inline ContactWithSensor & contactWithSensor(const std::string & name)
     {
       return mapContactsWithSensors_.at(name);
     }
-
+    /// @brief Accessor for the a contact associated to a sensor contained in the map
+    ///
+    /// @param num The index of the contact to access
+    /// @return ContactWithSensor&
     inline ContactWithSensor & contactWithSensor(const int & num)
     {
       return mapContactsWithSensors_.at(getNameFromNum(num));
     }
 
+    /// @brief Accessor for the a contact that is not associated to a sensor contained in the map
+    /// @param name The name of the contact to access
+    /// @return ContactWithoutSensor&
     inline ContactWithoutSensor & contactWithoutSensor(const std::string & name)
     {
       return mapContactsWithoutSensors_.at(name);
     }
 
+    /// @brief Accessor for the a contact that is not associated to a sensor contained in the map
+    /// @param num The index of the contact to access
+    /// @return ContactWithoutSensor&
     inline ContactWithoutSensor & contactWithoutSensor(const int & num)
     {
       return mapContactsWithoutSensors_.at(getNameFromNum(num));
     }
 
+    /// @brief Get the map of all the contacts associated to a sensor
+    ///
+    /// @return std::map<std::string, ContactWithSensor>&
     inline std::map<std::string, ContactWithSensor> & contactsWithSensors()
     {
       return mapContactsWithSensors_;
     }
-
+    /// @brief Get the map of all the contacts that are not associated to a sensor
+    ///
+    /// @return std::map<std::string, ContactWithSensor>&
     inline std::map<std::string, ContactWithoutSensor> & contactsWithoutSensors()
     {
       return mapContactsWithoutSensors_;
     }
 
-    inline const std::string & getNameFromNum(const int & num)
-    {
-      return insertOrder.at(num);
-    }
-
+    /// @brief Get the list of all the contacts (with and without sensors)
+    ///
+    /// @return const std::vector<std::string> &
     inline const std::vector<std::string> & getList()
     {
       return insertOrder;
     }
 
+    /// @brief Returns true if the contact is associated to a sensor
+    ///
+    /// @param name The index of the contact to access
+    /// @return bool
     inline bool hasSensor(const std::string & element)
     {
       BOOST_ASSERT(hasElement(element) && "This contact does not belong to the list.");
       return hasSensor_.at(element);
     }
 
+    /// @brief Get the name of a contact given its index
+    ///
+    /// @param num The index of the contact
+    /// @return const std::string &
+    inline const std::string & getNameFromNum(const int & num)
+    {
+      return insertOrder.at(num);
+    }
+
+    /// @brief Get the index of a contact given its name
+    ///
+    /// @param name The name of the contact
+    /// @return const int &
     inline const int & getNumFromName(const std::string & name)
     {
       if(hasSensor_.at(name))
@@ -199,6 +242,10 @@ namespace mc_state_observation
       }
     }
 
+    /// @brief Get the measured zmp of a contact given its name
+    ///
+    /// @param name The name of the contact
+    /// @return const stateObservation::Vector3 &
     inline const stateObservation::Vector3 & getZMPFromName(const std::string & name)
     {
       if(hasSensor_.at(name))
@@ -211,11 +258,20 @@ namespace mc_state_observation
       }
     }
 
+    /// @brief Checks if the given contact exists
+    ///
+    /// @param element The name of the contact
+    /// @return bool
     inline bool hasElement(const std::string & element)
     {
       return hasSensor_.find(element) != hasSensor_.end();
     }
 
+    /// @brief Check that a contact still does not exist, if so, insert a contact to the map of contacts. The contact
+    /// can either be associated to a sensor or not.
+    ///
+    /// @param element The name of the contact
+    /// @param hasSensor True if the contact is attached to a sensor.
     inline void insertContact(const std::string & name, const bool & hasSensor)
     {
       if(checkAlreadyExists(name, hasSensor)) return;
@@ -226,6 +282,10 @@ namespace mc_state_observation
     }
 
   private:
+    /// @brief Insert a contact to the map of contacts. The contact can either be associated to a sensor or not.
+    ///
+    /// @param element The name of the contact
+    /// @param hasSensor True if the contact is attached to a sensor.
     inline void insertElement(const std::string & name, const bool & hasSensor)
     {
       if(hasSensor)
@@ -239,7 +299,14 @@ namespace mc_state_observation
         hasSensor_.insert(std::make_pair(name, true));
       }
     }
-    inline virtual bool checkAlreadyExists(const std::string & name, const bool & hasContact)
+
+    /// @brief Check if a contact already exists in the list. If it already exists, checks that the association to a
+    /// sensor remained unchanged.
+    ///
+    /// @param element The name of the contact
+    /// @param hasSensor True if the contact is attached to a sensor.
+    /// @return bool
+    inline bool checkAlreadyExists(const std::string & name, const bool & hasContact)
     {
       if(hasSensor_.find(name) != hasSensor_.end())
       {
@@ -263,40 +330,53 @@ namespace mc_state_observation
     }
 
   private:
-    std::map<std::string, bool>
-        hasSensor_; // map containing all the contacts and indicating if each sensor has a contact or not
+    // map containing all the contacts and indicating if each sensor has a contact or not
+    std::map<std::string, bool> hasSensor_;
+    // map containing all the contacts associated to a sensor
     std::map<std::string, ContactWithSensor> mapContactsWithSensors_;
+    // map containing all the contacts that are not associated to a sensor
     std::map<std::string, ContactWithoutSensor> mapContactsWithoutSensors_;
+    // List of all the contacts
     std::vector<std::string> insertOrder;
+    // Index generator, incremented everytime a new contact is created
     int num = 0;
   };
 
   struct MapIMUs
   {
   public:
+    /// @brief Get the index of the IMU given its name.
+    /// @param name The name of the IMU
+    /// @return const int &
     inline const int & getNumFromName(const std::string & name)
     {
       return mapIMUs_.find(name)->second.getID();
     }
-    inline bool hasIMU(const std::string & element)
-    {
-      return mapIMUs_.find(element) != mapIMUs_.end();
-    }
-
+    /// @brief Get the name of the IMU given its index.
+    /// @param num The index of the IMU
+    /// @return const std::string &
     inline const std::string & getNameFromNum(const int & num)
     {
       return insertOrder.at(num);
     }
 
+    /// @brief Get the list of all the IMUs.
+    /// @return const std::vector<std::string> &
     inline const std::vector<std::string> & getList()
     {
       return insertOrder;
     }
-    inline virtual bool hasElement(const std::string & name)
+
+    /// @brief Checks if the required IMU exists.
+    /// @param name The name of the IMU
+    /// @return bool
+    inline bool hasElement(const std::string & name)
     {
-      checkAlreadyExists(name);
+      return checkAlreadyExists(name);
     }
 
+    /// @brief Inserts an IMU to the map.
+    /// @param name The name of the IMU
     inline void insertIMU(std::string name)
     {
       if(checkAlreadyExists(name)) return;
@@ -305,6 +385,9 @@ namespace mc_state_observation
       num++;
     }
 
+    /// @brief Accessor for an IMU in the list.
+    /// @param name The name of the IMU
+    /// @return bool
     inline IMU & operator()(std::string name)
     {
       BOOST_ASSERT(checkAlreadyExists(name) && "The requested sensor doesn't exist");
@@ -312,17 +395,20 @@ namespace mc_state_observation
     }
 
   private:
-    inline virtual bool checkAlreadyExists(const std::string & name)
+    /// @brief Checks if the required IMU exists.
+    /// @param name The name of the IMU
+    /// @return bool
+    inline bool checkAlreadyExists(const std::string & name)
     {
-      if(mapIMUs_.find(name) != mapIMUs_.end())
-        return true;
-      else
-        return false;
+      return mapIMUs_.find(name) != mapIMUs_.end();
     }
 
   private:
+    // list of all the IMUs.
     std::vector<std::string> insertOrder;
+    // map associating all the IMUs to their names.
     std::map<std::string, IMU> mapIMUs_;
+    // Index generator, incremented everytime a new IMU is added
     int num = 0;
   };
 
@@ -340,14 +426,29 @@ namespace mc_state_observation
     void update(mc_control::MCController & ctl) override;
 
   protected:
+    /// @brief Update the pose and velocities of the robot in the world frame. Used only to update the ones of the robot
+    /// used for the visualization of the estimation made by the Kinetics Observer.
+    /// @param robot The robot to update.
     void update(mc_rbdyn::Robot & robot);
 
-    // void updateWorldFbKineAndViceVersa(const mc_rbdyn::Robot & robot);
-
+    /// @brief Initializer for the Kinetics Observer's state vector
+    /// @param robot The control robot
     void initObserverStateVector(const mc_rbdyn::Robot & robot);
 
+    /// @brief Sums up the wrenches measured by the unused force sensors expressed in the centroid frame to give them as
+    /// an input to the Kinetics Observer
+    /// @param inputRobot A robot whose configuration is the one of real robot, but whose pose, velocities and
+    /// accelerations are set to zero in the control frame. Allows to ease computations performed in the local frame of
+    /// the robot.
+    /// @param measRobot The control robot
     void inputAdditionalWrench(const mc_rbdyn::Robot & inputRobot, const mc_rbdyn::Robot & measRobot);
 
+    /// @brief Update the IMUs, including the measurements, measurement covariances and kinematics in the floating
+    /// base's frame (user frame)
+    /// @param measRobot The control robot
+    /// @param inputRobot A robot whose configuration is the one of real robot, but whose pose, velocities and
+    /// accelerations are set to zero in the control frame. Allows to ease computations performed in the local frame of
+    /// the robot.
     void updateIMUs(const mc_rbdyn::Robot & measRobot, const mc_rbdyn::Robot & inputRobot);
 
     /*! \brief Add observer from logger
@@ -357,14 +458,24 @@ namespace mc_state_observation
 
     void plotVariablesBeforeUpdate(const mc_control::MCController & ctl, mc_rtc::Logger & logger);
 
-    void plotVariablesAfterUpdate(const mc_control::MCController & ctl, mc_rtc::Logger & logger);
+    void plotVariablesAfterUpdate(mc_rtc::Logger & logger);
 
+    /// @brief Add the logs of the desired contact.
+    /// @param contactName The name of the contact.
+    /// @param logger
     void addContactLogEntries(mc_rtc::Logger & logger, const std::string & contactName);
-
+    /// @brief Remove the logs of the desired contact.
+    /// @param contactName The name of the contact.
+    /// @param logger
     void removeContactLogEntries(mc_rtc::Logger & logger, const std::string & contactName);
 
+    /// @brief Add the measurements logs of the desired contact.
+    /// @param contactName The name of the contact.
+    /// @param logger
     void addContactMeasurementsLogEntries(mc_rtc::Logger & logger, const std::string & contactName);
-
+    /// @brief Remove the measurements logs of the desired contact.
+    /// @param contactName The name of the contact.
+    /// @param logger
     void removeContactMeasurementsLogEntries(mc_rtc::Logger & logger, const std::string & contactName);
 
     void addToLogger(const mc_control::MCController &, mc_rtc::Logger &, const std::string & category) override;
@@ -384,20 +495,44 @@ namespace mc_state_observation
                   const std::vector<std::string> & /* category */) override;
 
   protected:
-    /**
-     * Find established contacts between the observed robot and the fixed robots
-     *
-     * \param ctl Controller that defines the contacts
-     * \return Name of surfaces in contact with the environment
-     */
-    const std::set<std::string> & findContacts(const mc_control::MCController & solver);
-    const std::set<std::string> & findContactsFromSolver(const mc_control::MCController & solver);
-    const std::set<std::string> & findContactsFromSurfaces(const mc_control::MCController & solver);
-    const std::set<std::string> & findContactsFromThreshold(const mc_control::MCController & solver);
+    /// @brief Updates the list of currently set contacts.
+    /// @details The contact detection is defined by the variable
+    /// @contactsDetection_. The possible values of @contactsDetection_ are: \n fromSolver: The contacts are given by
+    /// the controller directly (then thresholded based on the measured force). \n fromSurfaces: The contacts are given
+    /// by the controller directly from a surface (then thresholded based on the measured force). \n fromThreshold: The
+    /// contacts are not required to be given by the controller (the detection is based on a thresholding of the
+    /// measured force)
+    /// @return std::set<std::string> &
+    const std::set<std::string> & findContacts(const mc_control::MCController & ctl);
+    /// @brief Updates the list @contactsFound_ of currently set contacts directly from the controller.
+    /// @details Called by \ref findContacts(const mc_control::MCController & ctl) if @contactsDetection_ is equal to
+    /// "fromSolver". The contacts are given by the controller directly (then thresholded based on the measured force).
+    /// @return std::set<std::string> &
+    void findContactsFromSolver(const mc_control::MCController & ctl);
+    /// @brief Updates the list @contactsFound_ of currently set contacts from the surfaces given by the controller.
+    /// @details Called by \ref findContacts(const mc_control::MCController & ctl) if @contactsDetection_ is equal to
+    /// "fromSurfaces". The contacts are given by the controller directly from a surface (then thresholded based on the
+    /// measured force).
+    /// @return std::set<std::string> &
+    void findContactsFromSurfaces(const mc_control::MCController & ctl);
+    /// @brief Updates the list @contactsFound_ of currently set contacts from a thresholding of the measured forces.
+    /// @details Called by \ref findContacts(const mc_control::MCController & ctl) if @contactsDetection_ is equal to
+    /// "fromThreshold". The contacts are not required to be given by the controller (the detection is based on a
+    /// thresholding of the measured force).
+    /// @return std::set<std::string> &
+    void findContactsFromThreshold(const mc_control::MCController & ctl);
 
+    /// @brief Update the currently set contacts.
+    /// @details The list of contacts is returned by \ref findContacts(const mc_control::MCController & ctl). Calls \ref
+    /// updateContact(const mc_control::MCController & ctl, const std::string & name, mc_rtc::Logger & logger).
+    /// @param contacts The list of contacts returned by \ref findContacts(const mc_control::MCController & ctl).
     void updateContacts(const mc_control::MCController & ctl,
                         std::set<std::string> contacts,
                         mc_rtc::Logger & logger);
+    /// @brief Update the contact or create it if it still does not exist.
+    /// @details Called by \ref updateContacts(const mc_control::MCController & ctl, std::set<std::string> contacts,
+    /// mc_rtc::Logger & logger).
+    /// @param name The name of the contact to update.
     void updateContact(const mc_control::MCController & ctl,
                        const std::string & name,
                        mc_rtc::Logger & logger);
@@ -520,7 +655,7 @@ namespace mc_state_observation
     /** Get last measurement vector sent to observer.
      *
      */
-    inline const Eigen::VectorXd & measurements() const
+    inline const Eigen::VectorXd measurements() const
     {
       return observer_.getEKF().getLastMeasurement();
     }
@@ -542,85 +677,126 @@ namespace mc_state_observation
     }
 
   private:
+    Eigen::VectorXd predictedGlobalCentroidState_;
+    std::vector<stateObservation::Vector> predictedAccelerometersGravityComponent_;
+    std::vector<stateObservation::Vector> predictedWorldIMUsLinAcc_;
+    std::vector<stateObservation::Vector> predictedAccelerometers_;
+
+    // list of surfaces used for contacts detection if @contactsDetection_ is set to "fromSurfaces"
     std::vector<std::string> surfacesForContactDetection_;
+    // list of sensors that must not be used from the start of the observer
 
     double gyroBiasStandardDeviation_ = 0.0;
     std::vector<std::string> contactsSensorDisabledInit_;
+    // zero frame transformation
 
-    so::Vector3 totalForceCentroid_ = so::Vector3::Zero();
-    so::Vector3 totalTorqueCentroid_ = so::Vector3::Zero();
+    stateObservation::Vector3 totalForceCentroid_ = stateObservation::Vector3::Zero();
+    stateObservation::Vector3 totalTorqueCentroid_ = stateObservation::Vector3::Zero();
 
     sva::PTransformd zeroPose_;
+    // zero velocity or acceleration
     sva::MotionVecd zeroMotion_;
 
+    // kinematics of the CoM within the world frame of the control robot
     stateObservation::kine::Kinematics worldCoMKine_;
 
     std::string category_ = "MCKineticsObserver";
     /* custom list of robots to display */
     std::shared_ptr<mc_rbdyn::Robots> my_robots_;
 
+    // the Kinetics Observer completed the loop at least once
     bool ekfIsSet_ = false;
-    std::set<std::string> contactsFound_; //contacts found on each iteration
 
+    // contacts found on each iteration
+    std::set<std::string> contactsFound_;
+
+    // state vector resulting from the Kinetics Observer esimation
     Eigen::VectorXd res_;
-    stateObservation::Vector6 contactWrenchVector_; // vector shared by all the contacts that allows to build a (force+torque) wrench vector 
-                                                  // from the ForceSensor.wrench() function which returns a (torque+force) wrench vector
 
+    // vector shared by all the contacts that allows to build a (force+torque) wrench vector from the
+    // ForceSensor.wrench() function which returns a (torque+force) wrench vector
     stateObservation::Vector6 contactWrenchVector_;
 
+    // rate to apply on the measured force to obtain the threshold for contact detection.
     double contactDetectionPropThreshold_ = 0.0;
+    // threshold on the measured force for contact detection.
     double contactDetectionThreshold_ = 0.0;
 
+    // For logs only. Prediction of the measurements from the newly corrected state
     stateObservation::Vector correctedMeasurements_;
+    // For logs only. Kinematics of the centroid frame within the world frame
     stateObservation::kine::Kinematics globalCentroidKinematics_;
 
     bool debug_ = false;
     bool verbose_ = true;
     
     double mass_ = 42; // [kg]
+
+    // instance of the Kinetics Observer
     stateObservation::KineticsObserver observer_;
-    //std::set<std::string> contacts_; ///< Sorted list of contacts
+
+    // List of previously set contacts
     std::set<std::string> oldContacts_;
-    MapContacts mapContacts_; // contacts are detected in findContacts() function. They are detected from force
-                              // sensors so their names corresponds to the name of the associated force sensors. Has
-                              // to be changed if one wants to works with contacts without force sensors.
+
+    MapContacts mapContacts_;
     MapIMUs mapIMUs_;
-    std::vector<sva::PTransformd> contactPositions_; ///< Position of the contact frames (force sensor frame when using force sensors)
-    //sva::MotionVecd flexDamping_{{17, 17, 17}, {250, 250, 250}}; // HRP-4, {25.0, 200} for HRP-2
-    
-    // sva::MotionVecd flexStiffness_{{727, 727, 727}, {4e4, 4e4, 4e4}}; // HRP-4, {620, 3e5} for HRP-2
+
+    // velocity of the floating base within the world frame (real one, not the one of the control robot)
     sva::MotionVecd v_fb_0_ = sva::MotionVecd::Zero();
+    // pose of the floating base within the world frame (real one, not the one of the control robot)
     sva::PTransformd X_0_fb_ = sva::PTransformd::Identity();
+    // acceleration of the floating base within the world frame (real one, not the one of the control robot)
     sva::MotionVecd a_fb_0_ = sva::MotionVecd::Zero();
 
     sva::PTransformd accPos_; /**< currently hanled accelerometer pos in body */
     sva::PTransformd accContact_; /**< currently hanled contact pos in body */
     sva::RBInertiad inertiaWaist_; /**< grouped inertia */
 
-    so::Vector3 additionalUserResultingForce_ = so::Vector3::Zero();
-    so::Vector3 additionalUserResultingMoment_ = so::Vector3::Zero();
-
+    // total force measured by the sensors that are not associated to a currently set contact and expressed in the
+    // floating base's frame. Used as an input for the Kinetics Observer.
     stateObservation::Vector3 additionalUserResultingForce_ = stateObservation::Vector3::Zero();
+    // total torque measured by the sensors that are not associated to a currently set contact and expressed in the
+    // floating base's frame. Used as an input for the Kinetics Observer.
     stateObservation::Vector3 additionalUserResultingMoment_ = stateObservation::Vector3::Zero();
 
+    // this variable is set to true when the robot touches the ground at the beginning of the simulation. Checks that
+    // contacts are detected before running the estimator.
+    bool simStarted_ = false;
 
-    /* Config variables */
-    so::Matrix3 linStiffness_;
-    so::Matrix3 linDamping_;
-
+    // linear stiffness of contacts
     stateObservation::Matrix3 linStiffness_;
+    // linear damping of contacts
     stateObservation::Matrix3 linDamping_;
+    // angular stiffness of contacts
     stateObservation::Matrix3 angStiffness_;
+    // linear damping of contacts
     stateObservation::Matrix3 angDamping_;
+
+    // indicates if the debug logs have to be added.
+    bool withDebugLogs_ = true;
+    // indicates if we want to perform odometry along the stabilization or not.
     bool withOdometry_ = false;
+    // associated to @withOdometry_. If true, the odometry on the position will be only along the x and y axes. If
+    // false, the default 6D odometry is used.
     bool withFlatOdometry_ = false;
 
+    // indicates what mode of contacts has to be used. \n Allowed modes are: \n fromSolver: The contacts are given by
+    // the controller directly (then thresholded based on the measured force). \n fromSurfaces: The contacts are given
+    // by the controller directly from a surface (then thresholded based on the measured force). \n fromThreshold: The
+    // contacts are not required to be given by the controller (the detection is based on a thresholding of the measured
+    // force)
     std::string contactsDetection_;
+    // indicates if the forces measurement have to be filtered with a low-pass filter.
     bool withFilteredForcesContactDetection_ = false;
+
+    // indicates if we want to estimate the unmodeled wrench within the Kinetics Observer.
     bool withUnmodeledWrench_ = true;
+    // indicates if we want to estimate the bias on the gyrometer measurement within the Kinetics Observer.
     bool withGyroBias_ = true;
 
+    // maximum amount of contacts that we want to use with the Kinetics Observer.
     int maxContacts_ = 4;
+    // maximum amount of IMUs that we want to use with the Kinetics Observer.
     int maxIMUs_ = 2;
 
     stateObservation::Matrix3 statePositionInitCovariance_;

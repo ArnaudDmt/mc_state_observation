@@ -14,6 +14,8 @@
 
 #include <iostream>
 
+namespace so = stateObservation;
+
 namespace mc_state_observation
 {
 MCKineticsObserver::MCKineticsObserver(const std::string & type, double dt)

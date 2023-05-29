@@ -13,14 +13,14 @@
 
 namespace mc_state_observation
 {
-  namespace so = stateObservation;
-  /** Flexibility observer from:
-   *
-   *    "Tilt estimator for 3D non-rigid pendulum based on a tri-axial
-   *    accelerometer and gyrometer". Mehdi Benallegue, Abdelaziz Benallegue,
-   *    Yacine Chitour. IEEE-RAS Humanoids 2017. <hal-01499167>
-   *
-   */
+  /** Interface for the use of the Kinetics Observer within mc_rtc: \n
+   * The Kinetics Observer requires inputs expressed in the frame of the floating base. It then performs a conversion to
+   *the centroid frame, a frame located at the center of mass of the robot and with the orientation of the floating
+   *base of the real robot.
+   *The inputs are obtained from a robot called the inputRobot. Its configuration is the one of real robot, but
+   *its floating base's frame is superimposed with the world frame. This allows to ease computations performed in the
+   *local frame of the robot.
+   **/
 
   struct Sensor
   {
@@ -57,7 +57,7 @@ namespace mc_state_observation
     ~IMU() {}
 
   public:
-    so::Vector3 gyroBias;
+    stateObservation::Vector3 gyroBias;
   };
 
   struct Contact : virtual public Sensor
@@ -80,7 +80,7 @@ namespace mc_state_observation
       isSet = false;
       zmp.set(false);
     }
-    inline const so::Vector3 & getZMP()
+    inline const stateObservation::Vector3 & getZMP()
     {
       return zmp;
     }
@@ -88,7 +88,7 @@ namespace mc_state_observation
   public:
     bool isSet = false;
     bool wasAlreadySet = false;
-    so::CheckedVector3 zmp;
+    stateObservation::CheckedVector3 zmp;
   };
 
   struct ContactWithSensor : virtual public Contact
@@ -112,7 +112,7 @@ namespace mc_state_observation
     }
 
   public:
-    so::Vector6 wrenchInCentroid = so::Vector6::Zero(); // for debug only
+    stateObservation::Vector6 wrenchInCentroid = stateObservation::Vector6::Zero(); // for debug only
     double normForce = 0.0; // for debug only
     bool isExternalWrench = true;
     bool sensorEnabled = true;
@@ -122,7 +122,7 @@ namespace mc_state_observation
     std::string surface;
 
     /* Force filtering for the contact detection */
-    so::Vector3 filteredForce = so::Vector3::Zero();
+    stateObservation::Vector3 filteredForce = stateObservation::Vector3::Zero();
     double lambda = 0.0;
   };
 
@@ -199,7 +199,7 @@ namespace mc_state_observation
       }
     }
 
-    inline const so::Vector3 & getZMPFromName(const std::string & name)
+    inline const stateObservation::Vector3 & getZMPFromName(const std::string & name)
     {
       if(hasSensor_.at(name))
       {
@@ -457,7 +457,7 @@ namespace mc_state_observation
      */
     inline void accelNoiseCovariance(double covariance)
     {
-      acceleroSensorCovariance_ = so::Matrix3::Identity() * covariance;
+      acceleroSensorCovariance_ = stateObservation::Matrix3::Identity() * covariance;
       updateNoiseCovariance();
     }
 
@@ -486,7 +486,7 @@ namespace mc_state_observation
      */
     inline void forceSensorNoiseCovariance(double covariance)
     {
-      contactSensorCovariance_.block<3, 3>(0, 0) =  so::Matrix3::Identity() * covariance;
+      contactSensorCovariance_.block<3, 3>(0, 0) =  stateObservation::Matrix3::Identity() * covariance;
       updateNoiseCovariance();
     }
 
@@ -505,7 +505,7 @@ namespace mc_state_observation
      */
     inline void gyroNoiseCovariance(double covariance)
     {
-      gyroSensorCovariance_ = so::Matrix3::Identity() * covariance;
+      gyroSensorCovariance_ = stateObservation::Matrix3::Identity() * covariance;
       updateNoiseCovariance();
     }
 
@@ -553,9 +553,7 @@ namespace mc_state_observation
     sva::PTransformd zeroPose_;
     sva::MotionVecd zeroMotion_;
 
-    // so::kine::Kinematics worldFbKine_; // floating base in the user frame (world of the controller)
-    // so::kine::Kinematics fbWorldKine_;
-    so::kine::Kinematics worldCoMKine_;
+    stateObservation::kine::Kinematics worldCoMKine_;
 
     std::string category_ = "MCKineticsObserver";
     /* custom list of robots to display */
@@ -568,17 +566,13 @@ namespace mc_state_observation
     stateObservation::Vector6 contactWrenchVector_; // vector shared by all the contacts that allows to build a (force+torque) wrench vector 
                                                   // from the ForceSensor.wrench() function which returns a (torque+force) wrench vector
 
-    so::Vector correctedMeasurements_;
-    so::kine::Kinematics globalCentroidKinematics_;
-    Eigen::VectorXd predictedGlobalCentroidState_;
-    std::vector<so::Vector> predictedAccelerometersGravityComponent_;
-    std::vector<so::Vector> predictedWorldIMUsLinAcc_;
-    std::vector<so::Vector> predictedAccelerometers_;
+    stateObservation::Vector6 contactWrenchVector_;
 
     double contactDetectionPropThreshold_ = 0.0;
     double contactDetectionThreshold_ = 0.0;
 
-    so::Vector innovation_;
+    stateObservation::Vector correctedMeasurements_;
+    stateObservation::kine::Kinematics globalCentroidKinematics_;
 
     bool debug_ = false;
     bool verbose_ = true;
@@ -606,20 +600,18 @@ namespace mc_state_observation
     so::Vector3 additionalUserResultingForce_ = so::Vector3::Zero();
     so::Vector3 additionalUserResultingMoment_ = so::Vector3::Zero();
 
-    bool simStarted_ = false; // this variable is set to true when the robot touches the ground at the beginning of the simulation, 
-                              // allowing to start the estimaion at that time and not when the robot is still in the air, 
-                              // and therefore to avoid the big com's pose jump this transition involves
+    stateObservation::Vector3 additionalUserResultingForce_ = stateObservation::Vector3::Zero();
+    stateObservation::Vector3 additionalUserResultingMoment_ = stateObservation::Vector3::Zero();
 
 
     /* Config variables */
     so::Matrix3 linStiffness_;
     so::Matrix3 linDamping_;
 
-    so::Matrix3 angStiffness_;
-    so::Matrix3 angDamping_;
-
-    bool withDebugLogs_ = false;
-    std::string leftHandDetection_ = "asContact";
+    stateObservation::Matrix3 linStiffness_;
+    stateObservation::Matrix3 linDamping_;
+    stateObservation::Matrix3 angStiffness_;
+    stateObservation::Matrix3 angDamping_;
     bool withOdometry_ = false;
     bool withFlatOdometry_ = false;
 
@@ -631,47 +623,28 @@ namespace mc_state_observation
     int maxContacts_ = 4;
     int maxIMUs_ = 2;
 
-    so::Quaternion robotImuOri_0;
-    so::Quaternion realRobotImuOri_0;
-    so::Quaternion robotImuOri_1;
-    so::Quaternion realRobotImuOri_1;
-    so::Quaternion robotFbOri_;
-    so::Quaternion realRobotFbOri_;
-    so::Vector3 robotPosImuInFB_0;
-    so::Vector3 robotPosImuInFB_1;
-    so::Vector3 realRobotPosImuInFB_0;
-    so::Vector3 realRobotPosImuInFB_1;
-    so::Vector3 robotTilt_0;
-    so::Vector3 realRobotTilt_0;
-    so::Vector3 MCKOrobotTilt_0;
-    so::Vector3 robotTilt_1;
-    so::Vector3 realRobotTilt_1;
-    so::Vector3 MCKOrobotTilt_1;
-    so::Quaternion realRobot_centroidImuOri_0;
-    so::Quaternion realRobot_centroidImuOri_1;
+    stateObservation::Matrix3 statePositionInitCovariance_;
+    stateObservation::Matrix3 stateOriInitCovariance_;
+    stateObservation::Matrix3 stateLinVelInitCovariance_;
+    stateObservation::Matrix3 stateAngVelInitCovariance_;
+    stateObservation::Matrix3 gyroBiasInitCovariance_;
+    stateObservation::Matrix6 unmodeledWrenchInitCovariance_;
+    stateObservation::Matrix12 contactInitCovarianceFirstContacts_;
+    stateObservation::Matrix12 contactInitCovarianceNewContacts_;
 
-    so::Matrix3 statePositionInitCovariance_;
-    so::Matrix3 stateOriInitCovariance_;
-    so::Matrix3 stateLinVelInitCovariance_;
-    so::Matrix3 stateAngVelInitCovariance_;
-    so::Matrix3 gyroBiasInitCovariance_;
-    so::Matrix6 unmodeledWrenchInitCovariance_;
-    so::Matrix12 contactInitCovarianceFirstContacts_;
-    so::Matrix12 contactInitCovarianceNewContacts_;
+    stateObservation::Matrix3 statePositionProcessCovariance_;
+    stateObservation::Matrix3 stateOriProcessCovariance_;
+    stateObservation::Matrix3 stateLinVelProcessCovariance_;
+    stateObservation::Matrix3 stateAngVelProcessCovariance_;
+    stateObservation::Matrix3 gyroBiasProcessCovariance_;
+    stateObservation::Matrix6 unmodeledWrenchProcessCovariance_;
+    stateObservation::Matrix12 contactProcessCovariance_;
 
-    so::Matrix3 statePositionProcessCovariance_;
-    so::Matrix3 stateOriProcessCovariance_;
-    so::Matrix3 stateLinVelProcessCovariance_;
-    so::Matrix3 stateAngVelProcessCovariance_;
-    so::Matrix3 gyroBiasProcessCovariance_;
-    so::Matrix6 unmodeledWrenchProcessCovariance_;
-    so::Matrix12 contactProcessCovariance_;
-
-    so::Matrix3 positionSensorCovariance_;
-    so::Matrix3 orientationSensorCoVariance_;
-    so::Matrix3 acceleroSensorCovariance_;
-    so::Matrix3 gyroSensorCovariance_;
-    so::Matrix6 contactSensorCovariance_;
+    stateObservation::Matrix3 positionSensorCovariance_;
+    stateObservation::Matrix3 orientationSensorCoVariance_;
+    stateObservation::Matrix3 acceleroSensorCovariance_;
+    stateObservation::Matrix3 gyroSensorCovariance_;
+    stateObservation::Matrix6 contactSensorCovariance_;
 
     /* Config variables */
   };

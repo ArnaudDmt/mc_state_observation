@@ -75,27 +75,19 @@ bool TiltObserver::run(const mc_control::MCController & ctl)
   // - angular velocity of the imu
   // - linear velocity of the anchor frame in the world of the control robot (derivative?)
 
-  so::kine::Kinematics worldAnchorKine;
-  worldAnchorKine.position = X_0_C_.translation();
-  worldAnchorKine.orientation = so::Matrix3(X_0_C_.rotation().transpose());
+  so::kine::Kinematics worldAnchorKine = svaKinematicsConversion::poseFromSva(X_0_C_);
 
   const auto & robot = ctl.robot(robot_);
   const auto & imu = robot.bodySensor(imuSensor_);
-  auto X_0_B = robot.posW();
+  auto X_0_FB = robot.posW();
 
-  so::kine::Kinematics worldFBKine;
-  worldFBKine.position = X_0_B.translation();
-  worldFBKine.orientation = so::Matrix3(X_0_B.rotation().transpose());
+  so::kine::Kinematics worldFBKine = svaKinematicsConversion::poseFromSva(X_0_FB);
 
   const sva::PTransformd & imuXbs = imu.X_b_s();
-  so::kine::Kinematics bodyImuKine;
-  bodyImuKine.position = imuXbs.translation();
-  bodyImuKine.orientation = so::Matrix3(imuXbs.rotation().transpose());
+  so::kine::Kinematics bodyImuKine = svaKinematicsConversion::poseFromSva(imuXbs);
 
-  so::kine::Kinematics worldBodyKine;
   const sva::PTransformd & bodyW = robot.bodyPosW(imu.parentBody());
-  worldBodyKine.position = bodyW.translation();
-  worldBodyKine.orientation = so::Matrix3(bodyW.rotation().transpose());
+  so::kine::Kinematics worldBodyKine = svaKinematicsConversion::poseFromSva(bodyW);
 
   // auto RF = anchorFrame.oriention().transpose(); // orientation of the control anchor frame
   // auto RB = robot.posW().orientation().transpose(); // orientation of the control floating base

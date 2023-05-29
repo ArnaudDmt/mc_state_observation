@@ -781,22 +781,12 @@ void MCKineticsObserver::updateIMUs(const mc_rbdyn::Robot & measRobot, const mc_
     /** Position of accelerometer **/
 
     const sva::PTransformd & bodyImuPose = inputRobot.bodySensor(imu.name()).X_b_s();
-    so::kine::Kinematics bodyImuKine;
-    bodyImuKine.setZero(so::kine::Kinematics::Flags::all);
-    bodyImuKine.position = bodyImuPose.translation();
-    bodyImuKine.orientation = so::Matrix3(bodyImuPose.rotation().transpose());
+    so::kine::Kinematics bodyImuKine = svaKinematicsConversion::poseFromSva(bodyImuPose);
 
-    so::kine::Kinematics worldBodyKine;
-
-    worldBodyKine.position = inputRobot.mbc().bodyPosW[inputRobot.bodyIndexByName(imu.parentBody())].translation();
-    worldBodyKine.orientation =
-        so::Matrix3(inputRobot.mbc().bodyPosW[inputRobot.bodyIndexByName(imu.parentBody())].rotation().transpose());
-    worldBodyKine.linVel = inputRobot.mbc().bodyVelW[inputRobot.bodyIndexByName(imu.parentBody())].linear();
-    worldBodyKine.angVel = inputRobot.mbc().bodyVelW[inputRobot.bodyIndexByName(imu.parentBody())].angular();
-    worldBodyKine.linAcc = worldBodyKine.orientation.toMatrix3()
-                           * inputRobot.mbc().bodyAccB[inputRobot.bodyIndexByName(imu.parentBody())].linear();
-    worldBodyKine.angAcc = worldBodyKine.orientation.toMatrix3()
-                           * inputRobot.mbc().bodyAccB[inputRobot.bodyIndexByName(imu.parentBody())].angular();
+    so::kine::Kinematics worldBodyKine = svaKinematicsConversion::kinematicsFromSva(
+        inputRobot.mbc().bodyPosW[inputRobot.bodyIndexByName(imu.parentBody())],
+        inputRobot.mbc().bodyVelW[inputRobot.bodyIndexByName(imu.parentBody())],
+        inputRobot.mbc().bodyAccB[inputRobot.bodyIndexByName(imu.parentBody())], true, false);
 
     so::kine::Kinematics worldImuKine = worldBodyKine * bodyImuKine;
     const so::kine::Kinematics fbImuKine = worldImuKine;
@@ -1018,26 +1008,26 @@ void MCKineticsObserver::updateContact(const mc_control::MCController & ctl,
 
   sva::ForceVecd measuredWrench = forceSensor.wrenchWithoutGravity(robot);
 
+  // pose of the sensor within the frame of its parent body
   const sva::PTransformd & bodySensorPoseRobot = forceSensor.X_p_f();
-  so::kine::Kinematics bodySensorKine;
-  bodySensorKine.setZero(so::kine::Kinematics::Flags::all);
-  bodySensorKine.position = bodySensorPoseRobot.translation();
-  bodySensorKine.orientation = so::Matrix3(bodySensorPoseRobot.rotation().transpose());
+  // kinematics of the sensor within the frame of its parent body
+  so::kine::Kinematics bodySensorKine = svaKinematicsConversion::poseFromSva(bodySensorPoseRobot);
 
-  so::kine::Kinematics worldBodyKineInputRobot;
-
+  // pose of the sensor's parent body in the input robot within the world / floating base's frame
   const sva::PTransform posWBody = inputRobot.mbc().bodyPosW[inputRobot.bodyIndexByName(forceSensor.parentBody())];
-  worldBodyKineInputRobot.position = posWBody.translation();
-  worldBodyKineInputRobot.orientation = so::Matrix3(posWBody.rotation().transpose());
+  // velocity of the sensor's parent body in the input robot within the world / floating base's frame
   const sva::MotionVecd velWBody = inputRobot.mbc().bodyVelW[inputRobot.bodyIndexByName(forceSensor.parentBody())];
-  worldBodyKineInputRobot.linVel = velWBody.linear();
-  worldBodyKineInputRobot.angVel = velWBody.angular();
+  // acceleration of the sensor's parent body in the input robot within the world / floating base's frame. Warning ! To
+  // the contrary of the other variables, this acceleration is expressed in the frame of the parent body (local frame)
   const sva::MotionVecd locAccWBody = inputRobot.mbc().bodyAccB[inputRobot.bodyIndexByName(forceSensor.parentBody())];
-  worldBodyKineInputRobot.linAcc = worldBodyKineInputRobot.orientation.toMatrix3() * locAccWBody.linear();
-  worldBodyKineInputRobot.angAcc = worldBodyKineInputRobot.orientation.toMatrix3() * locAccWBody.angular();
 
+  // kinematics of the sensor's parent body in the input robot within the world / floating base's frame
+  so::kine::Kinematics worldBodyKineInputRobot =
+      svaKinematicsConversion::kinematicsFromSva(posWBody, velWBody, locAccWBody, true, false);
+
+  // kinematics of the sensor in the input robot within the world / floating base's frame
   so::kine::Kinematics worldSensorKineInputRobot = worldBodyKineInputRobot * bodySensorKine;
-
+  // kinematics of the sensor in the input robot within the world / floating base's frame
   so::kine::Kinematics fbContactKineInputRobot;
   if(contact.isAttachedToSurface)
   {
@@ -1047,11 +1037,14 @@ void MCKineticsObserver::updateContact(const mc_control::MCController & ctl,
   }
   else
   {
+    // pose of the surface in the world / floating base's frame
     sva::PTransformd worldSurfacePoseInputRobot = inputRobot.surfacePose(contact.surface);
-    so::kine::Kinematics worldSurfaceKineInputRobot;
-    worldSurfaceKineInputRobot.setZero(so::kine::Kinematics::Flags::all);
-    worldSurfaceKineInputRobot.position = worldSurfacePoseInputRobot.translation();
+    // Kinematics of the surface in the world / floating base's frame
+    so::kine::Kinematics worldSurfaceKineInputRobot = svaKinematicsConversion::poseFromSva(worldSurfacePoseInputRobot);
+
     worldSurfaceKineInputRobot.orientation = so::Matrix3(worldSurfacePoseInputRobot.rotation().transpose());
+    // the kinematics in the world of the sensor in the inputRobot are equal to the kinematics of the sensor in the
+    // frame of the floating base.
     fbContactKineInputRobot = worldSurfaceKineInputRobot;
 
     so::kine::Kinematics surfaceSensorKine;

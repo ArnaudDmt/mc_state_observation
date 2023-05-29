@@ -8,6 +8,8 @@
 #include <state-observation/dynamics-estimators/kinetics-observer.hpp>
 
 #include <mc_observers/Observer.h>
+#include <mc_state_observation/svaKinematicsConversion.h>
+
 
 namespace mc_state_observation
 {

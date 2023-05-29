@@ -1,3 +1,10 @@
+add_library(mc_state_observation SHARED svaKinematicsConversion.cpp)
+target_link_libraries(mc_state_observation PUBLIC SpaceVecAlg::SpaceVecAlg state-observation::state-observation)
+install(TARGETS mc_state_observation EXPORT "${TARGETS_EXPORT_NAME}"   
+        LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+        ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+        RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+
 option(BUILD_MCKINETICS_ONLY "" OFF)
 
 macro(add_simple_observer observer_name)
@@ -12,7 +19,7 @@ endmacro()
 
 macro(add_so_observer observer_name)
   add_simple_observer(${observer_name})
-  target_link_libraries(${observer_name} PUBLIC state-observation::state-observation)
+  target_link_libraries(${observer_name} PUBLIC state-observation::state-observation mc_state_observation)
 endmacro()
 
 macro(add_observer_with_filter observer_name)
@@ -23,8 +30,6 @@ endmacro()
 if(NOT BUILD_MCKINETICS_ONLY)
   add_so_observer(AttitudeObserver)
   add_so_observer(LegacyFlexibilityObserver)
-  add_so_observer(MOCAPVisualizer)
-  add_so_observer(NaiveOdometry)
   add_so_observer(TiltObserver)
 endif()
 add_so_observer(MCKineticsObserver)

@@ -4,7 +4,7 @@
 #include <mc_observers/ObserverMacros.h>
 #include <mc_rtc/io_utils.h>
 #include <mc_rtc/logging.h>
-#include "mc_state_observation/observersTools/leggedOdometryTools.h"
+#include "mc_state_observation/odometry/leggedOdometry.h"
 #include <mc_state_observation/NaiveOdometry.h>
 #include <mc_state_observation/gui_helpers.h>
 
@@ -15,6 +15,7 @@
 
 #include <iostream>
 
+namespace so = stateObservation;
 namespace mc_state_observation
 {
 NaiveOdometry::NaiveOdometry(const std::string & type, double dt) : mc_observers::Observer(type, dt) {}
@@ -31,8 +32,8 @@ void NaiveOdometry::configure(const mc_control::MCController & ctl, const mc_rtc
 
   bool verbose = config("verbose", true);
 
-  if(typeOfOdometry == "flatOdometry") { odometryType = measurements::flatOdometry; }
-  else if(typeOfOdometry == "6dOdometry") { odometryType = measurements::odometry6d; }
+  if(typeOfOdometry == "flatOdometry") { odometryType = measurements::OdometryType::Flat; }
+  else if(typeOfOdometry == "6dOdometry") { odometryType = measurements::OdometryType::Odometry6d; }
   else
   {
     mc_rtc::log::error_and_throw<std::runtime_error>(
@@ -54,36 +55,27 @@ void NaiveOdometry::configure(const mc_control::MCController & ctl, const mc_rtc
 
   std::string contactsDetection = static_cast<std::string>(config("contactsDetection"));
 
-  LoContactsManager::ContactsDetection contactsDetectionMethod = LoContactsManager::ContactsDetection::undefined;
-  if(contactsDetection == "fromThreshold")
-  {
-    contactsDetectionMethod = LoContactsManager::ContactsDetection::fromThreshold;
-  }
-  else if(contactsDetection == "fromSurfaces")
-  {
-    contactsDetectionMethod = LoContactsManager::ContactsDetection::fromSurfaces;
-  }
-  else if(contactsDetection == "fromSolver")
-  {
-    contactsDetectionMethod = LoContactsManager::ContactsDetection::fromSolver;
-  }
+  LoContactsManager::ContactsDetection contactsDetectionMethod = LoContactsManager::ContactsDetection::Undefined;
+  if(contactsDetection == "Sensors") { contactsDetectionMethod = LoContactsManager::ContactsDetection::Sensors; }
+  else if(contactsDetection == "Surfaces") { contactsDetectionMethod = LoContactsManager::ContactsDetection::Surfaces; }
+  else if(contactsDetection == "fromSolver") { contactsDetectionMethod = LoContactsManager::ContactsDetection::Solver; }
 
-  if(contactsDetectionMethod == LoContactsManager::ContactsDetection::undefined)
+  if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Undefined)
   {
     mc_rtc::log::error_and_throw<std::runtime_error>(
-        "Contacts detection type not allowed. Please pick among : [fromSolver, fromThreshold, fromSurfaces] or "
+        "Contacts detection type not allowed. Please pick among : [fromSolver, Sensors, Surfaces] or "
         "initialize a list of surfaces with the variable surfacesForContactDetection");
   }
   if(surfacesForContactDetection.size() > 0)
   {
-    if(contactsDetectionMethod != LoContactsManager::ContactsDetection::fromSurfaces)
+    if(contactsDetectionMethod != LoContactsManager::ContactsDetection::Surfaces)
     {
       mc_rtc::log::error_and_throw<std::runtime_error>(
-          "Another type of contacts detection is currently used, please change it to 'fromSurfaces' or empty the "
+          "Another type of contacts detection is currently used, please change it to 'Surfaces' or empty the "
           "surfacesForContactDetection variable");
     }
   }
-  else if(contactsDetectionMethod != LoContactsManager::ContactsDetection::fromSurfaces)
+  else if(contactsDetectionMethod != LoContactsManager::ContactsDetection::Surfaces)
   {
     mc_rtc::log::error_and_throw<std::runtime_error>(
         "You selected the contacts detection using surfaces but didn't add the list of surfaces, please add it usign "
@@ -95,7 +87,7 @@ void NaiveOdometry::configure(const mc_control::MCController & ctl, const mc_rtc
   std::vector<std::string> contactsSensorDisabledInit =
       config("contactsSensorDisabledInit", std::vector<std::string>());
 
-  if(contactsDetectionMethod == LoContactsManager::ContactsDetection::fromSurfaces)
+  if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Surfaces)
   {
     odometryManager_.initDetection(ctl, robot_, contactsDetectionMethod, surfacesForContactDetection,
                                    contactsSensorDisabledInit, contactDetectionThreshold_);

@@ -2,7 +2,7 @@
 
 #include <mc_observers/Observer.h>
 #include <boost/circular_buffer.hpp>
-#include <mc_state_observation/observersTools/leggedOdometryTools.h>
+#include <mc_state_observation/odometry/leggedOdometry.h>
 #include <state-observation/observer/tilt-estimator-humanoid.hpp>
 #include <state-observation/tools/rigid-body-kinematics.hpp>
 
@@ -200,8 +200,8 @@ protected:
   /* Odometry parameters */
   using OdometryType = measurements::OdometryType;
 
-  leggedOdometry::LeggedOdometryManager odometryManager_; // manager for the legged odometry
-  using LoContactsManager = leggedOdometry::LeggedOdometryManager::ContactsManager;
+  odometry::LeggedOdometryManager odometryManager_; // manager for the legged odometry
+  using LoContactsManager = odometry::LeggedOdometryManager::ContactsManager;
   double contactDetectionThreshold_; // threshold used for the contacts detection
 
   /* Backup function's parameters */

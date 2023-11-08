@@ -1,8 +1,9 @@
 #include <mc_control/MCController.h>
 #include <mc_observers/ObserverMacros.h>
+#include "mc_state_observation/measurements/measurementsTools.h"
 #include <mc_state_observation/TiltObserver.h>
+#include <mc_state_observation/conversions/kinematics.h>
 #include <mc_state_observation/gui_helpers.h>
-#include <mc_state_observation/observersTools/kinematicsTools.h>
 
 namespace mc_state_observation
 {
@@ -48,16 +49,19 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
 
   std::string typeOfOdometry = static_cast<std::string>(config("odometryType"));
 
-  if(typeOfOdometry == "flatOdometry") { odometryManager_.changeOdometryType(measurements::flatOdometry); }
-  else if(typeOfOdometry == "6dOdometry") { odometryManager_.changeOdometryType(measurements::odometry6d); }
-  else if(typeOfOdometry == "None") { odometryManager_.changeOdometryType(measurements::None); }
+  if(typeOfOdometry == "flatOdometry") { odometryManager_.changeOdometryType(measurements::OdometryType::Flat); }
+  else if(typeOfOdometry == "6dOdometry")
+  {
+    odometryManager_.changeOdometryType(measurements::OdometryType::Odometry6d);
+  }
+  else if(typeOfOdometry == "None") { odometryManager_.changeOdometryType(measurements::OdometryType::None); }
   else
   {
     mc_rtc::log::error_and_throw<std::runtime_error>(
         "Odometry type not allowed. Please pick among : [None, flatOdometry, 6dOdometry]");
   }
 
-  if(odometryManager_.odometryType_ != measurements::None)
+  if(odometryManager_.odometryType_ != measurements::OdometryType::None)
   {
     bool velUpdatedUpstream = config("velUpdatedUpstream");
     bool accUpdatedUpstream = config("accUpdatedUpstream");
@@ -77,21 +81,21 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
 
     std::string contactsDetection = static_cast<std::string>(config("contactsDetection"));
 
-    LoContactsManager::ContactsDetection contactsDetectionMethod = LoContactsManager::ContactsDetection::undefined;
+    LoContactsManager::ContactsDetection contactsDetectionMethod = LoContactsManager::ContactsDetection::Undefined;
     if(contactsDetection == "fromThreshold")
     {
-      contactsDetectionMethod = LoContactsManager::ContactsDetection::fromThreshold;
+      contactsDetectionMethod = LoContactsManager::ContactsDetection::Sensors;
     }
     else if(contactsDetection == "fromSurfaces")
     {
-      contactsDetectionMethod = LoContactsManager::ContactsDetection::fromSurfaces;
+      contactsDetectionMethod = LoContactsManager::ContactsDetection::Surfaces;
     }
     else if(contactsDetection == "fromSolver")
     {
-      contactsDetectionMethod = LoContactsManager::ContactsDetection::fromSolver;
+      contactsDetectionMethod = LoContactsManager::ContactsDetection::Solver;
     }
 
-    if(contactsDetectionMethod == LoContactsManager::ContactsDetection::undefined)
+    if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Undefined)
     {
       mc_rtc::log::error_and_throw<std::runtime_error>(
           "Contacts detection type not allowed. Please pick among : [fromSolver, fromThreshold, fromSurfaces] or "
@@ -99,14 +103,14 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
     }
     if(surfacesForContactDetection.size() > 0)
     {
-      if(contactsDetectionMethod != LoContactsManager::ContactsDetection::fromSurfaces)
+      if(contactsDetectionMethod != LoContactsManager::ContactsDetection::Surfaces)
       {
         mc_rtc::log::error_and_throw<std::runtime_error>(
             "Another type of contacts detection is currently used, please change it to 'fromSurfaces' or empty the "
             "surfacesForContactDetection variable");
       }
     }
-    else if(contactsDetectionMethod == LoContactsManager::ContactsDetection::fromSurfaces)
+    else if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Surfaces)
     {
       mc_rtc::log::error_and_throw<std::runtime_error>(
           "You selected the contacts detection using surfaces but didn't add the list of surfaces, please add it usign "
@@ -119,7 +123,7 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
 
     contactDetectionThreshold_ = robot.mass() * so::cst::gravityConstant * contactDetectionPropThreshold;
 
-    if(contactsDetectionMethod == LoContactsManager::ContactsDetection::fromSurfaces)
+    if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Surfaces)
     {
       odometryManager_.initDetection(ctl, robot_, contactsDetectionMethod, surfacesForContactDetection,
                                      contactsSensorsDisabledInit, contactDetectionThreshold_);
@@ -235,7 +239,10 @@ bool TiltObserver::run(const mc_control::MCController & ctl)
     gamma_ = finalGamma_;
   }
 
-  if(odometryManager_.odometryType_ == measurements::None) { runTiltEstimator(ctl, my_robots_->robot("updatedRobot")); }
+  if(odometryManager_.odometryType_ == measurements::OdometryType::None)
+  {
+    runTiltEstimator(ctl, my_robots_->robot("updatedRobot"));
+  }
   else { runTiltEstimator(ctl, odometryManager_.odometryRobot()); }
 
   iter_++;
@@ -250,7 +257,7 @@ bool TiltObserver::run(const mc_control::MCController & ctl)
 void TiltObserver::updateAnchorFrame(const mc_control::MCController & ctl, const mc_rbdyn::Robot & updatedRobot)
 {
   // update of the pose of the anchor frame of the control and updatedRobot in the world.
-  if(odometryManager_.odometryType_ != measurements::None)
+  if(odometryManager_.odometryType_ != measurements::OdometryType::None)
   {
     // we compute the anchor frame using the lastly computed floating base so we use the previous encoders information.
     // we use the current force sensors reading.
@@ -262,8 +269,8 @@ void TiltObserver::updateAnchorFrame(const mc_control::MCController & ctl, const
   {
     updateAnchorFrameNoOdometry(ctl, updatedRobot);
     // new pose of the anchor frame in the world.
-    newWorldAnchorKine_ = kinematicsTools::poseFromSva(X_0_C_, so::kine::Kinematics::Flags::pose);
-    newUpdatedWorldAnchorKine_ = kinematicsTools::poseFromSva(X_0_C_updated_, so::kine::Kinematics::Flags::pose);
+    newWorldAnchorKine_ = conversions::kinematics::fromSva(X_0_C_, so::kine::Kinematics::Flags::pose);
+    newUpdatedWorldAnchorKine_ = conversions::kinematics::fromSva(X_0_C_updated_, so::kine::Kinematics::Flags::pose);
   }
 
   /*
@@ -377,14 +384,14 @@ void TiltObserver::runTiltEstimator(const mc_control::MCController & ctl, const 
 
   // In the case we do odometry, the pose and velocities of the odometry robot are still not updated but the joints are.
   // It is not a problem as this kinematics object is not used to retrieve global poses and velocities.
-  updatedWorldFbKine_ = kinematicsTools::poseAndVelFromSva(updatedRobot.posW(), updatedRobot.velW(), true);
+  updatedWorldFbKine_ = conversions::kinematics::fromSva(updatedRobot.posW(), updatedRobot.velW(), true);
 
   // we use the imu object of control robot because the copy of BodySensor objects seems to be incomplete. Anyway we use
   // it only to get information about the parent body, which is the same with the control robot.
   const sva::PTransformd & imuXbs = imu.X_b_s();
 
   so::kine::Kinematics parentImuKine =
-      kinematicsTools::poseFromSva(imuXbs, so::kine::Kinematics::Flags::pose | so::kine::Kinematics::Flags::vel);
+      conversions::kinematics::fromSva(imuXbs, so::kine::Kinematics::Flags::pose | so::kine::Kinematics::Flags::vel);
 
   const sva::PTransformd & parentPoseW = robot.bodyPosW(imu.parentBody());
   const sva::PTransformd & updatedParentPoseW = updatedRobot.bodyPosW(imu.parentBody());
@@ -394,9 +401,9 @@ void TiltObserver::runTiltEstimator(const mc_control::MCController & ctl, const 
 
   auto & updated_v_0_imuParent = updatedRobot.mbc().bodyVelW[updatedRobot.bodyIndexByName(imu.parentBody())];
 
-  so::kine::Kinematics worldParentKine = kinematicsTools::poseAndVelFromSva(parentPoseW, v_0_imuParent, true);
+  so::kine::Kinematics worldParentKine = conversions::kinematics::fromSva(parentPoseW, v_0_imuParent, true);
   so::kine::Kinematics updatedWorldParentKine =
-      kinematicsTools::poseAndVelFromSva(updatedParentPoseW, updated_v_0_imuParent, true);
+      conversions::kinematics::fromSva(updatedParentPoseW, updated_v_0_imuParent, true);
 
   // pose and velocities of the IMU in the world frame
   worldImuKine_ = worldParentKine * parentImuKine;
@@ -432,7 +439,7 @@ void TiltObserver::runTiltEstimator(const mc_control::MCController & ctl, const 
 
   // computation of the local linear velocity of the IMU in the world.
 
-  if(odometryManager_.odometryType_ == measurements::None) // case if we don't use odometry
+  if(odometryManager_.odometryType_ == measurements::OdometryType::None) // case if we don't use odometry
   {
     x1_ = worldImuKine_.orientation.toMatrix3().transpose() * worldAnchorKine_.linVel()
           - (imu.angularVelocity()).cross(updatedImuAnchorKine_.position()) - updatedImuAnchorKine_.linVel();
@@ -495,7 +502,7 @@ void TiltObserver::runTiltEstimator(const mc_control::MCController & ctl, const 
   // Once we obtain the tilt (which is required by the legged odometry, estimating only the yaw), we update the pose and
   // velocities of the floating base
 
-  if(odometryManager_.odometryType_ != measurements::None)
+  if(odometryManager_.odometryType_ != measurements::OdometryType::None)
   {
     // we can update the estimated pose using odometry. The velocity will be updated later using the estimated local
     // linear velocity of the IMU.
@@ -519,7 +526,7 @@ void TiltObserver::runTiltEstimator(const mc_control::MCController & ctl, const 
 void TiltObserver::updatePoseAndVel(const so::Vector3 & localWorldImuLinVel, const so::Vector3 & localWorldImuAngVel)
 {
   // if we use odometry, the pose will already updated in odometryManager_.run(...)
-  if(odometryManager_.odometryType_ == measurements::None)
+  if(odometryManager_.odometryType_ == measurements::OdometryType::None)
   {
     so::kine::Kinematics updatedFbAnchorKine = updatedWorldFbKine_.getInverse() * updatedWorldAnchorKine_;
 
@@ -529,7 +536,7 @@ void TiltObserver::updatePoseAndVel(const so::Vector3 & localWorldImuLinVel, con
     poseW_.translation() = correctedWorldFbKine_.position();
     poseW_.rotation() = R_0_fb_.transpose();
   }
-  else { correctedWorldFbKine_ = kinematicsTools::poseFromSva(poseW_, so::kine::Kinematics::Flags::pose); }
+  else { correctedWorldFbKine_ = conversions::kinematics::fromSva(poseW_, so::kine::Kinematics::Flags::pose); }
 
   // we use the newly estimated orientation and local linear velocity of the IMU to obtain the one of the floating base.
   correctedWorldImuKine_ =
@@ -545,7 +552,7 @@ void TiltObserver::updatePoseAndVel(const so::Vector3 & localWorldImuLinVel, con
   velW_.linear() = correctedWorldFbKine_.linVel();
   velW_.angular() = correctedWorldFbKine_.angVel();
 
-  if(odometryManager_.odometryType_ != measurements::None)
+  if(odometryManager_.odometryType_ != measurements::OdometryType::None)
   {
     // the velocity of the odometry robot was obtained using finite differences. We give it our estimated velocity which
     // is more accurate.
@@ -593,7 +600,7 @@ const so::kine::Kinematics TiltObserver::backupFb(const mc_control::MCController
 
   // original initial pose of the floating base
   so::kine::Kinematics worldFbInitBackup =
-      kinematicsTools::poseFromSva(backupFbKinematics_.front(), so::kine::Kinematics::Flags::pose);
+      conversions::kinematics::fromSva(backupFbKinematics_.front(), so::kine::Kinematics::Flags::pose);
 
   so::kine::Kinematics fbWorldInitBackup = worldFbInitBackup.getInverse();
 
@@ -603,7 +610,7 @@ const so::kine::Kinematics TiltObserver::backupFb(const mc_control::MCController
   {
     // Intermediary pose of the floating base estimated by the tilt estimator
     so::kine::Kinematics worldFbIntermBackup =
-        kinematicsTools::poseFromSva(backupFbKinematics_.at(i), so::kine::Kinematics::Flags::pose);
+        conversions::kinematics::fromSva(backupFbKinematics_.at(i), so::kine::Kinematics::Flags::pose);
     // transformation between the initial and the intermediary pose during the backup interval
     so::kine::Kinematics initInterm = fbWorldInitBackup * worldFbIntermBackup;
 
@@ -622,12 +629,12 @@ const so::kine::Kinematics TiltObserver::backupFb(const mc_control::MCController
 
 so::kine::Kinematics TiltObserver::applyLastTransformation(const so::kine::Kinematics & previousKine)
 {
-  so::kine::Kinematics worldFbPreviousBackup = kinematicsTools::poseFromSva(
+  so::kine::Kinematics worldFbPreviousBackup = conversions::kinematics::fromSva(
       backupFbKinematics_.at(backupFbKinematics_.size() - 2), so::kine::Kinematics::Flags::pose);
 
   so::kine::Kinematics fbWorldPreviousBackup = worldFbPreviousBackup.getInverse();
   so::kine::Kinematics worldFbFinalBackup =
-      kinematicsTools::poseFromSva(backupFbKinematics_.back(), so::kine::Kinematics::Flags::pose);
+      conversions::kinematics::fromSva(backupFbKinematics_.back(), so::kine::Kinematics::Flags::pose);
 
   so::kine::Kinematics lastTransformation = fbWorldPreviousBackup * worldFbFinalBackup;
 
@@ -662,8 +669,11 @@ void TiltObserver::checkCorrectBackupConf(OdometryType & koOdometryType)
 void TiltObserver::changeOdometryType(const std::string & newOdometryType)
 {
   OdometryType prevOdometryType = odometryManager_.odometryType_;
-  if(newOdometryType == "flatOdometry") { odometryManager_.changeOdometryType(measurements::flatOdometry); }
-  else if(newOdometryType == "6dOdometry") { odometryManager_.changeOdometryType(measurements::odometry6d); }
+  if(newOdometryType == "flatOdometry") { odometryManager_.changeOdometryType(measurements::OdometryType::Flat); }
+  else if(newOdometryType == "6dOdometry")
+  {
+    odometryManager_.changeOdometryType(measurements::OdometryType::Odometry6d);
+  }
 
   if(odometryManager_.odometryType_ != prevOdometryType)
   {
@@ -684,13 +694,13 @@ void TiltObserver::addToLogger(const mc_control::MCController & ctl,
                      {
                        switch(odometryManager_.odometryType_)
                        {
-                         case measurements::flatOdometry:
+                         case measurements::OdometryType::Flat:
                            return "flatOdometry";
                            break;
-                         case measurements::odometry6d:
+                         case measurements::OdometryType::Odometry6d:
                            return "6dOdometry";
                            break;
-                         case measurements::None:
+                         case measurements::OdometryType::None:
                            return "None";
                            break;
                        }
@@ -730,7 +740,7 @@ void TiltObserver::addToLogger(const mc_control::MCController & ctl,
                      {
                        const sva::PTransformd & realImuXbs = ctl.realRobot(robot_).bodySensor(imuSensor_).X_b_s();
 
-                       so::kine::Kinematics realParentImuKine = kinematicsTools::poseFromSva(
+                       so::kine::Kinematics realParentImuKine = conversions::kinematics::fromSva(
                            realImuXbs, so::kine::Kinematics::Flags::pose | so::kine::Kinematics::Flags::vel);
 
                        const sva::PTransformd & realParentPoseW =
@@ -742,7 +752,7 @@ void TiltObserver::addToLogger(const mc_control::MCController & ctl,
                                ctl.realRobot(robot_).bodySensor(imuSensor_).parentBody())];
 
                        so::kine::Kinematics realWorldParentKine =
-                           kinematicsTools::poseAndVelFromSva(realParentPoseW, real_v_0_imuParent, true);
+                           conversions::kinematics::fromSva(realParentPoseW, real_v_0_imuParent, true);
 
                        so::kine::Kinematics realWorldImuKine_ = realWorldParentKine * realParentImuKine;
 
@@ -754,7 +764,7 @@ void TiltObserver::addToLogger(const mc_control::MCController & ctl,
                      {
                        const sva::PTransformd & imuXbs = ctl.robot(robot_).bodySensor(imuSensor_).X_b_s();
 
-                       so::kine::Kinematics parentImuKine = kinematicsTools::poseFromSva(
+                       so::kine::Kinematics parentImuKine = conversions::kinematics::fromSva(
                            imuXbs, so::kine::Kinematics::Flags::pose | so::kine::Kinematics::Flags::vel);
 
                        const sva::PTransformd & parentPoseW =
@@ -765,7 +775,7 @@ void TiltObserver::addToLogger(const mc_control::MCController & ctl,
                            ctl.robot(robot_).bodySensor(imuSensor_).parentBody())];
 
                        so::kine::Kinematics worldParentKine =
-                           kinematicsTools::poseAndVelFromSva(parentPoseW, v_0_imuParent, true);
+                           conversions::kinematics::fromSva(parentPoseW, v_0_imuParent, true);
 
                        so::kine::Kinematics worldImuKine_ = worldParentKine * parentImuKine;
 
@@ -796,7 +806,7 @@ void TiltObserver::addToLogger(const mc_control::MCController & ctl,
 
                        const sva::PTransformd & rimuXbs = rimu.X_b_s();
 
-                       so::kine::Kinematics parentImuKine = kinematicsTools::poseFromSva(
+                       so::kine::Kinematics parentImuKine = conversions::kinematics::fromSva(
                            rimuXbs, so::kine::Kinematics::Flags::pose | so::kine::Kinematics::Flags::vel);
 
                        const sva::PTransformd & parentPoseW = realRobot.bodyPosW(rimu.parentBody());
@@ -805,7 +815,7 @@ void TiltObserver::addToLogger(const mc_control::MCController & ctl,
                        auto & v_0_imuParent = realRobot.mbc().bodyVelW[realRobot.bodyIndexByName(rimu.parentBody())];
 
                        so::kine::Kinematics worldParentKine =
-                           kinematicsTools::poseAndVelFromSva(parentPoseW, v_0_imuParent, true);
+                           conversions::kinematics::fromSva(parentPoseW, v_0_imuParent, true);
 
                        so::kine::Kinematics worldImuKine = worldParentKine * parentImuKine;
                        return worldImuKine.orientation.toMatrix3().transpose() * worldImuKine.linVel();
@@ -819,7 +829,7 @@ void TiltObserver::addToLogger(const mc_control::MCController & ctl,
 
                        const sva::PTransformd & rimuXbs = rimu.X_b_s();
 
-                       so::kine::Kinematics parentImuKine = kinematicsTools::poseFromSva(
+                       so::kine::Kinematics parentImuKine = conversions::kinematics::fromSva(
                            rimuXbs, so::kine::Kinematics::Flags::pose | so::kine::Kinematics::Flags::vel);
 
                        const sva::PTransformd & parentPoseW = realRobot.bodyPosW(rimu.parentBody());
@@ -827,7 +837,7 @@ void TiltObserver::addToLogger(const mc_control::MCController & ctl,
                        auto & v_0_imuParent = realRobot.mbc().bodyVelW[realRobot.bodyIndexByName(rimu.parentBody())];
 
                        so::kine::Kinematics worldParentKine =
-                           kinematicsTools::poseAndVelFromSva(parentPoseW, v_0_imuParent, true);
+                           conversions::kinematics::fromSva(parentPoseW, v_0_imuParent, true);
 
                        so::kine::Kinematics worldImuKine = worldParentKine * parentImuKine;
                        return worldImuKine.linVel();
@@ -850,7 +860,7 @@ void TiltObserver::addToLogger(const mc_control::MCController & ctl,
 
                        const sva::PTransformd & imuXbs = imu.X_b_s();
 
-                       so::kine::Kinematics parentImuKine = kinematicsTools::poseFromSva(
+                       so::kine::Kinematics parentImuKine = conversions::kinematics::fromSva(
                            imuXbs, so::kine::Kinematics::Flags::pose | so::kine::Kinematics::Flags::vel);
 
                        const sva::PTransformd & parentPoseW = robot.bodyPosW(imu.parentBody());
@@ -859,7 +869,7 @@ void TiltObserver::addToLogger(const mc_control::MCController & ctl,
                        auto & v_0_imuParent = robot.mbc().bodyVelW[robot.bodyIndexByName(imu.parentBody())];
 
                        so::kine::Kinematics worldParentKine =
-                           kinematicsTools::poseAndVelFromSva(parentPoseW, v_0_imuParent, true);
+                           conversions::kinematics::fromSva(parentPoseW, v_0_imuParent, true);
 
                        so::kine::Kinematics worldImuKine = worldParentKine * parentImuKine;
                        return worldImuKine.orientation.toMatrix3().transpose() * worldImuKine.linVel();
@@ -873,7 +883,7 @@ void TiltObserver::addToLogger(const mc_control::MCController & ctl,
 
                        const sva::PTransformd & imuXbs = imu.X_b_s();
 
-                       so::kine::Kinematics parentImuKine = kinematicsTools::poseFromSva(
+                       so::kine::Kinematics parentImuKine = conversions::kinematics::fromSva(
                            imuXbs, so::kine::Kinematics::Flags::pose | so::kine::Kinematics::Flags::vel);
 
                        const sva::PTransformd & parentPoseW = robot.bodyPosW(imu.parentBody());
@@ -881,7 +891,7 @@ void TiltObserver::addToLogger(const mc_control::MCController & ctl,
                        auto & v_0_imuParent = robot.mbc().bodyVelW[robot.bodyIndexByName(imu.parentBody())];
 
                        so::kine::Kinematics worldParentKine =
-                           kinematicsTools::poseAndVelFromSva(parentPoseW, v_0_imuParent, true);
+                           conversions::kinematics::fromSva(parentPoseW, v_0_imuParent, true);
 
                        so::kine::Kinematics worldImuKine = worldParentKine * parentImuKine;
                        return worldImuKine.linVel();
@@ -903,11 +913,11 @@ void TiltObserver::addToLogger(const mc_control::MCController & ctl,
                        return robot.mbc().bodyVelW[robot.bodyIndexByName(imu.parentBody())].linear();
                      });
 
-  kinematicsTools::addToLogger(worldAnchorKine_, logger, category + "_debug_worldAnchorKine");
-  kinematicsTools::addToLogger(updatedWorldImuKine_, logger, category + "_debug_updatedWorldImuKine");
-  kinematicsTools::addToLogger(worldImuKine_, logger, category + "_debug_worldImuKine");
-  kinematicsTools::addToLogger(updatedWorldAnchorKine_, logger, category + "_debug_updatedWorldAnchorKine");
-  kinematicsTools::addToLogger(updatedImuAnchorKine_, logger, category + "_debug_updatedImuAnchorKine_");
+  conversions::kinematics::addToLogger(worldAnchorKine_, logger, category + "_debug_worldAnchorKine");
+  conversions::kinematics::addToLogger(updatedWorldImuKine_, logger, category + "_debug_updatedWorldImuKine");
+  conversions::kinematics::addToLogger(worldImuKine_, logger, category + "_debug_worldImuKine");
+  conversions::kinematics::addToLogger(updatedWorldAnchorKine_, logger, category + "_debug_updatedWorldAnchorKine");
+  conversions::kinematics::addToLogger(updatedImuAnchorKine_, logger, category + "_debug_updatedImuAnchorKine_");
   logger.addLogEntry(category + "_debug_ctlImuAnchorKine.linVel()",
                      [this]() -> so::Vector3
                      {
@@ -915,8 +925,8 @@ void TiltObserver::addToLogger(const mc_control::MCController & ctl,
                        return imuAnchorKine.linVel();
                      });
 
-  kinematicsTools::addToLogger(updatedWorldFbKine_, logger, category + "_debug_updatedWorldFbKine_");
-  kinematicsTools::addToLogger(correctedWorldImuKine_, logger, category + "_debug_correctedWorldImuKine_");
+  conversions::kinematics::addToLogger(updatedWorldFbKine_, logger, category + "_debug_updatedWorldFbKine_");
+  conversions::kinematics::addToLogger(correctedWorldImuKine_, logger, category + "_debug_correctedWorldImuKine_");
 }
 
 void TiltObserver::removeFromLogger(mc_rtc::Logger & logger, const std::string & category)
@@ -935,14 +945,17 @@ void TiltObserver::addToGUI(const mc_control::MCController &,
   gui.addElement(category, make_input_element("alpha", alpha_), make_input_element("beta", beta_),
                  make_input_element("gamma", gamma_));
 
-  if(odometryManager_.odometryType_ != measurements::None)
+  if(odometryManager_.odometryType_ != measurements::OdometryType::None)
   {
     gui.addElement({observerName_, "Odometry"},
                    mc_rtc::gui::ComboInput(
                        "Choose from list", {"6dOdometry", "flatOdometry"},
                        [this]() -> std::string
                        {
-                         if(odometryManager_.odometryType_ == measurements::flatOdometry) { return "flatOdometry"; }
+                         if(odometryManager_.odometryType_ == measurements::OdometryType::Flat)
+                         {
+                           return "flatOdometry";
+                         }
                          else { return "6dOdometry"; }
                        },
                        [this](const std::string & typeOfOdometry) { changeOdometryType(typeOfOdometry); }));

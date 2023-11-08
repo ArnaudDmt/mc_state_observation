@@ -5,15 +5,13 @@
 #include <mc_rbdyn/Contact.h>
 #include <mc_rbdyn/Robot.h>
 
-#include <mc_state_observation/observersTools/leggedOdometryTools.h>
+#include <mc_state_observation/odometry/leggedOdometry.h>
 #include <state-observation/dynamics-estimators/kinetics-observer.hpp>
 
 #include <mc_observers/Observer.h>
 
 namespace mc_state_observation
 {
-namespace so = stateObservation;
-
 struct NaiveOdometry : public mc_observers::Observer
 {
 
@@ -125,11 +123,11 @@ private:
   sva::PTransformd X_0_fb_ = sva::PTransformd::Identity();
   sva::MotionVecd a_fb_0_ = sva::MotionVecd::Zero();
 
-  leggedOdometry::LeggedOdometryManager odometryManager_;
+  odometry::LeggedOdometryManager odometryManager_;
 
   bool accUpdatedUpstream_ = false;
 
-  using LoContactsManager = leggedOdometry::LeggedOdometryManager::ContactsManager;
+  using LoContactsManager = odometry::LeggedOdometryManager::ContactsManager;
 };
 
 } // namespace mc_state_observation

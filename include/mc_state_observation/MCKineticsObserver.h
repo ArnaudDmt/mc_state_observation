@@ -5,7 +5,7 @@
 #include <mc_rbdyn/Contact.h>
 #include <mc_rbdyn/Robot.h>
 #include <boost/circular_buffer.hpp>
-#include <mc_state_observation/observersTools/measurementsTools.h>
+#include <mc_state_observation/measurements/measurementsTools.h>
 #include <state-observation/dynamics-estimators/kinetics-observer.hpp>
 
 #include <mc_observers/Observer.h>
@@ -33,27 +33,11 @@ protected:
   KoContactWithSensor() {}
 
 public:
-  KoContactWithSensor(int id, std::string forceSensorName)
+  KoContactWithSensor(int id, std::string forceSensorName) : measurements::ContactWithSensor(id, forceSensorName) {}
+
+  KoContactWithSensor(int id, const std::string & forceSensorName, const std::string & surfaceName)
+  : measurements::ContactWithSensor(id, forceSensorName, surfaceName)
   {
-    id_ = id;
-    name_ = forceSensorName;
-    forceSensorName_ = forceSensorName;
-
-    resetContact();
-  }
-
-  KoContactWithSensor(int id,
-                      const std::string & forceSensorName,
-                      const std::string & surfaceName,
-                      bool sensorAttachedToSurface)
-  {
-    id_ = id;
-    name_ = forceSensorName;
-    resetContact();
-
-    surface_ = surfaceName;
-    forceSensorName_ = forceSensorName;
-    sensorAttachedToSurface_ = sensorAttachedToSurface;
   }
 
 public:
@@ -166,16 +150,15 @@ protected:
   /// @brief Updates the list of currently set contacts.
   /// @return measurements::ContactsManager<measurements::ContactWithSensor,
   /// measurements::ContactWithoutSensor>::ContactsSet &
-  const measurements::ContactsManager<KoContactWithSensor, measurements::ContactWithoutSensor>::ContactsSet &
-      findNewContacts(const mc_control::MCController & ctl);
+  const measurements::ContactsManager<KoContactWithSensor>::ContactsSet & findNewContacts(
+      const mc_control::MCController & ctl);
 
   /// @brief Update the currently set contacts.
   /// @details The list of contacts is returned by \ref findNewContacts(const mc_control::MCController & ctl). Calls
   /// \ref updateContact(const mc_control::MCController & ctl, const std::string & name, mc_rtc::Logger & logger).
   /// @param contacts The list of contacts returned by \ref findNewContacts(const mc_control::MCController & ctl).
   void updateContacts(const mc_control::MCController & ctl,
-                      const measurements::ContactsManager<KoContactWithSensor,
-                                                          measurements::ContactWithoutSensor>::ContactsSet & contacts,
+                      const measurements::ContactsManager<KoContactWithSensor>::ContactsSet & contacts,
                       mc_rtc::Logger & logger);
 
   /// @brief Computes the kinematics of the contact attached to the robot in the world frame. Also expresses the wrench
@@ -448,7 +431,7 @@ private:
   stateObservation::Matrix3 absoluteOriSensorCovariance_;
 
   /* Contacts manager variables */
-  using KoContactsManager = measurements::ContactsManager<KoContactWithSensor, measurements::ContactWithoutSensor>;
+  using KoContactsManager = measurements::ContactsManager<KoContactWithSensor>;
   KoContactsManager contactsManager_;
   // indicates if the forces measurement have to be filtered with a low-pass filter.
   bool withFilteredForcesContactDetection_ = false;

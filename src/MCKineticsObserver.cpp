@@ -4,7 +4,7 @@
 #include <mc_observers/ObserverMacros.h>
 #include <mc_rtc/io_utils.h>
 #include <mc_rtc/logging.h>
-#include "mc_state_observation/observersTools/measurementsTools.h"
+#include "mc_state_observation/measurements/measurementsTools.h"
 #include <mc_state_observation/MCKineticsObserver.h>
 #include <mc_state_observation/gui_helpers.h>
 
@@ -15,7 +15,7 @@
 
 #include <typeinfo>
 
-#include <mc_state_observation/observersTools/kinematicsTools.h>
+#include <mc_state_observation/conversions/kinematics.h>
 
 namespace so = stateObservation;
 
@@ -43,9 +43,9 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
 
   std::string typeOfOdometry = static_cast<std::string>(config("odometryType"));
 
-  if(typeOfOdometry == "flatOdometry") { odometryType_ = measurements::flatOdometry; }
-  else if(typeOfOdometry == "6dOdometry") { odometryType_ = measurements::odometry6d; }
-  else if(typeOfOdometry == "None") { odometryType_ = measurements::None; }
+  if(typeOfOdometry == "flatOdometry") { odometryType_ = measurements::OdometryType::Flat; }
+  else if(typeOfOdometry == "6dOdometry") { odometryType_ = measurements::OdometryType::Odometry6d; }
+  else if(typeOfOdometry == "None") { odometryType_ = measurements::OdometryType::None; }
   else
   {
     mc_rtc::log::error_and_throw<std::runtime_error>(
@@ -65,25 +65,16 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
 
   std::string contactsDetection = static_cast<std::string>(config("contactsDetection"));
 
-  KoContactsManager::ContactsDetection contactsDetectionMethod = KoContactsManager::ContactsDetection::undefined;
-  if(contactsDetection == "fromThreshold")
-  {
-    contactsDetectionMethod = KoContactsManager::ContactsDetection::fromThreshold;
-  }
-  else if(contactsDetection == "fromSurfaces")
-  {
-    contactsDetectionMethod = KoContactsManager::ContactsDetection::fromSurfaces;
-  }
-  else if(contactsDetection == "fromSolver")
-  {
-    contactsDetectionMethod = KoContactsManager::ContactsDetection::fromSolver;
-  }
+  KoContactsManager::ContactsDetection contactsDetectionMethod = KoContactsManager::ContactsDetection::Undefined;
+  if(contactsDetection == "fromThreshold") { contactsDetectionMethod = KoContactsManager::ContactsDetection::Sensors; }
+  else if(contactsDetection == "Surfaces") { contactsDetectionMethod = KoContactsManager::ContactsDetection::Surfaces; }
+  else if(contactsDetection == "fromSolver") { contactsDetectionMethod = KoContactsManager::ContactsDetection::Solver; }
 
   std::vector<std::string> contactsSensorsDisabledInit =
       config("contactsSensorDisabledInit", std::vector<std::string>());
   config("forceSensorsAsInput", forceSensorsAsInput_);
 
-  if(contactsDetectionMethod == KoContactsManager::ContactsDetection::fromSurfaces)
+  if(contactsDetectionMethod == KoContactsManager::ContactsDetection::Surfaces)
   {
     std::vector<std::string> surfacesForContactDetection =
         config("surfacesForContactDetection", std::vector<std::string>());
@@ -470,13 +461,13 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 
         for(const int & contactIndex : contactsManager_.contactsFound())
         {
-          KoContactWithSensor contact = contactsManager_.contactWithSensor(contactIndex);
+          KoContactWithSensor contact = contactsManager_.contact(contactIndex);
 
           // Update of the force measurements (the contribution of the gravity changed)
           const mc_rbdyn::ForceSensor & forceSensor = robot.forceSensor(contact.forceSensorName());
 
           // the tilt of the robot changed so the contribution of the gravity to the measurements changed too
-          if(KoContactsManager().getContactsDetection() == KoContactsManager::ContactsDetection::fromThreshold)
+          if(KoContactsManager().getContactsDetection() == KoContactsManager::ContactsDetection::Sensors)
           {
             updateContactForceMeasurement(contact, forceSensor.wrenchWithoutGravity(inputRobot));
           }
@@ -549,15 +540,15 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 
       for(const int & contactIndex : contactsManager_.contactsFound())
       {
-        KoContactWithSensor contact = contactsManager_.contactWithSensor(contactIndex);
+        KoContactWithSensor contact = contactsManager_.contact(contactIndex);
 
         // Update of the force measurements (the offset due to the gravity changed)
         const mc_rbdyn::ForceSensor & forceSensor = inputRobot.forceSensor(contact.forceSensorName());
 
         so::kine::Kinematics bodySensorKine =
-            kinematicsTools::poseFromSva(forceSensor.X_p_f(), so::kine::Kinematics::Flags::vel);
+            conversions::kinematics::fromSva(forceSensor.X_p_f(), so::kine::Kinematics::Flags::vel);
 
-        so::kine::Kinematics bodySurfaceKine = kinematicsTools::poseFromSva(
+        so::kine::Kinematics bodySurfaceKine = conversions::kinematics::fromSva(
             inputRobot.surface(contact.surfaceName()).X_b_s(), so::kine::Kinematics::Flags::vel);
 
         so::kine::Kinematics surfaceSensorKine = bodySurfaceKine.getInverse() * bodySensorKine;
@@ -640,7 +631,7 @@ void MCKineticsObserver::inputAdditionalWrench(const mc_rbdyn::Robot & inputRobo
   additionalUserResultingForce_.setZero();
   additionalUserResultingMoment_.setZero();
 
-  for(auto & contactWithSensor : contactsManager_.contactsWithSensors())
+  for(auto & contactWithSensor : contactsManager_.contacts())
   {
     KoContactWithSensor & contact = contactWithSensor.second;
     const std::string & fsName = contact.forceSensorName();
@@ -662,9 +653,8 @@ void MCKineticsObserver::inputAdditionalWrench(const mc_rbdyn::Robot & inputRobo
 
   if(withDebugLogs_)
   {
-    for(auto & contactWithSensor :
-        contactsManager_.contactsWithSensors()) // if a force sensor is not associated to a contact, its
-                                                // measurement is given as an input external wrench
+    for(auto & contactWithSensor : contactsManager_.contacts()) // if a force sensor is not associated to a contact, its
+                                                                // measurement is given as an input external wrench
     {
       KoContactWithSensor & contact = contactWithSensor.second;
       const std::string & fsName = contact.forceSensorName();
@@ -687,10 +677,10 @@ void MCKineticsObserver::updateIMUs(const mc_rbdyn::Robot & measRobot, const mc_
     /** Position of accelerometer **/
 
     const sva::PTransformd & bodyImuPose = inputRobot.bodySensor(imu.name()).X_b_s();
-    so::kine::Kinematics bodyImuKine =
-        kinematicsTools::poseFromSva(bodyImuPose, so::kine::Kinematics::Flags::vel | so::kine::Kinematics::Flags::acc);
+    so::kine::Kinematics bodyImuKine = conversions::kinematics::fromSva(
+        bodyImuPose, so::kine::Kinematics::Flags::vel | so::kine::Kinematics::Flags::acc);
 
-    so::kine::Kinematics worldBodyKine = kinematicsTools::kinematicsFromSva(
+    so::kine::Kinematics worldBodyKine = conversions::kinematics::kinematicsFromSva(
         inputRobot.mbc().bodyPosW[inputRobot.bodyIndexByName(imu.parentBody())],
         inputRobot.mbc().bodyVelW[inputRobot.bodyIndexByName(imu.parentBody())],
         inputRobot.mbc().bodyAccB[inputRobot.bodyIndexByName(imu.parentBody())], true, false);
@@ -703,10 +693,10 @@ void MCKineticsObserver::updateIMUs(const mc_rbdyn::Robot & measRobot, const mc_
   }
 }
 
-const measurements::ContactsManager<KoContactWithSensor, measurements::ContactWithoutSensor>::ContactsSet &
-    MCKineticsObserver::findNewContacts(const mc_control::MCController & ctl)
+const measurements::ContactsManager<KoContactWithSensor>::ContactsSet & MCKineticsObserver::findNewContacts(
+    const mc_control::MCController & ctl)
 {
-  contactsManager_.findContacts(ctl, robot_);
+  contactsManager_.updateContacts(ctl, robot_);
 
   return contactsManager_.contactsFound(); // list of currently set contacts
 }
@@ -728,17 +718,17 @@ const so::kine::Kinematics MCKineticsObserver::getContactWorldKinematicsAndWrenc
 
   const sva::PTransformd & bodyContactSensorPose = fs.X_p_f();
   so::kine::Kinematics bodyContactSensorKine =
-      kinematicsTools::poseFromSva(bodyContactSensorPose, so::kine::Kinematics::Flags::vel);
+      conversions::kinematics::fromSva(bodyContactSensorPose, so::kine::Kinematics::Flags::vel);
 
   // kinematics of the sensor's parent body in the world
-  so::kine::Kinematics worldBodyKine = kinematicsTools::poseAndVelFromSva(
+  so::kine::Kinematics worldBodyKine = conversions::kinematics::fromSva(
       currentRobot.mbc().bodyPosW[currentRobot.bodyIndexByName(fs.parentBody())],
       currentRobot.mbc().bodyVelW[currentRobot.bodyIndexByName(fs.parentBody())], true);
 
   // kinematics of the frame of the force sensor in the world frame
   so::kine::Kinematics worldSensorKine = worldBodyKine * bodyContactSensorKine;
 
-  if(KoContactsManager().getContactsDetection() == KoContactsManager::ContactsDetection::fromThreshold)
+  if(KoContactsManager().getContactsDetection() == KoContactsManager::ContactsDetection::Sensors)
   {
     // If the contact is detecting using thresholds, we will then consider the sensor frame as
     // the contact surface frame directly.
@@ -750,7 +740,7 @@ const so::kine::Kinematics MCKineticsObserver::getContactWorldKinematicsAndWrenc
     // pose of the surface in the world / floating base's frame
     sva::PTransformd worldSurfacePose = currentRobot.surfacePose(contact.surfaceName());
     // Kinematics of the surface in the world / floating base's frame
-    worldContactKine = kinematicsTools::poseFromSva(worldSurfacePose, so::kine::Kinematics::Flags::vel);
+    worldContactKine = conversions::kinematics::fromSva(worldSurfacePose, so::kine::Kinematics::Flags::vel);
 
     contact.surfaceSensorKine_ = worldContactKine.getInverse() * worldSensorKine;
     // expressing the force measurement in the frame of the surface
@@ -776,16 +766,16 @@ const so::kine::Kinematics MCKineticsObserver::getContactWorldKinematics(KoConta
 
   const sva::PTransformd & bodyContactSensorPose = fs.X_p_f();
   so::kine::Kinematics bodyContactSensorKine =
-      kinematicsTools::poseFromSva(bodyContactSensorPose, so::kine::Kinematics::Flags::vel);
+      conversions::kinematics::fromSva(bodyContactSensorPose, so::kine::Kinematics::Flags::vel);
 
   // kinematics of the sensor's parent body in the world frame
-  so::kine::Kinematics worldBodyKine = kinematicsTools::poseAndVelFromSva(
+  so::kine::Kinematics worldBodyKine = conversions::kinematics::fromSva(
       currentRobot.mbc().bodyPosW[currentRobot.bodyIndexByName(fs.parentBody())],
       currentRobot.mbc().bodyVelW[currentRobot.bodyIndexByName(fs.parentBody())], true);
 
   so::kine::Kinematics worldSensorKine = worldBodyKine * bodyContactSensorKine;
 
-  if(KoContactsManager().getContactsDetection() == KoContactsManager::ContactsDetection::fromThreshold)
+  if(KoContactsManager().getContactsDetection() == KoContactsManager::ContactsDetection::Sensors)
   {
     // If the contact is detecting using thresholds, we will then consider the sensor frame as
     // the contact surface frame directly.
@@ -796,7 +786,7 @@ const so::kine::Kinematics MCKineticsObserver::getContactWorldKinematics(KoConta
     // pose of the surface in the world / floating base's frame
     sva::PTransformd worldSurfacePose = currentRobot.surfacePose(contact.surfaceName());
     // Kinematics of the surface in the world / floating base's frame
-    worldContactKine = kinematicsTools::poseFromSva(worldSurfacePose, so::kine::Kinematics::Flags::vel);
+    worldContactKine = conversions::kinematics::fromSva(worldSurfacePose, so::kine::Kinematics::Flags::vel);
   }
 
   return worldContactKine;
@@ -873,8 +863,9 @@ void MCKineticsObserver::getOdometryWorldContactRest(const mc_control::MCControl
   so::Matrix3 flexRotMatrix = so::kine::Orientation(flexRotAngleAxis).toMatrix3();
   worldContactKineRef.orientation = so::Matrix3(flexRotMatrix.transpose() * worldContactKine.orientation.toMatrix3());
 
-  if(odometryType_ == measurements::flatOdometry) // if true, the position odometry is made only along the x and y axis,
-                                                  // the position along z is assumed to be the one of the control robot
+  if(odometryType_
+     == measurements::OdometryType::Flat) // if true, the position odometry is made only along the x and y axis,
+                                          // the position along z is assumed to be the one of the control robot
   {
     // kinematics of the contact of the control robot in the world frame
     so::kine::Kinematics worldContactKineControl =
@@ -899,7 +890,7 @@ void MCKineticsObserver::updateContact(const mc_control::MCController & ctl,
   auto & inputRobot = my_robots_->robot("inputRobot");
 
   const auto & robot = ctl.robot(robot_);
-  KoContactWithSensor & contact = contactsManager_.contactWithSensor(contactIndex);
+  KoContactWithSensor & contact = contactsManager_.contact(contactIndex);
 
   sva::ForceVecd measuredWrench = robot.forceSensor(contact.forceSensorName()).wrenchWithoutGravity(inputRobot);
   const mc_rbdyn::ForceSensor & forceSensor = robot.forceSensor(contact.forceSensorName());
@@ -940,8 +931,8 @@ void MCKineticsObserver::updateContact(const mc_control::MCController & ctl,
       // reference of the contact in the world / floating base of the input robot
       so::kine::Kinematics worldContactKineRef;
 
-      if(odometryType_ != measurements::None) // the Kinetics Observer performs odometry. The estimated state is used to
-                                              // provide the new contacts references.
+      if(odometryType_ != measurements::OdometryType::None) // the Kinetics Observer performs odometry. The estimated
+                                                            // state is used to provide the new contacts references.
       {
         getOdometryWorldContactRest(ctl, contact, worldContactKineRef);
       }
@@ -982,8 +973,7 @@ void MCKineticsObserver::updateContact(const mc_control::MCController & ctl,
 
 void MCKineticsObserver::updateContacts(
     const mc_control::MCController & ctl,
-    const measurements::ContactsManager<KoContactWithSensor, measurements::ContactWithoutSensor>::ContactsSet &
-        updatedContactsIndexes,
+    const measurements::ContactsManager<KoContactWithSensor>::ContactsSet & updatedContactsIndexes,
     mc_rtc::Logger & logger)
 {
   for(const auto & updatedContactIndex : updatedContactsIndexes) { updateContact(ctl, updatedContactIndex, logger); }
@@ -1049,13 +1039,13 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController & ctl,
                      {
                        switch(odometryType_)
                        {
-                         case measurements::flatOdometry:
+                         case measurements::OdometryType::Flat:
                            return "flatOdometry";
                            break;
-                         case measurements::odometry6d:
+                         case measurements::OdometryType::Odometry6d:
                            return "6dOdometry";
                            break;
-                         case measurements::None:
+                         case measurements::OdometryType::None:
                            return "None";
                            break;
                        }
@@ -1063,7 +1053,7 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController & ctl,
                      });
 
   /* Plots of the updated state */
-  kinematicsTools::addToLogger(globalCentroidKinematics_, logger, observerName_ + "_globalWorldCentroidState");
+  conversions::kinematics::addToLogger(globalCentroidKinematics_, logger, observerName_ + "_globalWorldCentroidState");
   logger.addLogEntry(observerName_ + "_globalWorldCentroidState_positionW_",
                      [this]() -> Eigen::Vector3d { return globalCentroidKinematics_.position(); });
   logger.addLogEntry(observerName_ + "_globalWorldCentroidState_linVelW",
@@ -1390,21 +1380,21 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController & ctl,
   logger.addLogEntry(observerName_ + "_debug_worldInputRobotKine_angAcc",
                      [this]() -> Eigen::Vector3d { return my_robots_->robot("inputRobot").accW().angular(); });
 
-  for(auto & contactWithSensor : contactsManager_.contactsWithSensors())
+  for(auto & contactWithSensor : contactsManager_.contacts())
   {
     const measurements::ContactWithSensor & contact = contactWithSensor.second;
-    logger.addLogEntry(observerName_ + "_debug_wrenchesInCentroid_" + contact.getName() + "_force",
+    logger.addLogEntry(observerName_ + "_debug_wrenchesInCentroid_" + contact.name() + "_force",
                        [this, contact]() -> Eigen::Vector3d { return contact.wrenchInCentroid_.segment<3>(0); });
-    logger.addLogEntry(observerName_ + "_debug_wrenchesInCentroid_" + contact.getName() + "_torque",
+    logger.addLogEntry(observerName_ + "_debug_wrenchesInCentroid_" + contact.name() + "_torque",
                        [this, contact]() -> Eigen::Vector3d { return contact.wrenchInCentroid_.segment<3>(3); });
-    logger.addLogEntry(observerName_ + "_debug_wrenchesInCentroid_" + contact.getName() + "_forceWithUnmodeled",
+    logger.addLogEntry(observerName_ + "_debug_wrenchesInCentroid_" + contact.name() + "_forceWithUnmodeled",
                        [this, contact]() -> Eigen::Vector3d
                        {
                          return observer_.getCurrentStateVector().segment(observer_.unmodeledForceIndex(),
                                                                           observer_.sizeForce)
                                 + contact.wrenchInCentroid_.segment<3>(0);
                        });
-    logger.addLogEntry(observerName_ + "_debug_wrenchesInCentroid_" + contact.getName() + "_torqueWithUnmodeled",
+    logger.addLogEntry(observerName_ + "_debug_wrenchesInCentroid_" + contact.name() + "_torqueWithUnmodeled",
                        [this, contact]() -> Eigen::Vector3d
                        {
                          return observer_.getCurrentStateVector().segment(observer_.unmodeledTorqueIndex(),
@@ -1432,8 +1422,8 @@ void MCKineticsObserver::removeFromLogger(mc_rtc::Logger & logger, const std::st
 void MCKineticsObserver::changeOdometryType(const mc_control::MCController & ctl, const std::string & newOdometryType)
 {
   OdometryType prevOdometryType = odometryType_;
-  if(newOdometryType == "flatOdometry") { odometryType_ = measurements::flatOdometry; }
-  else if(newOdometryType == "6dOdometry") { odometryType_ = measurements::odometry6d; }
+  if(newOdometryType == "flatOdometry") { odometryType_ = measurements::OdometryType::Flat; }
+  else if(newOdometryType == "6dOdometry") { odometryType_ = measurements::OdometryType::Odometry6d; }
 
   // if the type didn't change, we stop the function here
   if(odometryType_ == prevOdometryType) { return; }
@@ -1458,12 +1448,12 @@ void MCKineticsObserver::addToGUI(const mc_control::MCController & ctl,
     mc_state_observation::gui::make_input_element("Force Covariance", contactSensorCovariance_(0,0)),
     mc_state_observation::gui::make_input_element("Gyro Covariance", gyroSensorCovariance_(0,0)));
 
-  if(odometryType_ != measurements::None)
+  if(odometryType_ != measurements::OdometryType::None)
   {
     gui.addElement({observerName_, "Odometry"}, mc_rtc::gui::ComboInput(
                                                                   "Choose from list", {"6dOdometry", "flatOdometry"},
                                                                   [this]() -> std::string {
-                                                                    if(odometryType_ == measurements::flatOdometry)
+                                                                    if(odometryType_ == measurements::OdometryType::Flat)
                                                                     {
                                                                       return "flatOdometry";
                                                                     }
@@ -1625,8 +1615,7 @@ void MCKineticsObserver::addContactLogEntries(mc_rtc::Logger & logger, const int
                          return observer_.getUserContactInputPose(contactIndex).orientation.inverse().toQuaternion();
                        });
     logger.addLogEntry(observerName_ + "_debug_contactState_isSet_" + contactName,
-                       [this, contactIndex]() -> int
-                       { return int(contactsManager_.contactWithSensor(contactIndex).isSet_); });
+                       [this, contactIndex]() -> int { return int(contactsManager_.contact(contactIndex).isSet_); });
   }
 }
 

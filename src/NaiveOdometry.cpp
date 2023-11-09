@@ -32,12 +32,11 @@ void NaiveOdometry::configure(const mc_control::MCController & ctl, const mc_rtc
 
   bool verbose = config("verbose", true);
 
-  if(typeOfOdometry == "flatOdometry") { odometryType = measurements::OdometryType::Flat; }
-  else if(typeOfOdometry == "6dOdometry") { odometryType = measurements::OdometryType::Odometry6d; }
+  if(typeOfOdometry == "Flat") { odometryType = measurements::OdometryType::Flat; }
+  else if(typeOfOdometry == "6D") { odometryType = measurements::OdometryType::Odometry6d; }
   else
   {
-    mc_rtc::log::error_and_throw<std::runtime_error>(
-        "Odometry type not allowed. Please pick among : [flatOdometry, 6dOdometry]");
+    mc_rtc::log::error_and_throw<std::runtime_error>("Odometry type not allowed. Please pick among : [Flat, 6D]");
   }
 
   bool velUpdatedUpstream = config("velUpdatedUpstream");
@@ -58,12 +57,12 @@ void NaiveOdometry::configure(const mc_control::MCController & ctl, const mc_rtc
   LoContactsManager::ContactsDetection contactsDetectionMethod = LoContactsManager::ContactsDetection::Undefined;
   if(contactsDetection == "Sensors") { contactsDetectionMethod = LoContactsManager::ContactsDetection::Sensors; }
   else if(contactsDetection == "Surfaces") { contactsDetectionMethod = LoContactsManager::ContactsDetection::Surfaces; }
-  else if(contactsDetection == "fromSolver") { contactsDetectionMethod = LoContactsManager::ContactsDetection::Solver; }
+  else if(contactsDetection == "Solver") { contactsDetectionMethod = LoContactsManager::ContactsDetection::Solver; }
 
   if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Undefined)
   {
     mc_rtc::log::error_and_throw<std::runtime_error>(
-        "Contacts detection type not allowed. Please pick among : [fromSolver, Sensors, Surfaces] or "
+        "Contacts detection type not allowed. Please pick among : [Solver, Sensors, Surfaces] or "
         "initialize a list of surfaces with the variable surfacesForContactDetection");
   }
   if(surfacesForContactDetection.size() > 0)

@@ -49,16 +49,12 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
 
   std::string typeOfOdometry = static_cast<std::string>(config("odometryType"));
 
-  if(typeOfOdometry == "flatOdometry") { odometryManager_.changeOdometryType(measurements::OdometryType::Flat); }
-  else if(typeOfOdometry == "6dOdometry")
-  {
-    odometryManager_.changeOdometryType(measurements::OdometryType::Odometry6d);
-  }
+  if(typeOfOdometry == "Flat") { odometryManager_.changeOdometryType(measurements::OdometryType::Flat); }
+  else if(typeOfOdometry == "6D") { odometryManager_.changeOdometryType(measurements::OdometryType::Odometry6d); }
   else if(typeOfOdometry == "None") { odometryManager_.changeOdometryType(measurements::OdometryType::None); }
   else
   {
-    mc_rtc::log::error_and_throw<std::runtime_error>(
-        "Odometry type not allowed. Please pick among : [None, flatOdometry, 6dOdometry]");
+    mc_rtc::log::error_and_throw<std::runtime_error>("Odometry type not allowed. Please pick among : [None, Flat, 6D]");
   }
 
   if(odometryManager_.odometryType_ != measurements::OdometryType::None)
@@ -82,18 +78,12 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
     std::string contactsDetection = static_cast<std::string>(config("contactsDetection"));
 
     LoContactsManager::ContactsDetection contactsDetectionMethod = LoContactsManager::ContactsDetection::Undefined;
-    if(contactsDetection == "fromThreshold")
-    {
-      contactsDetectionMethod = LoContactsManager::ContactsDetection::Sensors;
-    }
-    else if(contactsDetection == "fromSurfaces")
+    if(contactsDetection == "Sensors") { contactsDetectionMethod = LoContactsManager::ContactsDetection::Sensors; }
+    else if(contactsDetection == "Surfaces")
     {
       contactsDetectionMethod = LoContactsManager::ContactsDetection::Surfaces;
     }
-    else if(contactsDetection == "fromSolver")
-    {
-      contactsDetectionMethod = LoContactsManager::ContactsDetection::Solver;
-    }
+    else if(contactsDetection == "Solver") { contactsDetectionMethod = LoContactsManager::ContactsDetection::Solver; }
 
     if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Undefined)
     {
@@ -669,11 +659,8 @@ void TiltObserver::checkCorrectBackupConf(OdometryType & koOdometryType)
 void TiltObserver::changeOdometryType(const std::string & newOdometryType)
 {
   OdometryType prevOdometryType = odometryManager_.odometryType_;
-  if(newOdometryType == "flatOdometry") { odometryManager_.changeOdometryType(measurements::OdometryType::Flat); }
-  else if(newOdometryType == "6dOdometry")
-  {
-    odometryManager_.changeOdometryType(measurements::OdometryType::Odometry6d);
-  }
+  if(newOdometryType == "Flat") { odometryManager_.changeOdometryType(measurements::OdometryType::Flat); }
+  else if(newOdometryType == "6D") { odometryManager_.changeOdometryType(measurements::OdometryType::Odometry6d); }
 
   if(odometryManager_.odometryType_ != prevOdometryType)
   {
@@ -695,10 +682,10 @@ void TiltObserver::addToLogger(const mc_control::MCController & ctl,
                        switch(odometryManager_.odometryType_)
                        {
                          case measurements::OdometryType::Flat:
-                           return "flatOdometry";
+                           return "Flat";
                            break;
                          case measurements::OdometryType::Odometry6d:
-                           return "6dOdometry";
+                           return "6D";
                            break;
                          case measurements::OdometryType::None:
                            return "None";
@@ -949,14 +936,11 @@ void TiltObserver::addToGUI(const mc_control::MCController &,
   {
     gui.addElement({observerName_, "Odometry"},
                    mc_rtc::gui::ComboInput(
-                       "Choose from list", {"6dOdometry", "flatOdometry"},
+                       "Choose from list", {"6D", "Flat"},
                        [this]() -> std::string
                        {
-                         if(odometryManager_.odometryType_ == measurements::OdometryType::Flat)
-                         {
-                           return "flatOdometry";
-                         }
-                         else { return "6dOdometry"; }
+                         if(odometryManager_.odometryType_ == measurements::OdometryType::Flat) { return "Flat"; }
+                         else { return "6D"; }
                        },
                        [this](const std::string & typeOfOdometry) { changeOdometryType(typeOfOdometry); }));
   }

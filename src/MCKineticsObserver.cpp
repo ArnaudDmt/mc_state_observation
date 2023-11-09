@@ -43,13 +43,12 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
 
   std::string typeOfOdometry = static_cast<std::string>(config("odometryType"));
 
-  if(typeOfOdometry == "flatOdometry") { odometryType_ = measurements::OdometryType::Flat; }
-  else if(typeOfOdometry == "6dOdometry") { odometryType_ = measurements::OdometryType::Odometry6d; }
+  if(typeOfOdometry == "Flat") { odometryType_ = measurements::OdometryType::Flat; }
+  else if(typeOfOdometry == "6D") { odometryType_ = measurements::OdometryType::Odometry6d; }
   else if(typeOfOdometry == "None") { odometryType_ = measurements::OdometryType::None; }
   else
   {
-    mc_rtc::log::error_and_throw<std::runtime_error>(
-        "Odometry type not allowed. Please pick among : [None, flatOdometry, 6dOdometry]");
+    mc_rtc::log::error_and_throw<std::runtime_error>("Odometry type not allowed. Please pick among : [None, Flat, 6D]");
   }
 
   config("withDebugLogs", withDebugLogs_);
@@ -66,9 +65,9 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   std::string contactsDetection = static_cast<std::string>(config("contactsDetection"));
 
   KoContactsManager::ContactsDetection contactsDetectionMethod = KoContactsManager::ContactsDetection::Undefined;
-  if(contactsDetection == "fromThreshold") { contactsDetectionMethod = KoContactsManager::ContactsDetection::Sensors; }
+  if(contactsDetection == "Sensors") { contactsDetectionMethod = KoContactsManager::ContactsDetection::Sensors; }
   else if(contactsDetection == "Surfaces") { contactsDetectionMethod = KoContactsManager::ContactsDetection::Surfaces; }
-  else if(contactsDetection == "fromSolver") { contactsDetectionMethod = KoContactsManager::ContactsDetection::Solver; }
+  else if(contactsDetection == "Solver") { contactsDetectionMethod = KoContactsManager::ContactsDetection::Solver; }
 
   std::vector<std::string> contactsSensorsDisabledInit =
       config("contactsSensorDisabledInit", std::vector<std::string>());
@@ -1040,10 +1039,10 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController & ctl,
                        switch(odometryType_)
                        {
                          case measurements::OdometryType::Flat:
-                           return "flatOdometry";
+                           return "Flat";
                            break;
                          case measurements::OdometryType::Odometry6d:
-                           return "6dOdometry";
+                           return "6D";
                            break;
                          case measurements::OdometryType::None:
                            return "None";
@@ -1422,8 +1421,8 @@ void MCKineticsObserver::removeFromLogger(mc_rtc::Logger & logger, const std::st
 void MCKineticsObserver::changeOdometryType(const mc_control::MCController & ctl, const std::string & newOdometryType)
 {
   OdometryType prevOdometryType = odometryType_;
-  if(newOdometryType == "flatOdometry") { odometryType_ = measurements::OdometryType::Flat; }
-  else if(newOdometryType == "6dOdometry") { odometryType_ = measurements::OdometryType::Odometry6d; }
+  if(newOdometryType == "Flat") { odometryType_ = measurements::OdometryType::Flat; }
+  else if(newOdometryType == "6D") { odometryType_ = measurements::OdometryType::Odometry6d; }
 
   // if the type didn't change, we stop the function here
   if(odometryType_ == prevOdometryType) { return; }
@@ -1451,15 +1450,15 @@ void MCKineticsObserver::addToGUI(const mc_control::MCController & ctl,
   if(odometryType_ != measurements::OdometryType::None)
   {
     gui.addElement({observerName_, "Odometry"}, mc_rtc::gui::ComboInput(
-                                                                  "Choose from list", {"6dOdometry", "flatOdometry"},
+                                                                  "Choose from list", {"6D", "Flat"},
                                                                   [this]() -> std::string {
                                                                     if(odometryType_ == measurements::OdometryType::Flat)
                                                                     {
-                                                                      return "flatOdometry";
+                                                                      return "Flat";
                                                                     }
                                                                     else
                                                                     {
-                                                                      return "6dOdometry";
+                                                                      return "6D";
                                                                     }
                                                                   },
                                                                   [this, &ctl](const std::string & typeOfOdometry) {

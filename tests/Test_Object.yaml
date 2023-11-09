@@ -1,0 +1,14 @@
+ObserverModulePaths: ["$<TARGET_FILE_DIR:SLAMObserver>"]
+ObserverPipelines:
+  name: MainObserverPipeline
+  gui: false
+  observers:
+    - type: Object
+      update: false
+      config:
+        Robot:
+          jvrc1:
+            camera: NECK_P_S
+        Object:
+          robot: ground
+          topic: /not/relevant

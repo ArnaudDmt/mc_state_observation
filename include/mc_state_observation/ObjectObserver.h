@@ -17,6 +17,8 @@ struct ObjectObserver : public mc_observers::Observer
 
   ObjectObserver(const std::string & type, double dt);
 
+  ~ObjectObserver();
+
   void configure(const mc_control::MCController & ctl, const mc_rtc::Configuration &) override;
 
   void reset(const mc_control::MCController & ctl) override;
@@ -76,6 +78,7 @@ protected:
   mc_rtc::NodeHandlePtr nh_ = nullptr;
   void rosSpinner();
   std::thread thread_;
+  bool thread_run_ = true;
 
   bool isEstimatedPoseValid_ = false;
 

@@ -1,0 +1,78 @@
+ObserverModulePaths: ["$<TARGET_FILE_DIR:TiltObserver>"]
+ObserverPipelines:
+  name: MainObserverPipeline
+  gui: false
+  observers:
+    - type: Tilt
+      update: true
+      config:
+        asBackup: true
+        odometryType: Flat
+        velUpdatedUpstream: false
+        accUpdatedUpstream: false
+        contactsDetection: Surfaces
+        surfacesForContactDetection: [RightFootCenter, LeftFootCenter]
+    - type: MCKineticsObserver
+      update: true
+      config:
+        odometryType: Flat
+        contactsDetection: Surfaces
+        surfacesForContactDetection: [RightFootCenter, LeftFootCenter]
+
+        withDebugLogs: true
+        withFiniteDifferences: false
+        finiteDifferenceStep: 1e-6
+        withGyroBias: true
+        withUnmodeledWrench: false
+        contactDetectionPropThreshold: 0.110
+
+        withFilteredForcesContactDetection: false
+        withAccelerationEstimation: true
+        withRungeKutta: false
+
+        contactsSensorDisabledInit: []
+
+        statePositionInitVariance: [0.0, 0.0, 0.0]
+        stateOriInitVariance: [0.0, 0.0, 0.0]
+        stateLinVelInitVariance: [0.0, 0.0, 0.0]
+        stateAngVelInitVariance: [0.0, 0.0, 0.0]
+        gyroBiasInitVariance: [1e-8, 1e-8, 1e-8]
+        unmodeledForceInitVariance: [0, 0, 0]
+        unmodeledTorqueInitVariance: [0.0, 0.0, 0.0]
+
+        contactPositionInitVarianceFirstContacts: [0.0, 0.0, 0.0]
+        contactOriInitVarianceFirstContacts: [0.0, 0.0, 0.0]
+        contactForceInitVarianceFirstContacts: [400, 400, 400]
+        contactTorqueInitVarianceFirstContacts: [36e1, 36e1, 36e1]
+
+        contactPositionInitVarianceNewContacts: [1e-9, 1e-8, 1e-8]
+        contactOriInitVarianceNewContacts: [1e-6, 1e-6, 1e-6]
+        contactForceInitVarianceNewContacts: [400, 400, 400]
+        contactTorqueInitVarianceNewContacts: [36e1, 36e1, 36e1]
+
+        statePositionProcessVariance: [1e-10, 1e-10, 1e-10]
+        stateOriProcessVariance: [1e-12, 1e-12, 1e-12]
+        stateLinVelProcessVariance: [0.0, 0.0, 0.0]
+        stateAngVelProcessVariance: [0.0, 0.0, 0.0]
+        gyroBiasProcessVariance: [1e-12, 1e-12, 1e-12]
+        unmodeledForceProcessVariance: [9e-2, 9e-2, 9e-2]
+        unmodeledTorqueProcessVariance: [5e-2, 5e-2, 5e-2]
+        contactPositionProcessVariance: [0.0, 0.0, 0.0]
+        contactOrientationProcessVariance: [0.0, 0.0, 0.0]
+        contactForceProcessVariance: [250, 250, 2.5e2]
+        contactTorqueProcessVariance: [25e1, 25e1, 25e1]
+
+        acceleroSensorVariance: [1e-4, 1e-4, 1e-4]
+        gyroSensorVariance: [1e-6, 1e-6, 1e-6]
+        forceSensorVariance: [2e1, 2e1, 2e1]
+        torqueSensorVariance: [1.5e0, 1.5e0, 1.5e0]
+
+        positionSensorVariance: [0.0, 0.0, 0.0]
+        orientationSensorVariance: [0.0, 0.0, 0.0]
+
+        linStiffness: [1.0, 1.0, 1.0]
+        angStiffness: [1.0, 1.0, 1.0]
+        linDamping: [1.0, 1.0, 1.0]
+        angDamping: [1.0, 1.0, 1.0]
+
+        absOriSensorVariance: [0.0, 0.0, 0.0]

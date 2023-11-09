@@ -1,0 +1,8 @@
+MainRobot: JVRC1
+Enabled: Posture
+Timestep: 0.005
+Log: false
+GUIServer:
+  Enable: false
+ClearObserverModulePath: true
+@OBSERVER_CFG@

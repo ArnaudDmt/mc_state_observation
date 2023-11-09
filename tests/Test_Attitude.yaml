@@ -1,0 +1,10 @@
+ObserverModulePaths: ["$<TARGET_FILE_DIR:AttitudeObserver>"]
+ObserverPipelines:
+  name: MainObserverPipeline
+  gui: false
+  observers:
+    - type: Attitude
+      update: true
+      config:
+        KalmanFilter:
+          gyr_cov: 1e-6

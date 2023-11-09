@@ -1,0 +1,9 @@
+ObserverModulePaths: ["$<TARGET_FILE_DIR:TiltObserver>"]
+ObserverPipelines:
+  name: MainObserverPipeline
+  gui: false
+  observers:
+    - type: MOCAPVisualizer
+      update: false
+      config:
+        numExpe: "test"

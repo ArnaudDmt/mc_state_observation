@@ -88,6 +88,7 @@ void ObjectObserver::configure(const mc_control::MCController & controller, cons
 
   desc_ = fmt::format("{} (Object: {}, Topic: {}, inRobotMap: {})", name(), object_, topic_, isInRobotMap_);
 
+  thread_run_ = true;
   thread_ = std::thread(std::bind(&ObjectObserver::rosSpinner, this));
 }
 
@@ -221,12 +222,21 @@ void ObjectObserver::rosSpinner()
 {
   mc_rtc::log::info("[{}] rosSpinner started", name());
   RosRate rate(200);
-  while(ros_ok())
+  while(thread_run_ && ros_ok())
   {
     spinOnce(nh_);
     rate.sleep();
   }
   mc_rtc::log::info("[{}] rosSpinner finished", name());
+}
+
+ObjectObserver::~ObjectObserver()
+{
+  if(thread_.joinable())
+  {
+    thread_run_ = false;
+    thread_.join();
+  }
 }
 
 } // namespace mc_state_observation

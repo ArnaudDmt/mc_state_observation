@@ -1,0 +1,13 @@
+ObserverModulePaths: ["$<TARGET_FILE_DIR:TiltObserver>"]
+ObserverPipelines:
+  name: MainObserverPipeline
+  gui: false
+  observers:
+    - type: NaiveOdometry
+      update: true
+      config:
+        odometryType: 6D
+        velUpdatedUpstream: false
+        accUpdatedUpstream: false
+        contactsDetection: Surfaces
+        surfacesForContactDetection: [RightFootCenter, LeftFootCenter]

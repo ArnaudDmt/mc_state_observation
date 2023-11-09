@@ -133,6 +133,7 @@ void SLAMObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
 
   desc_ = fmt::format("{} (Camera: {}, Estimated: {}, inSimulation: {})", name(), camera_, estimated_, isSimulated_);
 
+  thread_run_ = true;
   thread_ = std::thread(std::bind(&SLAMObserver::rosSpinner, this));
 }
 
@@ -492,12 +493,21 @@ void SLAMObserver::rosSpinner()
 {
   mc_rtc::log::info("[{}] rosSpinner started", name());
   RosRate rate(30);
-  while(ros_ok())
+  while(thread_run_ && ros_ok())
   {
     spinOnce(nh_);
     rate.sleep();
   }
   mc_rtc::log::info("[{}] rosSpinner finished", name());
+}
+
+SLAMObserver::~SLAMObserver()
+{
+  if(thread_.joinable())
+  {
+    thread_run_ = false;
+    thread_.join();
+  }
 }
 
 } // namespace mc_state_observation

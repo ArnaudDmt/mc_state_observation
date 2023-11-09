@@ -460,7 +460,7 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 
         for(const int & contactIndex : contactsManager_.contactsFound())
         {
-          KoContactWithSensor contact = contactsManager_.contact(contactIndex);
+          KoContactWithSensor & contact = contactsManager_.contact(contactIndex);
 
           // Update of the force measurements (the contribution of the gravity changed)
           const mc_rbdyn::ForceSensor & forceSensor = robot.forceSensor(contact.forceSensorName());

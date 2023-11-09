@@ -679,7 +679,7 @@ void MCKineticsObserver::updateIMUs(const mc_rbdyn::Robot & measRobot, const mc_
     so::kine::Kinematics bodyImuKine = conversions::kinematics::fromSva(
         bodyImuPose, so::kine::Kinematics::Flags::vel | so::kine::Kinematics::Flags::acc);
 
-    so::kine::Kinematics worldBodyKine = conversions::kinematics::kinematicsFromSva(
+    so::kine::Kinematics worldBodyKine = conversions::kinematics::fromSva(
         inputRobot.mbc().bodyPosW[inputRobot.bodyIndexByName(imu.parentBody())],
         inputRobot.mbc().bodyVelW[inputRobot.bodyIndexByName(imu.parentBody())],
         inputRobot.mbc().bodyAccB[inputRobot.bodyIndexByName(imu.parentBody())], true, false);

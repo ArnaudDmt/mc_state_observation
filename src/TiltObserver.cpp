@@ -49,9 +49,9 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
 
   std::string typeOfOdometry = static_cast<std::string>(config("odometryType"));
 
-  if(typeOfOdometry == "Flat") { odometryManager_.changeOdometryType(measurements::OdometryType::Flat); }
-  else if(typeOfOdometry == "6D") { odometryManager_.changeOdometryType(measurements::OdometryType::Odometry6d); }
-  else if(typeOfOdometry == "None") { odometryManager_.changeOdometryType(measurements::OdometryType::None); }
+  if(typeOfOdometry == "Flat") { odometryManager_.setOdometryType(measurements::OdometryType::Flat); }
+  else if(typeOfOdometry == "6D") { odometryManager_.setOdometryType(measurements::OdometryType::Odometry6d); }
+  else if(typeOfOdometry == "None") { odometryManager_.setOdometryType(measurements::OdometryType::None); }
   else
   {
     mc_rtc::log::error_and_throw<std::runtime_error>("Odometry type not allowed. Please pick among : [None, Flat, 6D]");
@@ -59,13 +59,11 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
 
   if(odometryManager_.odometryType_ != measurements::OdometryType::None)
   {
-    bool velUpdatedUpstream = config("velUpdatedUpstream");
-    bool accUpdatedUpstream = config("accUpdatedUpstream");
     bool verbose = config("verbose", true);
     bool withYawEstimation = config("withYawEstimation", true);
 
     odometryManager_.init(ctl, robot_, observerName_, odometryManager_.odometryType_, withYawEstimation,
-                          velUpdatedUpstream, accUpdatedUpstream, verbose);
+                          odometry::LeggedOdometryManager::noUpdate, verbose);
 
     // surfaces used for the contact detection. If the desired detection method doesn't use surfaces, we make sure this
     // list is not filled in the configuration file to avoid the use of an undesired method.
@@ -91,6 +89,7 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
           "Contacts detection type not allowed. Please pick among : [fromSolver, fromThreshold, fromSurfaces] or "
           "initialize a list of surfaces with the variable surfacesForContactDetection");
     }
+
     if(surfacesForContactDetection.size() > 0)
     {
       if(contactsDetectionMethod != LoContactsManager::ContactsDetection::Surfaces)
@@ -140,7 +139,7 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
     datastore.make_call("checkCorrectBackupConf",
                         [this](OdometryType & koOdometryType) { checkCorrectBackupConf(koOdometryType); });
     datastore.make_call("changeTiltOdometryType",
-                        [this](const std::string & newOdometryType) { changeOdometryType(newOdometryType); });
+                        [this](const std::string & newOdometryType) { setOdometryType(newOdometryType); });
   }
 }
 
@@ -202,6 +201,10 @@ my_robots_->robot("updatedRobot"); }));
   if(asBackup_)
   {
     // BOOST_ASSERT(withOdometry_ && "The odometry must be used to perform backup");
+    if(!ctl.datastore().has("koBackupIterInterval"))
+    {
+      mc_rtc::log::error_and_throw("You planned to use TiltObserver as a backup but MCKineticsObserver is not used");
+    }
     int backupIterInterval = ctl.datastore().get<int>("koBackupIterInterval");
 
     backupFbKinematics_.resize(backupIterInterval);
@@ -656,11 +659,11 @@ void TiltObserver::checkCorrectBackupConf(OdometryType & koOdometryType)
   }
 }
 
-void TiltObserver::changeOdometryType(const std::string & newOdometryType)
+void TiltObserver::setOdometryType(const std::string & newOdometryType)
 {
   OdometryType prevOdometryType = odometryManager_.odometryType_;
-  if(newOdometryType == "Flat") { odometryManager_.changeOdometryType(measurements::OdometryType::Flat); }
-  else if(newOdometryType == "6D") { odometryManager_.changeOdometryType(measurements::OdometryType::Odometry6d); }
+  if(newOdometryType == "Flat") { odometryManager_.setOdometryType(measurements::OdometryType::Flat); }
+  else if(newOdometryType == "6D") { odometryManager_.setOdometryType(measurements::OdometryType::Odometry6d); }
 
   if(odometryManager_.odometryType_ != prevOdometryType)
   {
@@ -942,7 +945,7 @@ void TiltObserver::addToGUI(const mc_control::MCController &,
                          if(odometryManager_.odometryType_ == measurements::OdometryType::Flat) { return "Flat"; }
                          else { return "6D"; }
                        },
-                       [this](const std::string & typeOfOdometry) { changeOdometryType(typeOfOdometry); }));
+                       [this](const std::string & typeOfOdometry) { setOdometryType(typeOfOdometry); }));
   }
 }
 

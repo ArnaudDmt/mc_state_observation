@@ -67,9 +67,9 @@ public:
   /// @param koOdometryType type of odometry used by the Kinetics Observer
   void checkCorrectBackupConf(measurements::OdometryType & koOdometryType);
 
-  /// @brief Changes the type of the odometry
+  /// @brief Sets the type of the odometry
   /// @param newOdometryType The new type of odometry to use.
-  void changeOdometryType(const std::string & newOdometryType);
+  void setOdometryType(const std::string & newOdometryType);
 
 protected:
   /*! \brief update the robot pose in the world only for visualization purpose

@@ -69,6 +69,13 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   else if(contactsDetection == "Surfaces") { contactsDetectionMethod = KoContactsManager::ContactsDetection::Surfaces; }
   else if(contactsDetection == "Solver") { contactsDetectionMethod = KoContactsManager::ContactsDetection::Solver; }
 
+  if(contactsDetectionMethod == KoContactsManager::ContactsDetection::Undefined)
+  {
+    mc_rtc::log::error_and_throw<std::runtime_error>(
+        "Contacts detection type not allowed. Please pick among : [Solver, Sensors, Surfaces] or "
+        "initialize a list of surfaces with the variable surfacesForContactDetection");
+  }
+
   std::vector<std::string> contactsSensorsDisabledInit =
       config("contactsSensorDisabledInit", std::vector<std::string>());
   config("forceSensorsAsInput", forceSensorsAsInput_);
@@ -188,7 +195,7 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   orientationSensorCoVariance_ = (config("orientationSensorVariance").operator so::Vector3()).matrix().asDiagonal();
   acceleroSensorCovariance_ = (config("acceleroSensorVariance").operator so::Vector3()).matrix().asDiagonal();
   gyroSensorCovariance_ = (config("gyroSensorVariance").operator so::Vector3()).matrix().asDiagonal();
-  absoluteOriSensorCovariance_ = (config("absOriSensorVariance").operator so::Vector3()).matrix().asDiagonal();
+  // absoluteOriSensorCovariance_ = (config("absOriSensorVariance").operator so::Vector3()).matrix().asDiagonal();
   contactSensorCovariance_.setZero();
   contactSensorCovariance_.block<3, 3>(0, 0) =
       (config("forceSensorVariance").operator so::Vector3()).matrix().asDiagonal();
@@ -250,7 +257,7 @@ void MCKineticsObserver::setObserverCovariances()
   absPoseSensorDefCovariance.block(observer_.sizePos, observer_.sizePos, observer_.sizeOriTangent,
                                    observer_.sizeOriTangent) = orientationSensorCoVariance_;
   observer_.setAbsolutePoseSensorDefaultCovarianceMatrix(absPoseSensorDefCovariance);
-  observer_.setAbsoluteOriSensorDefaultCovarianceMatrix(absoluteOriSensorCovariance_);
+  // observer_.setAbsoluteOriSensorDefaultCovarianceMatrix(absoluteOriSensorCovariance_);
 }
 
 void MCKineticsObserver::reset(const mc_control::MCController & ctl)
@@ -471,7 +478,7 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
           const mc_rbdyn::ForceSensor & forceSensor = robot.forceSensor(contact.forceSensorName());
 
           // the tilt of the robot changed so the contribution of the gravity to the measurements changed too
-          if(KoContactsManager().getContactsDetection() == KoContactsManager::ContactsDetection::Sensors)
+          if(contactsManager_.getContactsDetection() == KoContactsManager::ContactsDetection::Sensors)
           {
             updateContactForceMeasurement(contact, forceSensor.wrenchWithoutGravity(inputRobot));
           }
@@ -553,15 +560,16 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
         // Update of the force measurements (the offset due to the gravity changed)
         const mc_rbdyn::ForceSensor & forceSensor = inputRobot.forceSensor(contact.forceSensorName());
 
-        so::kine::Kinematics bodySensorKine =
-            conversions::kinematics::fromSva(forceSensor.X_p_f(), so::kine::Kinematics::Flags::vel);
+        if(contactsManager_.getContactsDetection() == KoContactsManager::ContactsDetection::Sensors)
+        {
+          updateContactForceMeasurement(contact, forceSensor.wrenchWithoutGravity(inputRobot));
+        }
+        else // the kinematics of the contact are the ones of the associated surface
+        {
 
-        so::kine::Kinematics bodySurfaceKine = conversions::kinematics::fromSva(
-            inputRobot.surface(contact.surfaceName()).X_b_s(), so::kine::Kinematics::Flags::vel);
-
-        so::kine::Kinematics surfaceSensorKine = bodySurfaceKine.getInverse() * bodySensorKine;
-
-        updateContactForceMeasurement(contact, surfaceSensorKine, forceSensor.wrenchWithoutGravity(inputRobot));
+          updateContactForceMeasurement(contact, contact.surfaceSensorKine_,
+                                        forceSensor.wrenchWithoutGravity(inputRobot));
+        }
 
         so::kine::Kinematics newWorldContactKineRef;
 
@@ -737,7 +745,7 @@ const so::kine::Kinematics MCKineticsObserver::getContactWorldKinematicsAndWrenc
   // kinematics of the frame of the force sensor in the world frame
   so::kine::Kinematics worldSensorKine = worldBodyKine * bodyContactSensorKine;
 
-  if(KoContactsManager().getContactsDetection() == KoContactsManager::ContactsDetection::Sensors)
+  if(contactsManager_.getContactsDetection() == KoContactsManager::ContactsDetection::Sensors)
   {
     // If the contact is detecting using thresholds, we will then consider the sensor frame as
     // the contact surface frame directly.
@@ -784,7 +792,7 @@ const so::kine::Kinematics MCKineticsObserver::getContactWorldKinematics(KoConta
 
   so::kine::Kinematics worldSensorKine = worldBodyKine * bodyContactSensorKine;
 
-  if(KoContactsManager().getContactsDetection() == KoContactsManager::ContactsDetection::Sensors)
+  if(contactsManager_.getContactsDetection() == KoContactsManager::ContactsDetection::Sensors)
   {
     // If the contact is detecting using thresholds, we will then consider the sensor frame as
     // the contact surface frame directly.
@@ -1398,7 +1406,7 @@ void MCKineticsObserver::removeFromLogger(mc_rtc::Logger & logger, const std::st
   logger.removeLogEntry(category + "_flexDamping");
 }
 
-void MCKineticsObserver::changeOdometryType(const mc_control::MCController & ctl, const std::string & newOdometryType)
+void MCKineticsObserver::setOdometryType(const mc_control::MCController & ctl, const std::string & newOdometryType)
 {
   OdometryType prevOdometryType = odometryType_;
   if(newOdometryType == "Flat") { odometryType_ = measurements::OdometryType::Flat; }
@@ -1442,7 +1450,7 @@ void MCKineticsObserver::addToGUI(const mc_control::MCController & ctl,
                                                                     }
                                                                   },
                                                                   [this, &ctl](const std::string & typeOfOdometry) {
-                                                                    changeOdometryType(ctl, typeOfOdometry);
+                                                                    setOdometryType(ctl, typeOfOdometry);
                                                                   }));
   }
   // clang-format on

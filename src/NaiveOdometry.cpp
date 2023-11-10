@@ -39,11 +39,16 @@ void NaiveOdometry::configure(const mc_control::MCController & ctl, const mc_rtc
     mc_rtc::log::error_and_throw<std::runtime_error>("Odometry type not allowed. Please pick among : [Flat, 6D]");
   }
 
-  bool velUpdatedUpstream = config("velUpdatedUpstream");
-  accUpdatedUpstream_ = config("accUpdatedUpstream");
+  std::string velocityUpdate = "noUpdate";
+  config("velocityUpdate", velocityUpdate);
+  if(velocityUpdate == "fromUpstream") { velUpdate_ = odometry::LeggedOdometryManager::fromUpstream; }
+  else if(velocityUpdate == "finiteDiff") { velUpdate_ = odometry::LeggedOdometryManager::finiteDiff; }
+  else if(velocityUpdate != "noUpdate")
+  {
+    mc_rtc::log::error_and_throw("The allows values of velocityUpdate are [noUpdate, fromUpstream, finiteDiff]");
+  }
 
-  odometryManager_.init(ctl, robot_, "NaiveOdometry", odometryType, true, velUpdatedUpstream, accUpdatedUpstream_,
-                        verbose, true);
+  odometryManager_.init(ctl, robot_, "NaiveOdometry", odometryType, true, velUpdate_, verbose, true);
 
   /* Configuration of the contacts detection */
 
@@ -74,7 +79,7 @@ void NaiveOdometry::configure(const mc_control::MCController & ctl, const mc_rtc
           "surfacesForContactDetection variable");
     }
   }
-  else if(contactsDetectionMethod != LoContactsManager::ContactsDetection::Surfaces)
+  else if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Surfaces)
   {
     mc_rtc::log::error_and_throw<std::runtime_error>(
         "You selected the contacts detection using surfaces but didn't add the list of surfaces, please add it usign "
@@ -145,9 +150,10 @@ bool NaiveOdometry::run(const mc_control::MCController & ctl)
 {
   auto & logger = (const_cast<mc_control::MCController &>(ctl)).logger();
 
-  //  if the acceleration was estimated by a previous estimator, it can be updated
-  if(accUpdatedUpstream_) { odometryManager_.run(ctl, logger, X_0_fb_, v_fb_0_, a_fb_0_); }
-  else { odometryManager_.run(ctl, logger, X_0_fb_, v_fb_0_); }
+  // The odometry manager will update the velocity with the desired method (update of the estimated made upstream or
+  // with finite differences)
+  if(velUpdate_ != odometry::LeggedOdometryManager::noUpdate) { odometryManager_.run(ctl, logger, X_0_fb_, v_0_fb); }
+  else { odometryManager_.run(ctl, logger, X_0_fb_); }
 
   /* Update of the visual representation (only a visual feature) of the observed robot */
   my_robots_->robot().mbc().q = ctl.realRobot().mbc().q;
@@ -170,8 +176,6 @@ void NaiveOdometry::update(mc_control::MCController & ctl) // this function is c
 void NaiveOdometry::update(mc_rbdyn::Robot & robot)
 {
   robot.posW(X_0_fb_);
-  robot.velW(v_fb_0_.vector());
-  robot.accW(a_fb_0_.vector());
 }
 
 void NaiveOdometry::mass(double mass)
@@ -186,8 +190,6 @@ void NaiveOdometry::mass(double mass)
 void NaiveOdometry::addToLogger(const mc_control::MCController &, mc_rtc::Logger & logger, const std::string & category)
 {
   logger.addLogEntry(category + "_naive_fb_posW", [this]() -> const sva::PTransformd & { return X_0_fb_; });
-  logger.addLogEntry(category + "_naive_fb_velW", [this]() -> const sva::MotionVecd & { return v_fb_0_; });
-  logger.addLogEntry(category + "_naive_fb_accW", [this]() -> const sva::MotionVecd & { return a_fb_0_; });
 
   logger.addLogEntry(category + "_naive_fb_yaw",
                      [this]() -> double { return -so::kine::rotationMatrixToYawAxisAgnostic(X_0_fb_.rotation()); });

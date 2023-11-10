@@ -102,11 +102,6 @@ public:
    */
   inline const sva::PTransformd & posW() const { return X_0_fb_; }
 
-  /** Floating-base velocity estimate.
-   *
-   */
-  inline const sva::MotionVecd & velW() const { return v_fb_0_; }
-
 private:
   std::string category_ = "NaiveOdometry_";
   /* custom list of robots to display */
@@ -119,13 +114,15 @@ private:
   // std::set<std::string> contacts_; ///< Sorted list of contacts
   std::set<std::string> oldContacts_;
 
-  sva::MotionVecd v_fb_0_ = sva::MotionVecd::Zero();
+  // estimated pose of the floating base
   sva::PTransformd X_0_fb_ = sva::PTransformd::Identity();
-  sva::MotionVecd a_fb_0_ = sva::MotionVecd::Zero();
+  // estimated velocity of the floating base
+  sva::MotionVecd v_0_fb;
 
   odometry::LeggedOdometryManager odometryManager_;
 
-  bool accUpdatedUpstream_ = false;
+  // indicates if the velocity has to be updated, if yes, how it must be updated
+  odometry::LeggedOdometryManager::VelocityUpdate velUpdate_ = odometry::LeggedOdometryManager::noUpdate;
 
   using LoContactsManager = odometry::LeggedOdometryManager::ContactsManager;
 };

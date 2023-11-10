@@ -141,10 +141,10 @@ protected:
                 mc_rtc::gui::StateBuilder &,
                 const std::vector<std::string> & /* category */) override;
 
-  /// @brief Changes the type of the odometry
+  /// @brief Sets the type of the odometry
   /// @param ctl Controller.
   /// @param newOdometryType The new type of odometry to use.
-  void changeOdometryType(const mc_control::MCController & ctl, const std::string & newOdometryType);
+  void setOdometryType(const mc_control::MCController & ctl, const std::string & newOdometryType);
 
 protected:
   /// @brief Updates the list of currently set contacts.

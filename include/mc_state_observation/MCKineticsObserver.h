@@ -443,7 +443,7 @@ private:
 
   /* IMU variables */
   // manager for the IMUs
-  measurements::MapIMUs mapIMUs_;
+  measurements::ImuList listIMUs_;
 
   /* Utilitary variables */
   // zero frame transformation

@@ -10,7 +10,9 @@ std::string get_test_configuration()
 
 size_t nrIter()
 {
+  // clang-format off
   return @NR_ITER@;
+  // clang-format on
 }
 
-}
+} // namespace mc_state_observation

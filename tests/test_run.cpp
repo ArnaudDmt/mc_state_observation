@@ -7,7 +7,7 @@ std::string get_test_configuration();
 
 size_t nrIter();
 
-}
+} // namespace mc_state_observation
 
 int main()
 {

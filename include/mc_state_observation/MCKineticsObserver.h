@@ -28,17 +28,7 @@ namespace mc_state_observation
 /// floating base and the kinematics of the frame of the sensor in the frame of the contact surface
 struct KoContactWithSensor : public measurements::ContactWithSensor
 {
-  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-protected:
-  KoContactWithSensor() {}
-
-public:
-  KoContactWithSensor(int id, std::string forceSensorName) : measurements::ContactWithSensor(id, forceSensorName) {}
-
-  KoContactWithSensor(int id, const std::string & forceSensorName, const std::string & surfaceName)
-  : measurements::ContactWithSensor(id, forceSensorName, surfaceName)
-  {
-  }
+  using measurements::ContactWithSensor::ContactWithSensor;
 
 public:
   // kinematics of the contact frame in the floating base's frame

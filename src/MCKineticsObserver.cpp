@@ -4,7 +4,6 @@
 #include <mc_observers/ObserverMacros.h>
 #include <mc_rtc/io_utils.h>
 #include <mc_rtc/logging.h>
-#include "mc_state_observation/measurements/measurementsTools.h"
 #include <mc_state_observation/MCKineticsObserver.h>
 #include <mc_state_observation/gui_helpers.h>
 

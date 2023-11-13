@@ -4,7 +4,6 @@
 #include <mc_observers/ObserverMacros.h>
 #include <mc_rtc/io_utils.h>
 #include <mc_rtc/logging.h>
-#include "mc_state_observation/odometry/leggedOdometry.h"
 #include <mc_state_observation/NaiveOdometry.h>
 #include <mc_state_observation/gui_helpers.h>
 

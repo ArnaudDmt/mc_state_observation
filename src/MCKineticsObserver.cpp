@@ -1070,7 +1070,7 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController & ctl,
                      });
 
   /* Plots of the updated state */
-  conversions::kinematics::addToLogger(globalCentroidKinematics_, logger, observerName_ + "_globalWorldCentroidState");
+  conversions::kinematics::addToLogger(logger, globalCentroidKinematics_, observerName_ + "_globalWorldCentroidState");
   logger.addLogEntry(observerName_ + "_globalWorldCentroidState_positionW_",
                      [this]() -> Eigen::Vector3d { return globalCentroidKinematics_.position(); });
   logger.addLogEntry(observerName_ + "_globalWorldCentroidState_linVelW",

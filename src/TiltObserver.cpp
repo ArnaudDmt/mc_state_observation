@@ -903,11 +903,11 @@ void TiltObserver::addToLogger(const mc_control::MCController & ctl,
                        return robot.mbc().bodyVelW[robot.bodyIndexByName(imu.parentBody())].linear();
                      });
 
-  conversions::kinematics::addToLogger(worldAnchorKine_, logger, category + "_debug_worldAnchorKine");
-  conversions::kinematics::addToLogger(updatedWorldImuKine_, logger, category + "_debug_updatedWorldImuKine");
-  conversions::kinematics::addToLogger(worldImuKine_, logger, category + "_debug_worldImuKine");
-  conversions::kinematics::addToLogger(updatedWorldAnchorKine_, logger, category + "_debug_updatedWorldAnchorKine");
-  conversions::kinematics::addToLogger(updatedImuAnchorKine_, logger, category + "_debug_updatedImuAnchorKine_");
+  conversions::kinematics::addToLogger(logger, worldAnchorKine_, category + "_debug_worldAnchorKine");
+  conversions::kinematics::addToLogger(logger, updatedWorldImuKine_, category + "_debug_updatedWorldImuKine");
+  conversions::kinematics::addToLogger(logger, worldImuKine_, category + "_debug_worldImuKine");
+  conversions::kinematics::addToLogger(logger, updatedWorldAnchorKine_, category + "_debug_updatedWorldAnchorKine");
+  conversions::kinematics::addToLogger(logger, updatedImuAnchorKine_, category + "_debug_updatedImuAnchorKine_");
   logger.addLogEntry(category + "_debug_ctlImuAnchorKine.linVel()",
                      [this]() -> so::Vector3
                      {
@@ -915,8 +915,8 @@ void TiltObserver::addToLogger(const mc_control::MCController & ctl,
                        return imuAnchorKine.linVel();
                      });
 
-  conversions::kinematics::addToLogger(updatedWorldFbKine_, logger, category + "_debug_updatedWorldFbKine_");
-  conversions::kinematics::addToLogger(correctedWorldImuKine_, logger, category + "_debug_correctedWorldImuKine_");
+  conversions::kinematics::addToLogger(logger, updatedWorldFbKine_, category + "_debug_updatedWorldFbKine_");
+  conversions::kinematics::addToLogger(logger, correctedWorldImuKine_, category + "_debug_correctedWorldImuKine_");
 }
 
 void TiltObserver::removeFromLogger(mc_rtc::Logger & logger, const std::string & category)

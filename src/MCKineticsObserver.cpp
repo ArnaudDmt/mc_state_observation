@@ -80,7 +80,7 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
     std::vector<std::string> surfacesForContactDetection =
         config("surfacesForContactDetection", std::vector<std::string>());
 
-    KoContactsManager::ContactsManagerSurfacesConfiguration contactsConfig(observerName_, surfacesForContactDetection);
+    measurements::ContactsManagerSurfacesConfiguration contactsConfig(observerName_, surfacesForContactDetection);
 
     contactsConfig.contactDetectionThreshold(contactDetectionThreshold_)
         .contactSensorsDisabledInit(contactsSensorsDisabledInit)
@@ -89,7 +89,7 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   }
   if(contactsDetectionMethod == KoContactsManager::ContactsDetection::Sensors)
   {
-    KoContactsManager::ContactsManagerSensorsConfiguration contactsConfig(observerName_);
+    measurements::ContactsManagerSensorsConfiguration contactsConfig(observerName_);
     contactsConfig.contactDetectionThreshold(contactDetectionThreshold_)
         .contactSensorsDisabledInit(contactsSensorsDisabledInit)
         .verbose(true)
@@ -98,7 +98,7 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   }
   if(contactsDetectionMethod == KoContactsManager::ContactsDetection::Solver)
   {
-    KoContactsManager::ContactsManagerSolverConfiguration contactsConfig(observerName_);
+    measurements::ContactsManagerSolverConfiguration contactsConfig(observerName_);
     contactsConfig.contactDetectionThreshold(contactDetectionThreshold_).verbose(true);
     contactsManager_.init(ctl, robot_, contactsConfig);
   }

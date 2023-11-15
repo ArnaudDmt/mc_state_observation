@@ -108,8 +108,7 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
 
     if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Surfaces)
     {
-      odometry::LeggedOdometryManager::ContactsManager::ContactsManagerSurfacesConfiguration contactsConfig(
-          observerName_, surfacesForContactDetection);
+      measurements::ContactsManagerSurfacesConfiguration contactsConfig(observerName_, surfacesForContactDetection);
       contactsConfig.contactDetectionThreshold(contactDetectionThreshold_)
           .contactSensorsDisabledInit(contactSensorsDisabledInit)
           .verbose(verbose);
@@ -119,8 +118,7 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
     {
       std::vector<std::string> forceSensorsToOmit = config("forceSensorsToOmit", std::vector<std::string>());
 
-      odometry::LeggedOdometryManager::ContactsManager::ContactsManagerSensorsConfiguration contactsConfig(
-          observerName_);
+      measurements::ContactsManagerSensorsConfiguration contactsConfig(observerName_);
       contactsConfig.contactDetectionThreshold(contactDetectionThreshold_)
           .contactSensorsDisabledInit(contactSensorsDisabledInit)
           .verbose(verbose)
@@ -129,8 +127,7 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
     }
     if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Solver)
     {
-      odometry::LeggedOdometryManager::ContactsManager::ContactsManagerSolverConfiguration contactsConfig(
-          observerName_);
+      measurements::ContactsManagerSolverConfiguration contactsConfig(observerName_);
       contactsConfig.contactDetectionThreshold(contactDetectionThreshold_).verbose(verbose);
       odometryManager_.init(ctl, odomConfig, contactsConfig);
     }

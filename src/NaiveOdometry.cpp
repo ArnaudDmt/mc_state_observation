@@ -47,9 +47,6 @@ void NaiveOdometry::configure(const mc_control::MCController & ctl, const mc_rtc
     mc_rtc::log::error_and_throw("The allows values of velocityUpdate are [noUpdate, fromUpstream, finiteDiff]");
   }
 
-  odometry::LeggedOdometryManager::Configuration odomConfig(robot_, category_, odometryType);
-  odomConfig.velocityUpdate(velUpdate_).withModeSwitchInGui(true).withYawEstimation(true);
-
   /* Configuration of the contacts detection */
 
   // surfaces used for the contact detection. If the desired detection method doesn't use surfaces, we make sure this
@@ -80,13 +77,15 @@ void NaiveOdometry::configure(const mc_control::MCController & ctl, const mc_rtc
 
   double contactDetectionPropThreshold = config("contactDetectionPropThreshold", 0.11);
   contactDetectionThreshold_ = mass_ * so::cst::gravityConstant * contactDetectionPropThreshold;
-  std::vector<std::string> contactSensorsDisabledInit =
-      config("contactsSensorDisabledInit", std::vector<std::string>());
 
+  odometry::LeggedOdometryManager::Configuration odomConfig(robot_, category_, odometryType);
+  odomConfig.velocityUpdate(velUpdate_).withModeSwitchInGui(true).withYawEstimation(true);
   if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Surfaces)
   {
-    odometry::LeggedOdometryManager::ContactsManager::ContactsManagerSurfacesConfiguration contactsConfig(
-        category_, surfacesForContactDetection);
+    std::vector<std::string> contactSensorsDisabledInit =
+        config("contactsSensorDisabledInit", std::vector<std::string>());
+
+    measurements::ContactsManagerSurfacesConfiguration contactsConfig(category_, surfacesForContactDetection);
     contactsConfig.contactDetectionThreshold(contactDetectionThreshold_)
         .contactSensorsDisabledInit(contactSensorsDisabledInit)
         .verbose(verbose);
@@ -95,8 +94,10 @@ void NaiveOdometry::configure(const mc_control::MCController & ctl, const mc_rtc
   if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Sensors)
   {
     std::vector<std::string> forceSensorsToOmit = config("forceSensorsToOmit", std::vector<std::string>());
+    std::vector<std::string> contactSensorsDisabledInit =
+        config("contactsSensorDisabledInit", std::vector<std::string>());
 
-    odometry::LeggedOdometryManager::ContactsManager::ContactsManagerSensorsConfiguration contactsConfig(category_);
+    measurements::ContactsManagerSensorsConfiguration contactsConfig(category_);
     contactsConfig.contactDetectionThreshold(contactDetectionThreshold_)
         .contactSensorsDisabledInit(contactSensorsDisabledInit)
         .verbose(verbose)
@@ -105,7 +106,7 @@ void NaiveOdometry::configure(const mc_control::MCController & ctl, const mc_rtc
   }
   if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Solver)
   {
-    odometry::LeggedOdometryManager::ContactsManager::ContactsManagerSolverConfiguration contactsConfig(category_);
+    measurements::ContactsManagerSolverConfiguration contactsConfig(category_);
     contactsConfig.contactDetectionThreshold(contactDetectionThreshold_).verbose(verbose);
     odometryManager_.init(ctl, odomConfig, contactsConfig);
   }

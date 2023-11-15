@@ -47,7 +47,9 @@ void NaiveOdometry::configure(const mc_control::MCController & ctl, const mc_rtc
     mc_rtc::log::error_and_throw("The allows values of velocityUpdate are [noUpdate, fromUpstream, finiteDiff]");
   }
 
-  odometryManager_.init(ctl, robot_, "NaiveOdometry", odometryType, true, velUpdate_, verbose, true);
+  odometry::LeggedOdometryManager::Configuration odomConfig(robot_, category_, odometryType);
+  odomConfig.velocityUpdate(velUpdate_).withModeSwitchInGui(true).withYawEstimation(true);
+  odometryManager_.init(ctl, odomConfig, verbose);
 
   /* Configuration of the contacts detection */
 
@@ -138,8 +140,7 @@ void NaiveOdometry::reset(const mc_control::MCController & ctl)
   my_robots_ = mc_rbdyn::Robots::make();
   my_robots_->robotCopy(robot, robot.name());
   ctl.gui()->addElement(
-      {"Robots"},
-      mc_rtc::gui::Robot("NaiveOdometry", [this]() -> const mc_rbdyn::Robot & { return my_robots_->robot(); }));
+      {"Robots"}, mc_rtc::gui::Robot(category_, [this]() -> const mc_rbdyn::Robot & { return my_robots_->robot(); }));
 
   X_0_fb_.translation() = realRobot.posW().translation();
   X_0_fb_.rotation() = realRobot.posW().rotation();

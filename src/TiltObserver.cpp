@@ -48,10 +48,10 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
   }
 
   std::string typeOfOdometry = static_cast<std::string>(config("odometryType"));
-
-  if(typeOfOdometry == "Flat") { odometryManager_.setOdometryType(measurements::OdometryType::Flat); }
-  else if(typeOfOdometry == "6D") { odometryManager_.setOdometryType(measurements::OdometryType::Odometry6d); }
-  else if(typeOfOdometry == "None") { odometryManager_.setOdometryType(measurements::OdometryType::None); }
+  measurements::OdometryType odometryType;
+  if(typeOfOdometry == "Flat") { odometryType = measurements::OdometryType::Flat; }
+  else if(typeOfOdometry == "6D") { odometryType = measurements::OdometryType::Odometry6d; }
+  else if(typeOfOdometry == "None") { odometryType = measurements::OdometryType::None; }
   else
   {
     mc_rtc::log::error_and_throw<std::runtime_error>("Odometry type not allowed. Please pick among : [None, Flat, 6D]");
@@ -62,8 +62,12 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
     bool verbose = config("verbose", true);
     bool withYawEstimation = config("withYawEstimation", true);
 
-    odometryManager_.init(ctl, robot_, observerName_, odometryManager_.odometryType_, withYawEstimation,
-                          odometry::LeggedOdometryManager::noUpdate, verbose);
+    odometry::LeggedOdometryManager::Configuration odomConfig(robot_, observerName_, odometryType);
+    odomConfig.velocityUpdate(odometry::LeggedOdometryManager::noUpdate)
+        .withModeSwitchInGui(false)
+        .withYawEstimation(withYawEstimation);
+
+    odometryManager_.init(ctl, odomConfig, verbose);
 
     // surfaces used for the contact detection. If the desired detection method doesn't use surfaces, we make sure this
     // list is not filled in the configuration file to avoid the use of an undesired method.

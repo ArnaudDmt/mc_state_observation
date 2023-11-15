@@ -103,7 +103,7 @@ public:
   inline const sva::PTransformd & posW() const { return X_0_fb_; }
 
 private:
-  std::string category_ = "NaiveOdometry_";
+  std::string category_ = "NaiveOdometry";
   /* custom list of robots to display */
   std::shared_ptr<mc_rbdyn::Robots> my_robots_;
 

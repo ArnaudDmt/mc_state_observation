@@ -424,8 +424,6 @@ private:
   /* Contacts manager variables */
   using KoContactsManager = measurements::ContactsManager<KoContactWithSensor>;
   KoContactsManager contactsManager_;
-  // indicates if the forces measurement have to be filtered with a low-pass filter.
-  bool withFilteredForcesContactDetection_ = false;
   // threshold on the measured force for contact detection.
   double contactDetectionThreshold_ = 0.0;
   // list of the force sensors that cannot be used with contacts but we want to use their measurements as inputs to the

@@ -49,7 +49,6 @@ void NaiveOdometry::configure(const mc_control::MCController & ctl, const mc_rtc
 
   odometry::LeggedOdometryManager::Configuration odomConfig(robot_, category_, odometryType);
   odomConfig.velocityUpdate(velUpdate_).withModeSwitchInGui(true).withYawEstimation(true);
-  odometryManager_.init(ctl, odomConfig, verbose);
 
   /* Configuration of the contacts detection */
 
@@ -71,16 +70,8 @@ void NaiveOdometry::configure(const mc_control::MCController & ctl, const mc_rtc
         "Contacts detection type not allowed. Please pick among : [Solver, Sensors, Surfaces] or "
         "initialize a list of surfaces with the variable surfacesForContactDetection");
   }
-  if(surfacesForContactDetection.size() > 0)
-  {
-    if(contactsDetectionMethod != LoContactsManager::ContactsDetection::Surfaces)
-    {
-      mc_rtc::log::error_and_throw<std::runtime_error>(
-          "Another type of contacts detection is currently used, please change it to 'Surfaces' or empty the "
-          "surfacesForContactDetection variable");
-    }
-  }
-  else if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Surfaces)
+  if(surfacesForContactDetection.size() > 0
+     && contactsDetectionMethod != LoContactsManager::ContactsDetection::Surfaces)
   {
     mc_rtc::log::error_and_throw<std::runtime_error>(
         "You selected the contacts detection using surfaces but didn't add the list of surfaces, please add it usign "
@@ -89,19 +80,34 @@ void NaiveOdometry::configure(const mc_control::MCController & ctl, const mc_rtc
 
   double contactDetectionPropThreshold = config("contactDetectionPropThreshold", 0.11);
   contactDetectionThreshold_ = mass_ * so::cst::gravityConstant * contactDetectionPropThreshold;
-  std::vector<std::string> contactsSensorDisabledInit =
+  std::vector<std::string> contactSensorsDisabledInit =
       config("contactsSensorDisabledInit", std::vector<std::string>());
 
   if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Surfaces)
   {
-    odometryManager_.initDetection(ctl, robot_, contactsDetectionMethod, surfacesForContactDetection,
-                                   contactsSensorDisabledInit, contactDetectionThreshold_);
+    odometry::LeggedOdometryManager::ContactsManager::ContactsManagerSurfacesConfiguration contactsConfig(
+        category_, surfacesForContactDetection);
+    contactsConfig.contactDetectionThreshold(contactDetectionThreshold_)
+        .contactSensorsDisabledInit(contactSensorsDisabledInit)
+        .verbose(verbose);
+    odometryManager_.init(ctl, odomConfig, contactsConfig);
   }
-  else
+  if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Sensors)
   {
     std::vector<std::string> forceSensorsToOmit = config("forceSensorsToOmit", std::vector<std::string>());
-    odometryManager_.initDetection(ctl, robot_, contactsDetectionMethod, contactsSensorDisabledInit,
-                                   contactDetectionThreshold_, forceSensorsToOmit);
+
+    odometry::LeggedOdometryManager::ContactsManager::ContactsManagerSensorsConfiguration contactsConfig(category_);
+    contactsConfig.contactDetectionThreshold(contactDetectionThreshold_)
+        .contactSensorsDisabledInit(contactSensorsDisabledInit)
+        .verbose(verbose)
+        .forceSensorsToOmit(forceSensorsToOmit);
+    odometryManager_.init(ctl, odomConfig, contactsConfig);
+  }
+  if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Solver)
+  {
+    odometry::LeggedOdometryManager::ContactsManager::ContactsManagerSolverConfiguration contactsConfig(category_);
+    contactsConfig.contactDetectionThreshold(contactDetectionThreshold_).verbose(verbose);
+    odometryManager_.init(ctl, odomConfig, contactsConfig);
   }
 }
 

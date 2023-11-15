@@ -62,19 +62,12 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
     bool verbose = config("verbose", true);
     bool withYawEstimation = config("withYawEstimation", true);
 
-    odometry::LeggedOdometryManager::Configuration odomConfig(robot_, observerName_, odometryType);
-    odomConfig.velocityUpdate(odometry::LeggedOdometryManager::noUpdate)
-        .withModeSwitchInGui(false)
-        .withYawEstimation(withYawEstimation);
-
-    odometryManager_.init(ctl, odomConfig, verbose);
-
     // surfaces used for the contact detection. If the desired detection method doesn't use surfaces, we make sure this
     // list is not filled in the configuration file to avoid the use of an undesired method.
     std::vector<std::string> surfacesForContactDetection;
     config("surfacesForContactDetection", surfacesForContactDetection);
 
-    std::vector<std::string> contactsSensorsDisabledInit =
+    std::vector<std::string> contactSensorsDisabledInit =
         config("contactsSensorDisabledInit", std::vector<std::string>());
 
     std::string contactsDetection = static_cast<std::string>(config("contactsDetection"));
@@ -94,20 +87,12 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
           "initialize a list of surfaces with the variable surfacesForContactDetection");
     }
 
-    if(surfacesForContactDetection.size() > 0)
-    {
-      if(contactsDetectionMethod != LoContactsManager::ContactsDetection::Surfaces)
-      {
-        mc_rtc::log::error_and_throw<std::runtime_error>(
-            "Another type of contacts detection is currently used, please change it to 'fromSurfaces' or empty the "
-            "surfacesForContactDetection variable");
-      }
-    }
-    else if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Surfaces)
+    if(surfacesForContactDetection.size() > 0
+       && contactsDetectionMethod != LoContactsManager::ContactsDetection::Surfaces)
     {
       mc_rtc::log::error_and_throw<std::runtime_error>(
-          "You selected the contacts detection using surfaces but didn't add the list of surfaces, please add it usign "
-          "the variable surfacesForContactDetection");
+          "Another type of contacts detection is currently used, please change it to 'fromSurfaces' or empty the "
+          "surfacesForContactDetection variable");
     }
 
     const auto & robot = ctl.robot(robot_);
@@ -116,17 +101,38 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
 
     contactDetectionThreshold_ = robot.mass() * so::cst::gravityConstant * contactDetectionPropThreshold;
 
+    odometry::LeggedOdometryManager::Configuration odomConfig(robot_, observerName_, odometryType);
+    odomConfig.velocityUpdate(odometry::LeggedOdometryManager::noUpdate)
+        .withModeSwitchInGui(false)
+        .withYawEstimation(withYawEstimation);
+
     if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Surfaces)
     {
-      odometryManager_.initDetection(ctl, robot_, contactsDetectionMethod, surfacesForContactDetection,
-                                     contactsSensorsDisabledInit, contactDetectionThreshold_);
+      odometry::LeggedOdometryManager::ContactsManager::ContactsManagerSurfacesConfiguration contactsConfig(
+          observerName_, surfacesForContactDetection);
+      contactsConfig.contactDetectionThreshold(contactDetectionThreshold_)
+          .contactSensorsDisabledInit(contactSensorsDisabledInit)
+          .verbose(verbose);
+      odometryManager_.init(ctl, odomConfig, contactsConfig);
     }
-    else
+    if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Sensors)
     {
       std::vector<std::string> forceSensorsToOmit = config("forceSensorsToOmit", std::vector<std::string>());
 
-      odometryManager_.initDetection(ctl, robot_, contactsDetectionMethod, contactsSensorsDisabledInit,
-                                     contactDetectionThreshold_, forceSensorsToOmit);
+      odometry::LeggedOdometryManager::ContactsManager::ContactsManagerSensorsConfiguration contactsConfig(
+          observerName_);
+      contactsConfig.contactDetectionThreshold(contactDetectionThreshold_)
+          .contactSensorsDisabledInit(contactSensorsDisabledInit)
+          .verbose(verbose)
+          .forceSensorsToOmit(forceSensorsToOmit);
+      odometryManager_.init(ctl, odomConfig, contactsConfig);
+    }
+    if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Solver)
+    {
+      odometry::LeggedOdometryManager::ContactsManager::ContactsManagerSolverConfiguration contactsConfig(
+          observerName_);
+      contactsConfig.contactDetectionThreshold(contactDetectionThreshold_).verbose(verbose);
+      odometryManager_.init(ctl, odomConfig, contactsConfig);
     }
   }
 

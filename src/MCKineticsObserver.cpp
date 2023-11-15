@@ -52,11 +52,7 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
 
   config("withDebugLogs", withDebugLogs_);
 
-  config("withFilteredForcesContactDetection", withFilteredForcesContactDetection_);
-
   /* configuration of the contacts manager */
-
-  contactsManager_.init(observerName_, true);
 
   double contactDetectionPropThreshold = config("contactDetectionPropThreshold", 0.11);
   contactDetectionThreshold_ = robot.mass() * so::cst::gravityConstant * contactDetectionPropThreshold;
@@ -84,18 +80,27 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
     std::vector<std::string> surfacesForContactDetection =
         config("surfacesForContactDetection", std::vector<std::string>());
 
-    contactsManager_.initDetection(ctl, robot_, contactsDetectionMethod, surfacesForContactDetection,
-                                   contactsSensorsDisabledInit, contactDetectionThreshold_);
-  }
-  else
-  {
-    contactsManager_.initDetection(ctl, robot_, contactsDetectionMethod, contactsSensorsDisabledInit,
-                                   contactDetectionThreshold_, forceSensorsAsInput_);
-  }
+    KoContactsManager::ContactsManagerSurfacesConfiguration contactsConfig(observerName_, surfacesForContactDetection);
 
-  if(withFilteredForcesContactDetection_)
+    contactsConfig.contactDetectionThreshold(contactDetectionThreshold_)
+        .contactSensorsDisabledInit(contactsSensorsDisabledInit)
+        .verbose(true);
+    contactsManager_.init(ctl, robot_, contactsConfig);
+  }
+  if(contactsDetectionMethod == KoContactsManager::ContactsDetection::Sensors)
   {
-    mc_rtc::log::error_and_throw<std::runtime_error>("The forces filtering has an error, please don't use it now");
+    KoContactsManager::ContactsManagerSensorsConfiguration contactsConfig(observerName_);
+    contactsConfig.contactDetectionThreshold(contactDetectionThreshold_)
+        .contactSensorsDisabledInit(contactsSensorsDisabledInit)
+        .verbose(true)
+        .forceSensorsToOmit(forceSensorsAsInput_);
+    contactsManager_.init(ctl, robot_, contactsConfig);
+  }
+  if(contactsDetectionMethod == KoContactsManager::ContactsDetection::Solver)
+  {
+    KoContactsManager::ContactsManagerSolverConfiguration contactsConfig(observerName_);
+    contactsConfig.contactDetectionThreshold(contactDetectionThreshold_).verbose(true);
+    contactsManager_.init(ctl, robot_, contactsConfig);
   }
 
   /* Configuration of the Kinetics Observer's parameters */

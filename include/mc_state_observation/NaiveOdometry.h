@@ -2,13 +2,8 @@
 
 #pragma once
 
-#include <mc_rbdyn/Contact.h>
-#include <mc_rbdyn/Robot.h>
-
 #include <mc_state_observation/odometry/LeggedOdometryManager.h>
 #include <state-observation/dynamics-estimators/kinetics-observer.hpp>
-
-#include <mc_observers/Observer.h>
 
 namespace mc_state_observation
 {

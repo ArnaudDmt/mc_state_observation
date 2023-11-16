@@ -1,16 +1,8 @@
 /* Copyright 2017-2020 CNRS-AIST JRL, CNRS-UM LIRMM */
 
-#include <mc_control/MCController.h>
 #include <mc_observers/ObserverMacros.h>
-#include <mc_rtc/io_utils.h>
-#include <mc_rtc/logging.h>
 #include <mc_state_observation/NaiveOdometry.h>
 #include <mc_state_observation/gui_helpers.h>
-
-#include <RBDyn/CoM.h>
-#include <RBDyn/FA.h>
-#include <RBDyn/FK.h>
-#include <RBDyn/FV.h>
 
 #include <iostream>
 

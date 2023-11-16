@@ -116,9 +116,6 @@ private:
 
   odometry::LeggedOdometryManager odometryManager_;
 
-  // indicates if the velocity has to be updated, if yes, how it must be updated
-  odometry::LeggedOdometryManager::VelocityUpdate velUpdate_ = odometry::LeggedOdometryManager::noUpdate;
-
   using LoContactsManager = odometry::LeggedOdometryManager::ContactsManager;
 };
 

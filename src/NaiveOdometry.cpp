@@ -18,26 +18,16 @@ NaiveOdometry::NaiveOdometry(const std::string & type, double dt) : mc_observers
 void NaiveOdometry::configure(const mc_control::MCController & ctl, const mc_rtc::Configuration & config)
 {
   robot_ = config("robot", ctl.robot().name());
-  std::string typeOfOdometry = static_cast<std::string>(config("odometryType"));
-  measurements::OdometryType odometryType;
 
   bool verbose = config("verbose", true);
 
-  if(typeOfOdometry == "Flat") { odometryType = measurements::OdometryType::Flat; }
-  else if(typeOfOdometry == "6D") { odometryType = measurements::OdometryType::Odometry6d; }
-  else
-  {
-    mc_rtc::log::error_and_throw<std::runtime_error>("Odometry type not allowed. Please pick among : [Flat, 6D]");
-  }
-
+  /* Configuration of the odometry */
+  std::string odometryTypeStr = static_cast<std::string>(config("odometryType"));
   std::string velocityUpdate = "noUpdate";
   config("velocityUpdate", velocityUpdate);
-  if(velocityUpdate == "fromUpstream") { velUpdate_ = odometry::LeggedOdometryManager::fromUpstream; }
-  else if(velocityUpdate == "finiteDiff") { velUpdate_ = odometry::LeggedOdometryManager::finiteDiff; }
-  else if(velocityUpdate != "noUpdate")
-  {
-    mc_rtc::log::error_and_throw("The allows values of velocityUpdate are [noUpdate, fromUpstream, finiteDiff]");
-  }
+
+  odometry::LeggedOdometryManager::Configuration odomConfig(robot_, category_, odometryTypeStr);
+  odomConfig.velocityUpdate(velocityUpdate).withModeSwitchInGui(true).withYawEstimation(true);
 
   /* Configuration of the contacts detection */
 
@@ -46,19 +36,10 @@ void NaiveOdometry::configure(const mc_control::MCController & ctl, const mc_rtc
   std::vector<std::string> surfacesForContactDetection;
   config("surfacesForContactDetection", surfacesForContactDetection);
 
-  std::string contactsDetection = static_cast<std::string>(config("contactsDetection"));
+  std::string contactsDetectionString = static_cast<std::string>(config("contactsDetection"));
+  LoContactsManager::ContactsDetection contactsDetectionMethod =
+      odometryManager_.contactsManager().stringToContactsDetection(contactsDetectionString);
 
-  LoContactsManager::ContactsDetection contactsDetectionMethod = LoContactsManager::ContactsDetection::Undefined;
-  if(contactsDetection == "Sensors") { contactsDetectionMethod = LoContactsManager::ContactsDetection::Sensors; }
-  else if(contactsDetection == "Surfaces") { contactsDetectionMethod = LoContactsManager::ContactsDetection::Surfaces; }
-  else if(contactsDetection == "Solver") { contactsDetectionMethod = LoContactsManager::ContactsDetection::Solver; }
-
-  if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Undefined)
-  {
-    mc_rtc::log::error_and_throw<std::runtime_error>(
-        "Contacts detection type not allowed. Please pick among : [Solver, Sensors, Surfaces] or "
-        "initialize a list of surfaces with the variable surfacesForContactDetection");
-  }
   if(surfacesForContactDetection.size() > 0
      && contactsDetectionMethod != LoContactsManager::ContactsDetection::Surfaces)
   {
@@ -70,8 +51,6 @@ void NaiveOdometry::configure(const mc_control::MCController & ctl, const mc_rtc
   double contactDetectionPropThreshold = config("contactDetectionPropThreshold", 0.11);
   contactDetectionThreshold_ = mass_ * so::cst::gravityConstant * contactDetectionPropThreshold;
 
-  odometry::LeggedOdometryManager::Configuration odomConfig(robot_, category_, odometryType);
-  odomConfig.velocityUpdate(velUpdate_).withModeSwitchInGui(true).withYawEstimation(true);
   if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Surfaces)
   {
     std::vector<std::string> contactSensorsDisabledInit =
@@ -151,7 +130,10 @@ bool NaiveOdometry::run(const mc_control::MCController & ctl)
 
   // The odometry manager will update the velocity with the desired method (update of the estimated made upstream or
   // with finite differences)
-  if(velUpdate_ != odometry::LeggedOdometryManager::noUpdate) { odometryManager_.run(ctl, logger, X_0_fb_, v_0_fb); }
+  if(odometryManager_.velocityUpdate_ != odometry::LeggedOdometryManager::noUpdate)
+  {
+    odometryManager_.run(ctl, logger, X_0_fb_, v_0_fb);
+  }
   else { odometryManager_.run(ctl, logger, X_0_fb_); }
 
   /* Update of the visual representation (only a visual feature) of the observed robot */

@@ -29,15 +29,9 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   config("debug", debug_);
   config("verbose", verbose_);
 
+  // we set the desired type of odometry
   std::string typeOfOdometry = static_cast<std::string>(config("odometryType"));
-
-  if(typeOfOdometry == "Flat") { odometryType_ = measurements::OdometryType::Flat; }
-  else if(typeOfOdometry == "6D") { odometryType_ = measurements::OdometryType::Odometry6d; }
-  else if(typeOfOdometry == "None") { odometryType_ = measurements::OdometryType::None; }
-  else
-  {
-    mc_rtc::log::error_and_throw<std::runtime_error>("Odometry type not allowed. Please pick among : [None, Flat, 6D]");
-  }
+  measurements::stringToOdometryType(typeOfOdometry, odometryType_);
 
   config("withDebugLogs", withDebugLogs_);
 
@@ -46,19 +40,9 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   double contactDetectionPropThreshold = config("contactDetectionPropThreshold", 0.11);
   contactDetectionThreshold_ = robot.mass() * so::cst::gravityConstant * contactDetectionPropThreshold;
 
-  std::string contactsDetection = static_cast<std::string>(config("contactsDetection"));
-
-  KoContactsManager::ContactsDetection contactsDetectionMethod = KoContactsManager::ContactsDetection::Undefined;
-  if(contactsDetection == "Sensors") { contactsDetectionMethod = KoContactsManager::ContactsDetection::Sensors; }
-  else if(contactsDetection == "Surfaces") { contactsDetectionMethod = KoContactsManager::ContactsDetection::Surfaces; }
-  else if(contactsDetection == "Solver") { contactsDetectionMethod = KoContactsManager::ContactsDetection::Solver; }
-
-  if(contactsDetectionMethod == KoContactsManager::ContactsDetection::Undefined)
-  {
-    mc_rtc::log::error_and_throw<std::runtime_error>(
-        "Contacts detection type not allowed. Please pick among : [Solver, Sensors, Surfaces] or "
-        "initialize a list of surfaces with the variable surfacesForContactDetection");
-  }
+  std::string contactsDetectionString = static_cast<std::string>(config("contactsDetection"));
+  KoContactsManager::ContactsDetection contactsDetectionMethod =
+      contactsManager_.stringToContactsDetection(contactsDetectionString);
 
   std::vector<std::string> contactsSensorsDisabledInit =
       config("contactsSensorDisabledInit", std::vector<std::string>());

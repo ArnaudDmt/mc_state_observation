@@ -47,18 +47,12 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
     }
   }
 
-  std::string typeOfOdometry = static_cast<std::string>(config("odometryType"));
-  measurements::OdometryType odometryType;
-  if(typeOfOdometry == "Flat") { odometryType = measurements::OdometryType::Flat; }
-  else if(typeOfOdometry == "6D") { odometryType = measurements::OdometryType::Odometry6d; }
-  else if(typeOfOdometry == "None") { odometryType = measurements::OdometryType::None; }
-  else
-  {
-    mc_rtc::log::error_and_throw<std::runtime_error>("Odometry type not allowed. Please pick among : [None, Flat, 6D]");
-  }
+  std::string odometryTypeStr = static_cast<std::string>(config("odometryType"));
   // specific configurations for the use of odometry.
-  if(odometryManager_.odometryType_ != measurements::OdometryType::None)
+  if(odometryTypeStr != "None")
   {
+    const auto & robot = ctl.robot(robot_);
+
     bool verbose = config("verbose", true);
     bool withYawEstimation = config("withYawEstimation", true);
 
@@ -67,41 +61,25 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
     std::vector<std::string> surfacesForContactDetection;
     config("surfacesForContactDetection", surfacesForContactDetection);
 
-    std::vector<std::string> contactSensorsDisabledInit =
-        config("contactsSensorDisabledInit", std::vector<std::string>());
-
-    std::string contactsDetection = static_cast<std::string>(config("contactsDetection"));
-
-    LoContactsManager::ContactsDetection contactsDetectionMethod = LoContactsManager::ContactsDetection::Undefined;
-    if(contactsDetection == "Sensors") { contactsDetectionMethod = LoContactsManager::ContactsDetection::Sensors; }
-    else if(contactsDetection == "Surfaces")
-    {
-      contactsDetectionMethod = LoContactsManager::ContactsDetection::Surfaces;
-    }
-    else if(contactsDetection == "Solver") { contactsDetectionMethod = LoContactsManager::ContactsDetection::Solver; }
-
-    if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Undefined)
-    {
-      mc_rtc::log::error_and_throw<std::runtime_error>(
-          "Contacts detection type not allowed. Please pick among : [fromSolver, fromThreshold, fromSurfaces] or "
-          "initialize a list of surfaces with the variable surfacesForContactDetection");
-    }
+    std::string contactsDetectionString = static_cast<std::string>(config("contactsDetection"));
+    LoContactsManager::ContactsDetection contactsDetectionMethod =
+        odometryManager_.contactsManager().stringToContactsDetection(contactsDetectionString);
 
     if(surfacesForContactDetection.size() > 0
        && contactsDetectionMethod != LoContactsManager::ContactsDetection::Surfaces)
     {
-      mc_rtc::log::error_and_throw<std::runtime_error>(
-          "Another type of contacts detection is currently used, please change it to 'fromSurfaces' or empty the "
-          "surfacesForContactDetection variable");
+      mc_rtc::log::error_and_throw<std::runtime_error>("Another type of contacts detection than Surfaces is currently "
+                                                       "used, please change it to 'Surfaces' or empty the "
+                                                       "surfacesForContactDetection variable");
     }
 
-    const auto & robot = ctl.robot(robot_);
+    std::vector<std::string> contactSensorsDisabledInit =
+        config("contactsSensorDisabledInit", std::vector<std::string>());
 
     double contactDetectionPropThreshold = config("contactDetectionPropThreshold", 0.11);
-
     contactDetectionThreshold_ = robot.mass() * so::cst::gravityConstant * contactDetectionPropThreshold;
 
-    odometry::LeggedOdometryManager::Configuration odomConfig(robot_, observerName_, odometryType);
+    odometry::LeggedOdometryManager::Configuration odomConfig(robot_, observerName_, odometryTypeStr);
     odomConfig.velocityUpdate(odometry::LeggedOdometryManager::noUpdate)
         .withModeSwitchInGui(false)
         .withYawEstimation(withYawEstimation);

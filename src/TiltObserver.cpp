@@ -56,7 +56,7 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
   {
     mc_rtc::log::error_and_throw<std::runtime_error>("Odometry type not allowed. Please pick among : [None, Flat, 6D]");
   }
-
+  // specific configurations for the use of odometry.
   if(odometryManager_.odometryType_ != measurements::OdometryType::None)
   {
     bool verbose = config("verbose", true);

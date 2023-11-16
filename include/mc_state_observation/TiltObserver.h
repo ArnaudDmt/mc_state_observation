@@ -1,10 +1,9 @@
 #pragma once
 
-#include <mc_observers/Observer.h>
 #include <boost/circular_buffer.hpp>
+
 #include <mc_state_observation/odometry/LeggedOdometryManager.h>
 #include <state-observation/observer/tilt-estimator-humanoid.hpp>
-#include <state-observation/tools/rigid-body-kinematics.hpp>
 
 namespace mc_state_observation
 {

@@ -315,8 +315,9 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
   auto & inputRobot = my_robots_->robot("inputRobot");
   auto & logger = (const_cast<mc_control::MCController &>(ctl)).logger();
 
-  inputRobot.mbc() = realRobot.mbc();
-  inputRobot.mb() = realRobot.mb();
+  // Copy the real configuration except for the floating base
+  const auto & realQ = realRobot.mbc().q;
+  std::copy(std::next(realQ.begin()), realQ.end(), std::next(inputRobot.mbc().q.begin()));
 
   // The input robot copies the real robot to update the encoder values.
   // Then its floating base is brung back to the origin of the world frame and given zero velocities and accelerations

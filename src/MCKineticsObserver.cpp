@@ -1,12 +1,12 @@
 /* Copyright 2017-2020 CNRS-AIST JRL, CNRS-UM LIRMM */
 #include <mc_observers/ObserverMacros.h>
+#include "mc_state_observation/measurements/measurements.h"
 #include <mc_state_observation/MCKineticsObserver.h>
 #include <mc_state_observation/gui_helpers.h>
 
 #include <mc_state_observation/conversions/kinematics.h>
 
 namespace so = stateObservation;
-
 namespace mc_state_observation
 {
 MCKineticsObserver::MCKineticsObserver(const std::string & type, double dt)
@@ -31,7 +31,7 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
 
   // we set the desired type of odometry
   std::string typeOfOdometry = static_cast<std::string>(config("odometryType"));
-  measurements::stringToOdometryType(typeOfOdometry, odometryType_);
+  odometryType_ = measurements::stringToOdometryType(typeOfOdometry, observerName_);
 
   config("withDebugLogs", withDebugLogs_);
 
@@ -602,14 +602,21 @@ void MCKineticsObserver::initObserverStateVector(const mc_rbdyn::Robot & robot)
 void MCKineticsObserver::update(mc_control::MCController & ctl) // this function is called by the pipeline if the
                                                                 // update is set to true in the configuration file
 {
-  auto & datastore = (const_cast<mc_control::MCController &>(ctl)).datastore();
-  // this function checks that the backup estimator uses the same odometry type than the Kinetics Observer
-  datastore.call<>("checkCorrectBackupConf", odometryType_);
-
   auto & realRobot = ctl.realRobot(robot_);
   update(realRobot);
   realRobot.forwardKinematics();
   realRobot.forwardVelocity();
+
+  /* Functions affecting the Tilt Observer, called only if we update the real robot with the Kinetics Observer */
+  auto & datastore = (const_cast<mc_control::MCController &>(ctl)).datastore();
+  // this function checks that the backup estimator uses the same odometry type than the Kinetics Observer
+  datastore.call<>("checkCorrectBackupConf", odometryType_);
+
+  if(odometryType_ != prevOdometryType_)
+  {
+    // as the Tilt Observer is used as a backup, its odometry must also be changed
+    ctl.datastore().call<>("changeTiltOdometryType", odometryType_);
+  }
 }
 
 // used only to update the visual representation of the estimated robot
@@ -1029,22 +1036,7 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController & ctl,
                        return "default";
                      });
   logger.addLogEntry(category + "_debug_OdometryType",
-                     [this]() -> std::string
-                     {
-                       switch(odometryType_)
-                       {
-                         case measurements::OdometryType::Flat:
-                           return "Flat";
-                           break;
-                         case measurements::OdometryType::Odometry6d:
-                           return "6D";
-                           break;
-                         case measurements::OdometryType::None:
-                           return "None";
-                           break;
-                       }
-                       return "default";
-                     });
+                     [this]() -> std::string { return measurements::odometryTypeToSstring(odometryType_); });
 
   /* Plots of the updated state */
   conversions::kinematics::addToLogger(logger, globalCentroidKinematics_, observerName_ + "_globalWorldCentroidState");
@@ -1354,9 +1346,9 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController & ctl,
   {
     const measurements::ContactWithSensor & contact = contactWithSensor.second;
     logger.addLogEntry(observerName_ + "_debug_wrenchesInCentroid_" + contact.name() + "_force",
-                       [this, contact]() -> Eigen::Vector3d { return contact.wrenchInCentroid_.segment<3>(0); });
+                       [contact]() -> Eigen::Vector3d { return contact.wrenchInCentroid_.segment<3>(0); });
     logger.addLogEntry(observerName_ + "_debug_wrenchesInCentroid_" + contact.name() + "_torque",
-                       [this, contact]() -> Eigen::Vector3d { return contact.wrenchInCentroid_.segment<3>(3); });
+                       [contact]() -> Eigen::Vector3d { return contact.wrenchInCentroid_.segment<3>(3); });
     logger.addLogEntry(observerName_ + "_debug_wrenchesInCentroid_" + contact.name() + "_forceWithUnmodeled",
                        [this, contact]() -> Eigen::Vector3d
                        {
@@ -1383,22 +1375,15 @@ void MCKineticsObserver::removeFromLogger(mc_rtc::Logger & logger, const std::st
   logger.removeLogEntry(category + "_flexDamping");
 }
 
-void MCKineticsObserver::setOdometryType(const mc_control::MCController & ctl, const std::string & newOdometryType)
+void MCKineticsObserver::setOdometryType(const std::string & newOdometryType)
 {
-  OdometryType prevOdometryType = odometryType_;
-  if(newOdometryType == "Flat") { odometryType_ = measurements::OdometryType::Flat; }
-  else if(newOdometryType == "6D") { odometryType_ = measurements::OdometryType::Odometry6d; }
+  prevOdometryType_ = odometryType_;
+  odometryType_ = measurements::stringToOdometryType(newOdometryType, observerName_);
 
   // if the type didn't change, we stop the function here
-  if(odometryType_ == prevOdometryType) { return; }
+  if(odometryType_ == prevOdometryType_) { return; }
 
   mc_rtc::log::info("[{}]: Odometry mode changed to: {}", observerName_, newOdometryType);
-
-  // if the Tilt Observer is used as a backup, its odometry must also be changed
-  if(ctl.datastore().has("changeTiltOdometryType"))
-  {
-    ctl.datastore().call<>("changeTiltOdometryType", newOdometryType);
-  }
 }
 
 void MCKineticsObserver::addToGUI(const mc_control::MCController & ctl,
@@ -1415,19 +1400,12 @@ void MCKineticsObserver::addToGUI(const mc_control::MCController & ctl,
   if(odometryType_ != measurements::OdometryType::None)
   {
     gui.addElement({observerName_, "Odometry"}, mc_rtc::gui::ComboInput(
-                                                                  "Choose from list", {"6D", "Flat"},
+                                                                  "Choose from list",  {measurements::odometryTypeToSstring(measurements::OdometryType::Odometry6d), measurements::odometryTypeToSstring(measurements::OdometryType::Flat)},
                                                                   [this]() -> std::string {
-                                                                    if(odometryType_ == measurements::OdometryType::Flat)
-                                                                    {
-                                                                      return "Flat";
-                                                                    }
-                                                                    else
-                                                                    {
-                                                                      return "6D";
-                                                                    }
+                                                                    return measurements::odometryTypeToSstring(odometryType_);
                                                                   },
                                                                   [this, &ctl](const std::string & typeOfOdometry) {
-                                                                    setOdometryType(ctl, typeOfOdometry);
+                                                                    setOdometryType(typeOfOdometry);
                                                                   }));
   }
   // clang-format on

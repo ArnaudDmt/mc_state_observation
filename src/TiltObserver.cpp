@@ -1,5 +1,6 @@
 #include <mc_observers/ObserverMacros.h>
 
+#include "mc_state_observation/measurements/measurements.h"
 #include <mc_state_observation/TiltObserver.h>
 #include <mc_state_observation/gui_helpers.h>
 
@@ -48,8 +49,11 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
   }
 
   std::string odometryTypeStr = static_cast<std::string>(config("odometryType"));
+  // we set the odometry type now because it will be necessary for the next check
+  setOdometryType(measurements::stringToOdometryType(odometryTypeStr, observerName_));
+
   // specific configurations for the use of odometry.
-  if(odometryTypeStr != "None")
+  if(odometryManager_.odometryType_ != measurements::OdometryType::None)
   {
     const auto & robot = ctl.robot(robot_);
 
@@ -79,7 +83,7 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
     double contactDetectionPropThreshold = config("contactDetectionPropThreshold", 0.11);
     contactDetectionThreshold_ = robot.mass() * so::cst::gravityConstant * contactDetectionPropThreshold;
 
-    odometry::LeggedOdometryManager::Configuration odomConfig(robot_, observerName_, odometryTypeStr);
+    odometry::LeggedOdometryManager::Configuration odomConfig(robot_, observerName_, odometryManager_.odometryType_);
     odomConfig.velocityUpdate(odometry::LeggedOdometryManager::noUpdate)
         .withModeSwitchInGui(false)
         .withYawEstimation(withYawEstimation);
@@ -124,7 +128,7 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
     datastore.make_call("checkCorrectBackupConf",
                         [this](OdometryType & koOdometryType) { checkCorrectBackupConf(koOdometryType); });
     datastore.make_call("changeTiltOdometryType",
-                        [this](const std::string & newOdometryType) { setOdometryType(newOdometryType); });
+                        [this](OdometryType newOdometryType) { setOdometryType(newOdometryType); });
   }
 }
 
@@ -644,16 +648,9 @@ void TiltObserver::checkCorrectBackupConf(OdometryType & koOdometryType)
   }
 }
 
-void TiltObserver::setOdometryType(const std::string & newOdometryType)
+void TiltObserver::setOdometryType(OdometryType newOdometryType)
 {
-  OdometryType prevOdometryType = odometryManager_.odometryType_;
-  if(newOdometryType == "Flat") { odometryManager_.setOdometryType(measurements::OdometryType::Flat); }
-  else if(newOdometryType == "6D") { odometryManager_.setOdometryType(measurements::OdometryType::Odometry6d); }
-
-  if(odometryManager_.odometryType_ != prevOdometryType)
-  {
-    mc_rtc::log::info("[{}]: Odometry mode changed to: {}", observerName_, newOdometryType);
-  }
+  odometryManager_.setOdometryType(newOdometryType);
 }
 
 void TiltObserver::addToLogger(const mc_control::MCController & ctl,
@@ -666,21 +663,7 @@ void TiltObserver::addToLogger(const mc_control::MCController & ctl,
 
   logger.addLogEntry(category + "_debug_OdometryType",
                      [this]() -> std::string
-                     {
-                       switch(odometryManager_.odometryType_)
-                       {
-                         case measurements::OdometryType::Flat:
-                           return "Flat";
-                           break;
-                         case measurements::OdometryType::Odometry6d:
-                           return "6D";
-                           break;
-                         case measurements::OdometryType::None:
-                           return "None";
-                           break;
-                       }
-                       return "default";
-                     });
+                     { return measurements::odometryTypeToSstring(odometryManager_.odometryType_); });
 
   logger.addLogEntry(category + "_controlAnchorFrame", [this]() -> const sva::PTransformd & { return X_0_C_; });
   logger.addLogEntry(category + "_updatedRobot",
@@ -920,17 +903,19 @@ void TiltObserver::addToGUI(const mc_control::MCController &,
   gui.addElement(category, make_input_element("alpha", alpha_), make_input_element("beta", beta_),
                  make_input_element("gamma", gamma_));
 
-  if(odometryManager_.odometryType_ != measurements::OdometryType::None)
+  // we allow to change the odometry type if the Tilt Observer is not used as a backup of the Kinetics Observer.
+  // Otherwise the type can be changed by changing the one of the Kinetics Observer.
+  if(asBackup_ != true)
   {
     gui.addElement({observerName_, "Odometry"},
                    mc_rtc::gui::ComboInput(
-                       "Choose from list", {"6D", "Flat"},
+                       "Choose from list",
+                       {measurements::odometryTypeToSstring(measurements::OdometryType::Odometry6d),
+                        measurements::odometryTypeToSstring(measurements::OdometryType::Flat)},
                        [this]() -> std::string
-                       {
-                         if(odometryManager_.odometryType_ == measurements::OdometryType::Flat) { return "Flat"; }
-                         else { return "6D"; }
-                       },
-                       [this](const std::string & typeOfOdometry) { setOdometryType(typeOfOdometry); }));
+                       { return measurements::odometryTypeToSstring(odometryManager_.odometryType_); },
+                       [this](const std::string & typeOfOdometry)
+                       { setOdometryType(measurements::stringToOdometryType(typeOfOdometry)); }));
   }
 }
 

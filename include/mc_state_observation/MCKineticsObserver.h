@@ -130,9 +130,8 @@ protected:
                 const std::vector<std::string> & /* category */) override;
 
   /// @brief Sets the type of the odometry
-  /// @param ctl Controller.
   /// @param newOdometryType The new type of odometry to use.
-  void setOdometryType(const mc_control::MCController & ctl, const std::string & newOdometryType);
+  void setOdometryType(const std::string & newOdometryType);
 
 protected:
   /// @brief Updates the list of currently set contacts.
@@ -363,9 +362,12 @@ private:
 
   // indicates if the debug logs have to be added.
   bool withDebugLogs_ = true;
+
   // indicates if we want to perform odometry, and if yes, flat or 6d odometry
-  using OdometryType = measurements::OdometryType;
-  OdometryType odometryType_;
+  measurements::OdometryType odometryType_;
+  // odometry method used on last iteration. Used to check if it changed in order to apply the change to the Tilt
+  // Observer if necessary.
+  measurements::OdometryType prevOdometryType_;
   // indicates if we want to estimate the unmodeled wrench within the Kinetics Observer.
   bool withUnmodeledWrench_ = true;
   // indicates if we want to estimate the bias on the gyrometer measurement within the Kinetics Observer.

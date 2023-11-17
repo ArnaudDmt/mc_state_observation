@@ -68,7 +68,7 @@ public:
 
   /// @brief Sets the type of the odometry
   /// @param newOdometryType The new type of odometry to use.
-  void setOdometryType(const std::string & newOdometryType);
+  void setOdometryType(measurements::OdometryType newOdometryType);
 
 protected:
   /*! \brief update the robot pose in the world only for visualization purpose

@@ -444,7 +444,7 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
           KoContactWithSensor & contact = contactsManager_.contact(contactIndex);
 
           // Update of the force measurements (the contribution of the gravity changed)
-          const mc_rbdyn::ForceSensor & forceSensor = robot.forceSensor(contact.forceSensorName());
+          const mc_rbdyn::ForceSensor & forceSensor = robot.forceSensor(contact.forceSensor());
 
           // the tilt of the robot changed so the contribution of the gravity to the measurements changed too
           if(contactsManager_.getContactsDetection() == KoContactsManager::ContactsDetection::Sensors)
@@ -527,7 +527,7 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
         KoContactWithSensor & contact = contactsManager_.contact(contactIndex);
 
         // Update of the force measurements (the offset due to the gravity changed)
-        const mc_rbdyn::ForceSensor & forceSensor = inputRobot.forceSensor(contact.forceSensorName());
+        const mc_rbdyn::ForceSensor & forceSensor = inputRobot.forceSensor(contact.forceSensor());
 
         if(contactsManager_.getContactsDetection() == KoContactsManager::ContactsDetection::Sensors)
         {
@@ -615,7 +615,7 @@ void MCKineticsObserver::inputAdditionalWrench(const mc_rbdyn::Robot & inputRobo
   for(auto & contactWithSensor : contactsManager_.contacts())
   {
     KoContactWithSensor & contact = contactWithSensor.second;
-    const std::string & fsName = contact.forceSensorName();
+    const std::string & fsName = contact.forceSensor();
 
     if(!contact.isSet_
        && contact.sensorEnabled_) // if the contact is not set but we use the force sensor measurements,
@@ -638,7 +638,7 @@ void MCKineticsObserver::inputAdditionalWrench(const mc_rbdyn::Robot & inputRobo
                                                                 // measurement is given as an input external wrench
     {
       KoContactWithSensor & contact = contactWithSensor.second;
-      const std::string & fsName = contact.forceSensorName();
+      const std::string & fsName = contact.forceSensor();
       so::Vector3 forceCentroid = so::Vector3::Zero();
       so::Vector3 torqueCentroid = so::Vector3::Zero();
       observer_.convertWrenchFromUserToCentroid(
@@ -720,7 +720,7 @@ const so::kine::Kinematics MCKineticsObserver::getContactWorldKinematicsAndWrenc
   else // the kinematics of the contacts are the ones of the surface, but we must transport the measured wrench
   {
     // pose of the surface in the world / floating base's frame
-    sva::PTransformd worldSurfacePose = currentRobot.surfacePose(contact.surfaceName());
+    sva::PTransformd worldSurfacePose = currentRobot.surfacePose(contact.surface());
     // Kinematics of the surface in the world / floating base's frame
     worldContactKine = conversions::kinematics::fromSva(worldSurfacePose, so::kine::Kinematics::Flags::vel);
 
@@ -766,7 +766,7 @@ const so::kine::Kinematics MCKineticsObserver::getContactWorldKinematics(KoConta
   else // the kinematics of the contacts are the ones of the surface.
   {
     // pose of the surface in the world / floating base's frame
-    sva::PTransformd worldSurfacePose = currentRobot.surfacePose(contact.surfaceName());
+    sva::PTransformd worldSurfacePose = currentRobot.surfacePose(contact.surface());
     // Kinematics of the surface in the world / floating base's frame
     worldContactKine = conversions::kinematics::fromSva(worldSurfacePose, so::kine::Kinematics::Flags::vel);
   }
@@ -851,7 +851,7 @@ void MCKineticsObserver::getOdometryWorldContactRest(const mc_control::MCControl
   {
     // kinematics of the contact of the control robot in the world frame
     so::kine::Kinematics worldContactKineControl =
-        getContactWorldKinematics(contact, robot, robot.forceSensor(contact.forceSensorName()));
+        getContactWorldKinematics(contact, robot, robot.forceSensor(contact.forceSensor()));
 
     // the reference altitude of the contact is the one in the control robot
     worldContactKineRef.position()(2) = worldContactKineControl.position()(2);
@@ -874,8 +874,8 @@ void MCKineticsObserver::updateContact(const mc_control::MCController & ctl,
   const auto & robot = ctl.robot(robot_);
   KoContactWithSensor & contact = contactsManager_.contact(contactIndex);
 
-  sva::ForceVecd measuredWrench = robot.forceSensor(contact.forceSensorName()).wrenchWithoutGravity(inputRobot);
-  const mc_rbdyn::ForceSensor & forceSensor = robot.forceSensor(contact.forceSensorName());
+  sva::ForceVecd measuredWrench = robot.forceSensor(contact.forceSensor()).wrenchWithoutGravity(inputRobot);
+  const mc_rbdyn::ForceSensor & forceSensor = robot.forceSensor(contact.forceSensor());
 
   // As used on input robot, returns the kinematics of the contact in the frame of the floating base. Also expresses the
   // measured wrench in the frame of the contact.
@@ -1391,6 +1391,22 @@ void MCKineticsObserver::addToGUI(const mc_control::MCController &,
                                                                   }));
   }
   // clang-format on
+}
+
+void MCKineticsObserver::addContactToGui(const mc_control::MCController & ctl, KoContactWithSensor & contact)
+{
+  ctl.gui()->addElement(
+      {observerName_, "Contacts"},
+      mc_rtc::gui::Checkbox(
+          contact.name() + " : " + (contact.isSet_ ? "Contact is set" : "Contact is not set") + ": Use wrench sensor: ",
+          [this, &contact]() { return contact.sensorEnabled_; },
+          [this, &contact]()
+          {
+            contact.sensorEnabled_ = !contact.sensorEnabled_;
+            std::cout << std::endl
+                      << "Enable / disable :" + contact.name() + " " + std::to_string(contact.sensorEnabled_)
+                      << std::endl;
+          }));
 }
 
 void MCKineticsObserver::addContactLogEntries(mc_rtc::Logger & logger, const int & contactIndex)

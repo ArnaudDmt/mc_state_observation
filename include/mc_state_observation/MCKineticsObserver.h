@@ -130,6 +130,8 @@ protected:
                 mc_rtc::gui::StateBuilder &,
                 const std::vector<std::string> & /* category */) override;
 
+  void addContactToGui(const mc_control::MCController & ctl, KoContactWithSensor & contact);
+
   /// @brief Sets the type of the odometry
   /// @param newOdometryType The new type of odometry to use.
   void setOdometryType(const std::string & newOdometryType);

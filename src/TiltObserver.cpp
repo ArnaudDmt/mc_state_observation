@@ -860,7 +860,7 @@ void TiltObserver::addToGUI(const mc_control::MCController &,
 
   // we allow to change the odometry type if the Tilt Observer is not used as a backup of the Kinetics Observer.
   // Otherwise the type can be changed by changing the one of the Kinetics Observer.
-  if(asBackup_ != true)
+  if(asBackup_ != true && odometryManager_.odometryType_ != measurements::OdometryType::None)
   {
     gui.addElement({observerName_, "Odometry"},
                    mc_rtc::gui::ComboInput(

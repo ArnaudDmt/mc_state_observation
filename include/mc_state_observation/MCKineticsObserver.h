@@ -137,19 +137,10 @@ protected:
   void setOdometryType(const std::string & newOdometryType);
 
 protected:
-  /// @brief Updates the list of currently set contacts.
-  /// @return measurements::ContactsManager<measurements::ContactWithSensor,
-  /// measurements::ContactWithoutSensor>::ContactsSet &
-  const measurements::ContactsManager<KoContactWithSensor>::ContactsSet & findNewContacts(
-      const mc_control::MCController & ctl);
-
   /// @brief Update the currently set contacts.
-  /// @details The list of contacts is returned by \ref findNewContacts(const mc_control::MCController & ctl). Calls
-  /// \ref updateContact(const mc_control::MCController & ctl, const std::string & name, mc_rtc::Logger & logger).
-  /// @param contacts The list of contacts returned by \ref findNewContacts(const mc_control::MCController & ctl).
-  void updateContacts(const mc_control::MCController & ctl,
-                      const measurements::ContactsManager<KoContactWithSensor>::ContactsSet & contacts,
-                      mc_rtc::Logger & logger);
+  /// @param ctl Controller
+  /// @param logger Logger
+  void updateContacts(const mc_control::MCController & ctl, mc_rtc::Logger & logger);
 
   /// @brief Computes the kinematics of the contact attached to the robot in the world frame. Also expresses the wrench
   /// measured at the sensor in the frame of the contact.
@@ -200,11 +191,17 @@ protected:
                                    KoContactWithSensor & contact,
                                    stateObservation::kine::Kinematics & worldContactKineRef);
 
-  /// @brief Update the contact or create it if it still does not exist.
-  /// @details Called by \ref updateContacts(const mc_control::MCController & ctl, std::set<std::string> contacts,
-  /// mc_rtc::Logger & logger).
-  /// @param name The name of the contact to update.
-  void updateContact(const mc_control::MCController & ctl, const int & contactIndex, mc_rtc::Logger & logger);
+  /// @brief Creates a new contact
+  /// @param ctl Controller
+  /// @param contact Contact to update
+  /// @param logger Logger
+  void setNewContact(const mc_control::MCController & ctl, KoContactWithSensor & contact, mc_rtc::Logger & logger);
+
+  /// @brief Updates an already set contact
+  /// @param ctl Controller
+  /// @param contact Contact to update
+  /// @param logger Logger
+  void updateContact(const mc_control::MCController & ctl, KoContactWithSensor & contact, mc_rtc::Logger & logger);
 
 public:
   /** Get robot mass.

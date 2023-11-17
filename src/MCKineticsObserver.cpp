@@ -333,12 +333,8 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 
   observer_.setCenterOfMass(worldCoMKine_.position(), worldCoMKine_.linVel(), worldCoMKine_.linAcc());
 
-  /** Contacts
-   * Note that when we use force sensors directly for the contact detection, the pose of the contact is the one of the
-   * force sensor and not the contact surface!
-   */
-  // retrieves the list of contacts and set simStarted to true once a contact is detected
-  updateContacts(ctl, findNewContacts(ctl), logger);
+  // update of the contacts
+  updateContacts(ctl, logger);
 
   // force measurements from sensor that are not associated to a currently set contact are given to the Kinetics
   // Observer as inputs.
@@ -675,14 +671,6 @@ void MCKineticsObserver::updateIMUs(const mc_rbdyn::Robot & measRobot, const mc_
   }
 }
 
-const measurements::ContactsManager<KoContactWithSensor>::ContactsSet & MCKineticsObserver::findNewContacts(
-    const mc_control::MCController & ctl)
-{
-  contactsManager_.updateContacts(ctl, robot_);
-
-  return contactsManager_.contactsFound(); // list of currently set contacts
-}
-
 const so::kine::Kinematics MCKineticsObserver::getContactWorldKinematicsAndWrench(KoContactWithSensor & contact,
                                                                                   const mc_rbdyn::Robot & currentRobot,
                                                                                   const mc_rbdyn::ForceSensor & fs,
@@ -858,8 +846,8 @@ void MCKineticsObserver::getOdometryWorldContactRest(const mc_control::MCControl
   }
 }
 
-void MCKineticsObserver::updateContact(const mc_control::MCController & ctl,
-                                       const int & contactIndex,
+void MCKineticsObserver::setNewContact(const mc_control::MCController & ctl,
+                                       KoContactWithSensor & contact,
                                        mc_rtc::Logger & logger)
 {
   /*
@@ -872,7 +860,6 @@ void MCKineticsObserver::updateContact(const mc_control::MCController & ctl,
   auto & inputRobot = my_robots_->robot("inputRobot");
 
   const auto & robot = ctl.robot(robot_);
-  KoContactWithSensor & contact = contactsManager_.contact(contactIndex);
 
   sva::ForceVecd measuredWrench = robot.forceSensor(contact.forceSensor()).wrenchWithoutGravity(inputRobot);
   const mc_rbdyn::ForceSensor & forceSensor = robot.forceSensor(contact.forceSensor());
@@ -881,98 +868,110 @@ void MCKineticsObserver::updateContact(const mc_control::MCController & ctl,
   // measured wrench in the frame of the contact.
   contact.fbContactKine_ = getContactWorldKinematicsAndWrench(contact, inputRobot, forceSensor, measuredWrench);
 
-  if(contact.wasAlreadySet_)
+  // reference of the contact in the world / floating base of the input robot
+  so::kine::Kinematics worldContactKineRef;
+
+  if(odometryType_ != measurements::OdometryType::None) // the Kinetics Observer performs odometry. The estimated
+                                                        // state is used to provide the new contacts references.
   {
-    // the contact already exists, it is updated
-
-    if(contact.sensorEnabled_) // the force sensor attached to the contact is used in the correction by the
-                               // Kinetics Observer.
-    {
-      observer_.updateContactWithWrenchSensor(contact.contactWrenchVector_, contactSensorCovariance_,
-                                              contact.fbContactKine_, contactIndex);
-    }
-    else { observer_.updateContactWithNoSensor(contact.fbContactKine_, contactIndex); }
-
-    if(withDebugLogs_)
-    {
-      if(contact.sensorEnabled_ && !contact.sensorWasEnabled_)
-      {
-        addContactMeasurementsLogEntries(logger, contactIndex);
-        contact.sensorWasEnabled_ = true;
-      }
-      if(!contact.sensorEnabled_ && contact.sensorWasEnabled_)
-      {
-        removeContactMeasurementsLogEntries(logger, contactIndex);
-        contact.sensorWasEnabled_ = false;
-      }
-    }
+    getOdometryWorldContactRest(ctl, contact, worldContactKineRef);
+  }
+  else // we don't perform odometry, the reference pose of the contact is its pose in the control robot
+  {
+    worldContactKineRef = getContactWorldKinematics(contact, robot, forceSensor);
   }
 
-  // the contact doesn't exist yet, it is updated
+  if(observer_.getNumberOfSetContacts() > 0) // The initial covariance on the pose of the contact depending on
+                                             // whether another contact is already set or not
+  {
+    observer_.addContact(worldContactKineRef, contactInitCovarianceNewContacts_, contactProcessCovariance_,
+                         contact.id(), linStiffness_, linDamping_, angStiffness_, angDamping_);
+  }
   else
   {
-    // reference of the contact in the world / floating base of the input robot
-    so::kine::Kinematics worldContactKineRef;
+    observer_.addContact(worldContactKineRef, contactInitCovarianceFirstContacts_, contactProcessCovariance_,
+                         contact.id(), linStiffness_, linDamping_, angStiffness_, angDamping_);
+  }
+  if(contact.sensorEnabled_) // checks if the sensor is used in the correction of the Kinetics Observer
+                             // or not
+  {
+    // we update the measurements of the sensor and the input kinematics of the contact in the user /
+    // floating base's frame
+    observer_.updateContactWithWrenchSensor(contact.contactWrenchVector_, contactSensorCovariance_,
+                                            contact.fbContactKine_, contact.id());
+  }
+  else
+  {
+    // we update the input kinematics of the contact in the user / floating base's frame
+    observer_.updateContactWithNoSensor(contact.fbContactKine_, contact.id());
+  }
 
-    if(odometryType_ != measurements::OdometryType::None) // the Kinetics Observer performs odometry. The estimated
-                                                          // state is used to provide the new contacts references.
-    {
-      getOdometryWorldContactRest(ctl, contact, worldContactKineRef);
-    }
-    else // we don't perform odometry, the reference pose of the contact is its pose in the control robot
-    {
-      worldContactKineRef = getContactWorldKinematics(contact, robot, forceSensor);
-    }
+  if(withDebugLogs_) { addContactLogEntries(logger, contact.id()); }
+}
 
-    if(observer_.getNumberOfSetContacts() > 0) // The initial covariance on the pose of the contact depending on
-                                               // whether another contact is already set or not
-    {
-      observer_.addContact(worldContactKineRef, contactInitCovarianceNewContacts_, contactProcessCovariance_,
-                           contactIndex, linStiffness_, linDamping_, angStiffness_, angDamping_);
-    }
-    else
-    {
-      observer_.addContact(worldContactKineRef, contactInitCovarianceFirstContacts_, contactProcessCovariance_,
-                           contactIndex, linStiffness_, linDamping_, angStiffness_, angDamping_);
-    }
-    if(contact.sensorEnabled_) // checks if the sensor is used in the correction of the Kinetics Observer
-                               // or not
-    {
-      // we update the measurements of the sensor and the input kinematics of the contact in the user /
-      // floating base's frame
-      observer_.updateContactWithWrenchSensor(contact.contactWrenchVector_, contactSensorCovariance_,
-                                              contact.fbContactKine_, contactIndex);
-    }
-    else
-    {
-      // we update the input kinematics of the contact in the user / floating base's frame
-      observer_.updateContactWithNoSensor(contact.fbContactKine_, contactIndex);
-    }
+void MCKineticsObserver::updateContact(const mc_control::MCController & ctl,
+                                       KoContactWithSensor & contact,
+                                       mc_rtc::Logger & logger)
+{
+  /*
+  Uses the inputRobot, a virtual robot corresponding to the real robot whose floating base's frame is superimposed with
+  the world frame. Getting kinematics associated to the inputRobot inside the world frame is the same as getting the
+  same kinematics of the real robot inside the frame of its floating base, which is needed for the inputs of the
+  Kinetics Observer. This allows to use the basic mc_rtc functions directly giving kinematics in the world frame and not
+  do the conversion: initial frame -> world + world -> floating base as the latter is zero.
+  */
+  auto & inputRobot = my_robots_->robot("inputRobot");
 
-    if(withDebugLogs_) { addContactLogEntries(logger, contactIndex); }
+  const auto & robot = ctl.robot(robot_);
+
+  sva::ForceVecd measuredWrench = robot.forceSensor(contact.forceSensor()).wrenchWithoutGravity(inputRobot);
+  const mc_rbdyn::ForceSensor & forceSensor = robot.forceSensor(contact.forceSensor());
+
+  // As used on input robot, returns the kinematics of the contact in the frame of the floating base. Also expresses the
+  // measured wrench in the frame of the contact.
+  contact.fbContactKine_ = getContactWorldKinematicsAndWrench(contact, inputRobot, forceSensor, measuredWrench);
+
+  if(contact.sensorEnabled_) // the force sensor attached to the contact is used in the correction by the
+                             // Kinetics Observer.
+  {
+    observer_.updateContactWithWrenchSensor(contact.contactWrenchVector_, contactSensorCovariance_,
+                                            contact.fbContactKine_, contact.id());
+  }
+  else { observer_.updateContactWithNoSensor(contact.fbContactKine_, contact.id()); }
+
+  if(withDebugLogs_)
+  {
+    if(contact.sensorEnabled_ && !contact.sensorWasEnabled_)
+    {
+      addContactMeasurementsLogEntries(logger, contact.id());
+      contact.sensorWasEnabled_ = true;
+    }
+    if(!contact.sensorEnabled_ && contact.sensorWasEnabled_)
+    {
+      removeContactMeasurementsLogEntries(logger, contact.id());
+      contact.sensorWasEnabled_ = false;
+    }
   }
 }
 
-void MCKineticsObserver::updateContacts(
-    const mc_control::MCController & ctl,
-    const measurements::ContactsManager<KoContactWithSensor>::ContactsSet & updatedContactsIndexes,
-    mc_rtc::Logger & logger)
+void MCKineticsObserver::updateContacts(const mc_control::MCController & ctl, mc_rtc::Logger & logger)
 {
-  for(const auto & updatedContactIndex : updatedContactsIndexes) { updateContact(ctl, updatedContactIndex, logger); }
-  // List of the contact that were set on last iteration but are not set anymore on the current one
-  for(const int & removedContactIndex : contactsManager_.removedContacts())
+  auto onNewContact = [this, &ctl, &logger](KoContactWithSensor & newContact)
+  { setNewContact(ctl, newContact, logger); };
+  auto onMaintainedContact = [this, &ctl, &logger](KoContactWithSensor & maintainedContact)
+  { updateContact(ctl, maintainedContact, logger); };
+  auto onRemovedContact = [this, &logger](KoContactWithSensor & removedContact)
   {
-    observer_.removeContact(removedContactIndex);
+    observer_.removeContact(removedContact.id());
 
     if(withDebugLogs_)
     {
-      removeContactLogEntries(logger, removedContactIndex);
-      removeContactMeasurementsLogEntries(logger, removedContactIndex);
+      removeContactLogEntries(logger, removedContact.id());
+      removeContactMeasurementsLogEntries(logger, removedContact.id());
     }
-  }
+  };
 
-  unsigned nbContacts = static_cast<unsigned>(updatedContactsIndexes.size());
-  if(debug_) { mc_rtc::log::info("nbContacts = {}", nbContacts); }
+  contactsManager_.updateContacts(ctl, robot_, onNewContact, onMaintainedContact, onRemovedContact);
 }
 
 void MCKineticsObserver::mass(double mass)

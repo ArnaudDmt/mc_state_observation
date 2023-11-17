@@ -1,16 +1,17 @@
 /* Copyright 2017-2020 CNRS-AIST JRL, CNRS-UM LIRMM */
 #include <mc_observers/ObserverMacros.h>
-#include "mc_state_observation/measurements/measurements.h"
+
 #include <mc_state_observation/MCKineticsObserver.h>
 #include <mc_state_observation/gui_helpers.h>
 
+#include "mc_state_observation/measurements/measurements.h"
 #include <mc_state_observation/conversions/kinematics.h>
 
 namespace so = stateObservation;
 namespace mc_state_observation
 {
 MCKineticsObserver::MCKineticsObserver(const std::string & type, double dt)
-: mc_observers::Observer(type, dt), observer_(4, 2)
+: mc_observers::Observer(type, dt), observer_(4, 2), tiltObserver_(type, dt, true, "KoBackup_")
 {
   observer_.setSamplingTime(dt);
 }
@@ -21,6 +22,8 @@ MCKineticsObserver::MCKineticsObserver(const std::string & type, double dt)
 
 void MCKineticsObserver::configure(const mc_control::MCController & ctl, const mc_rtc::Configuration & config)
 {
+  tiltObserver_.configure(ctl, config);
+
   robot_ = config("robot", ctl.robot().name());
 
   const auto & robot = ctl.robot(robot_);
@@ -182,26 +185,12 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   setObserverCovariances();
 
   /* Configuration of the backup based on the Tilt Observer */
-
-  if(!ctl.datastore().has("runBackup"))
-  {
-    // if the datastore must contain the backup function provided by the Tilt Observer
-    mc_rtc::log::error_and_throw<std::runtime_error>(
-        "The Tilt Observer must be used before the Kinetics Observer when used as a backup");
-  }
-
   // interval (in s) on which the backup will recover
   int backupInterval = config("backupInterval", 1);
-  auto & datastore = (const_cast<mc_control::MCController &>(ctl)).datastore();
-  datastore.make<int>("KoBackupInterval", backupInterval);
-
   backupIterInterval_ = int(backupInterval / ctl.timeStep);
 
-  koBackupFbKinematics_.resize(backupIterInterval_);
-
-  datastore.make<int>("koBackupIterInterval", backupIterInterval_);
-  datastore.make<boost::circular_buffer<stateObservation::kine::Kinematics> *>("koBackupFbKinematics",
-                                                                               &koBackupFbKinematics_);
+  koBackupFbKinematics_.set_capacity(backupIterInterval_);
+  tiltObserver_.backupFbKinematics_.set_capacity(backupIterInterval_);
 
   invincibilityFrame_ = int(1.5 / ctl.timeStep);
 
@@ -239,6 +228,8 @@ void MCKineticsObserver::setObserverCovariances()
 
 void MCKineticsObserver::reset(const mc_control::MCController & ctl)
 {
+  tiltObserver_.reset(ctl);
+
   const auto & robot = ctl.robot(robot_);
   const auto & realRobot = ctl.realRobot(robot_);
   const auto & realRobotModule = realRobot.module();
@@ -317,6 +308,8 @@ void MCKineticsObserver::addSensorsAsInputs(const mc_rbdyn::Robot & inputRobot,
 
 bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 {
+  tiltObserver_.run(ctl);
+
   const auto & robot = ctl.robot(robot_);
   const auto & realRobot = ctl.realRobot(robot_);
   auto & inputRobot = my_robots_->robot("inputRobot");
@@ -410,10 +403,9 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
     }
     case invincibilityFrame:
     {
-      auto & datastore = (const_cast<mc_control::MCController &>(ctl)).datastore();
       // we apply the last transformation estimated by the Tilt Observer to our previous pose to keep updating the
       // floating base with the Tilt Observer.
-      mcko_K_0_fb = datastore.call<so::kine::Kinematics>("applyLastTransformation", koBackupFbKinematics_.back());
+      mcko_K_0_fb = tiltObserver_.applyLastTransformation(koBackupFbKinematics_.back());
       koBackupFbKinematics_.push_back(mcko_K_0_fb);
 
       X_0_fb_.rotation() = mcko_K_0_fb.orientation.toMatrix3().transpose();
@@ -494,12 +486,12 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
                              logger.t() - lastBackupIter_ * ctl.timeStep);
       }
 
-      auto & datastore = (const_cast<mc_control::MCController &>(ctl)).datastore();
       // We add an empty Kinematics object to the floating base pose buffer. This is because the buffer of the tilt
       // observer already contains the last estimation of the floating base so we prevent a disalignment of the two
       // buffers. This empty Kinematics is filled and returned by the "runBackup" function.
       koBackupFbKinematics_.push_back(so::kine::Kinematics::zeroKinematics(so::kine::Kinematics::Flags::pose));
-      mcko_K_0_fb = datastore.call<const so::kine::Kinematics>("runBackup");
+
+      mcko_K_0_fb = tiltObserver_.backupFb(&koBackupFbKinematics_);
 
       X_0_fb_.rotation() = mcko_K_0_fb.orientation.toMatrix3().transpose();
       X_0_fb_.translation() = mcko_K_0_fb.position();
@@ -606,17 +598,6 @@ void MCKineticsObserver::update(mc_control::MCController & ctl) // this function
   update(realRobot);
   realRobot.forwardKinematics();
   realRobot.forwardVelocity();
-
-  /* Functions affecting the Tilt Observer, called only if we update the real robot with the Kinetics Observer */
-  auto & datastore = (const_cast<mc_control::MCController &>(ctl)).datastore();
-  // this function checks that the backup estimator uses the same odometry type than the Kinetics Observer
-  datastore.call<>("checkCorrectBackupConf", odometryType_);
-
-  if(odometryType_ != prevOdometryType_)
-  {
-    // as the Tilt Observer is used as a backup, its odometry must also be changed
-    ctl.datastore().call<>("changeTiltOdometryType", odometryType_);
-  }
 }
 
 // used only to update the visual representation of the estimated robot
@@ -1384,9 +1365,10 @@ void MCKineticsObserver::setOdometryType(const std::string & newOdometryType)
   if(odometryType_ == prevOdometryType_) { return; }
 
   mc_rtc::log::info("[{}]: Odometry mode changed to: {}", observerName_, newOdometryType);
+  tiltObserver_.setOdometryType(odometryType_);
 }
 
-void MCKineticsObserver::addToGUI(const mc_control::MCController & ctl,
+void MCKineticsObserver::addToGUI(const mc_control::MCController &,
                                   mc_rtc::gui::StateBuilder & gui,
                                   const std::vector<std::string> & category)
 {
@@ -1404,7 +1386,7 @@ void MCKineticsObserver::addToGUI(const mc_control::MCController & ctl,
                                                                   [this]() -> std::string {
                                                                     return measurements::odometryTypeToSstring(odometryType_);
                                                                   },
-                                                                  [this, &ctl](const std::string & typeOfOdometry) {
+                                                                  [this](const std::string & typeOfOdometry) {
                                                                     setOdometryType(typeOfOdometry);
                                                                   }));
   }

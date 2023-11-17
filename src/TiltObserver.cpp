@@ -11,6 +11,9 @@ namespace mc_state_observation
 
 namespace so = stateObservation;
 
+using OdometryType = measurements::OdometryType;
+using LoContactsManager = odometry::LeggedOdometryManager::ContactsManager;
+
 TiltObserver::TiltObserver(const std::string & type, double dt)
 : mc_observers::Observer(type, dt), estimator_(alpha_, beta_, gamma_)
 {
@@ -18,6 +21,13 @@ TiltObserver::TiltObserver(const std::string & type, double dt)
   xk_.resize(9);
   xk_ << so::Vector3::Zero(), so::Vector3::Zero(), so::Vector3(0, 0, 1); // so::Vector3(0.49198, 0.66976, 0.55622);
   estimator_.setState(xk_, 0);
+}
+
+TiltObserver::TiltObserver(const std::string & type, double dt, bool asBackup, const std::string & categoryPrefix)
+: TiltObserver(type, dt)
+{
+  asBackup_ = asBackup;
+  observerName_ = categoryPrefix + observerName_;
 }
 
 void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc::Configuration & config)
@@ -114,22 +124,6 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
       odometryManager_.init(ctl, odomConfig, contactsConfig);
     }
   }
-
-  // check if this observer is used as a backup. If yes we add the backup function to the datastore.
-  config("asBackup", asBackup_);
-  if(asBackup_)
-  {
-    auto & datastore = (const_cast<mc_control::MCController &>(ctl)).datastore();
-
-    datastore.make_call("runBackup", [this, &ctl]() -> const so::kine::Kinematics { return backupFb(ctl); });
-    datastore.make_call("applyLastTransformation",
-                        [this](so::kine::Kinematics & kine) -> so::kine::Kinematics
-                        { return applyLastTransformation(kine); });
-    datastore.make_call("checkCorrectBackupConf",
-                        [this](OdometryType & koOdometryType) { checkCorrectBackupConf(koOdometryType); });
-    datastore.make_call("changeTiltOdometryType",
-                        [this](OdometryType newOdometryType) { setOdometryType(newOdometryType); });
-  }
 }
 
 void TiltObserver::reset(const mc_control::MCController & ctl)
@@ -145,13 +139,8 @@ void TiltObserver::reset(const mc_control::MCController & ctl)
   my_robots_->robotCopy(robot, "updatedRobot");
   ctl.gui()->addElement(
       {"Robots"},
-      mc_rtc::gui::Robot("TiltEstimator", [this]() -> const mc_rbdyn::Robot & { return my_robots_->robot(); }));
-  /*
-ctl.gui()->addElement(
-  {"Robots"},
-  mc_rtc::gui::Robot("TiltEstimatorUpdatedRobot", [this]() -> const mc_rbdyn::Robot & { return
-my_robots_->robot("updatedRobot"); }));
-  */
+      mc_rtc::gui::Robot(observerName_, [this]() -> const mc_rbdyn::Robot & { return my_robots_->robot(); }));
+
   const auto & imu = robot.bodySensor(imuSensor_);
 
   poseW_ = realRobot.posW();
@@ -185,20 +174,6 @@ my_robots_->robot("updatedRobot"); }));
   iter_ = 0;
   imuVelC_ = sva::MotionVecd::Zero();
   X_C_IMU_ = sva::PTransformd::Identity();
-
-  // we check if this estimator is used as a backup of the Kinetics Observer
-  if(asBackup_)
-  {
-    // BOOST_ASSERT(withOdometry_ && "The odometry must be used to perform backup");
-    if(!ctl.datastore().has("koBackupIterInterval"))
-    {
-      mc_rtc::log::error_and_throw("You planned to use TiltObserver as a backup but MCKineticsObserver is not used");
-    }
-    int backupIterInterval = ctl.datastore().get<int>("koBackupIterInterval");
-
-    backupFbKinematics_.resize(backupIterInterval);
-    ctl.gui()->addElement({"OdometryBackup"}, mc_rtc::gui::Button("OdometryBackup", [this, &ctl]() { backupFb(ctl); }));
-  }
 }
 
 bool TiltObserver::run(const mc_control::MCController & ctl)
@@ -570,15 +545,10 @@ void TiltObserver::update(mc_rbdyn::Robot & robot)
   robot.velW(velW_);
 }
 
-const so::kine::Kinematics TiltObserver::backupFb(const mc_control::MCController & ctl)
+const so::kine::Kinematics TiltObserver::backupFb(boost::circular_buffer<so::kine::Kinematics> * koBackupFbKinematics)
 {
   // new initial pose of the floating base
-
-  boost::circular_buffer<so::kine::Kinematics> * koBackupFbKinematics =
-      ctl.datastore().get<boost::circular_buffer<so::kine::Kinematics> *>("koBackupFbKinematics");
   so::kine::Kinematics worldResetKine = *(koBackupFbKinematics->begin());
-
-  // so::kine::Kinematics worldResetKine = so::kine::Kinematics::zeroKinematics(so::kine::Kinematics::Flags::pose);
 
   // original initial pose of the floating base
   so::kine::Kinematics worldFbInitBackup =
@@ -593,6 +563,7 @@ const so::kine::Kinematics TiltObserver::backupFb(const mc_control::MCController
     // Intermediary pose of the floating base estimated by the tilt estimator
     so::kine::Kinematics worldFbIntermBackup =
         conversions::kinematics::fromSva(backupFbKinematics_.at(i), so::kine::Kinematics::Flags::pose);
+
     // transformation between the initial and the intermediary pose during the backup interval
     so::kine::Kinematics initInterm = fbWorldInitBackup * worldFbIntermBackup;
 
@@ -630,22 +601,6 @@ so::kine::Kinematics TiltObserver::applyLastTransformation(const so::kine::Kinem
   newKine.angVel = newKine.orientation.toMatrix3() * tiltLocalAngVel;
 
   return newKine;
-}
-
-void TiltObserver::checkCorrectBackupConf(OdometryType & koOdometryType)
-{
-  static bool wasExecuted = false;
-  if(wasExecuted) { return; }
-  else
-  {
-    if(odometryManager_.odometryType_ != koOdometryType)
-    {
-      mc_rtc::log::error_and_throw<std::runtime_error>("The odometry types used for the Tilt Observer and the Kinetics "
-                                                       "Observer don't match, the backup is not possible.");
-    }
-    wasExecuted = true;
-    return;
-  }
 }
 
 void TiltObserver::setOdometryType(OdometryType newOdometryType)

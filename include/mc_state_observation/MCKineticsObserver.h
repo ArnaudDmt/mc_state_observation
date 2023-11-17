@@ -4,6 +4,7 @@
 
 #include <boost/circular_buffer.hpp>
 
+#include "mc_state_observation/TiltObserver.h"
 #include <mc_state_observation/measurements/ContactsManager.h>
 #include <mc_state_observation/measurements/measurements.h>
 #include <state-observation/dynamics-estimators/kinetics-observer.hpp>
@@ -306,6 +307,11 @@ public:
   inline const sva::MotionVecd & velW() const { return v_fb_0_; }
 
 private:
+  // instance of the Kinetics Observer
+  stateObservation::KineticsObserver observer_;
+  // instance of the Tilt Observer used as a backup
+  TiltObserver tiltObserver_;
+
   enum EstimationState
   {
     noIssue,
@@ -317,8 +323,6 @@ private:
   // (recovery frame after an error)
   EstimationState estimationState_;
 
-  // instance of the Kinetics Observer
-  stateObservation::KineticsObserver observer_;
   // name of the estimator
   std::string observerName_ = "MCKineticsObserver";
   // name of the robot

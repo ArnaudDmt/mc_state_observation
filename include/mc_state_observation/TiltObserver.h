@@ -10,9 +10,14 @@ namespace mc_state_observation
 
 struct TiltObserver : public mc_observers::Observer
 {
+  // we define MCKineticsObserver as a friend as it can instantiate this observer as a backup
+  friend struct MCKineticsObserver;
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 public:
   TiltObserver(const std::string & type, double dt);
+
+  /// @brief Constructor called by the Kinetics Observer when using the Tilt Observer as a backup
+  TiltObserver(const std::string & type, double dt, bool asBackup, const std::string & categoryPrefix);
 
   void configure(const mc_control::MCController & ctl, const mc_rtc::Configuration &) override;
 
@@ -49,11 +54,17 @@ public:
   /// @param ctl Controller
   void update(mc_control::MCController & ctl) override;
 
+  /// @brief Sets the type of the odometry
+  /// @param newOdometryType The new type of odometry to use.
+  void setOdometryType(measurements::OdometryType newOdometryType);
+
   /// @brief Backup function that returns the estimated displacement of the floating base in the world wrt to the
   /// initial one over the backup interval.
-  /// @param ctl Controller
+  /// @param koBackupFbKinematics Buffer containing the pose of the floating base in the world estimated by the Kinetics
+  /// Observer over the whole backup interval.
   /// @return const stateObservation::kine::Kinematics
-  const stateObservation::kine::Kinematics backupFb(const mc_control::MCController & ctl);
+  const stateObservation::kine::Kinematics backupFb(
+      boost::circular_buffer<stateObservation::kine::Kinematics> * koBackupFbKinematics);
 
   /// @brief Computes the pose transformation estimated by the Tilt Observer between the last two iterations and
   /// applies it to the given kinematics.
@@ -61,14 +72,6 @@ public:
   /// @param kine The kinematics on which to apply the transformation
   /// @return stateObservation::kine::Kinematics
   stateObservation::kine::Kinematics applyLastTransformation(const stateObservation::kine::Kinematics & kine);
-
-  /// @brief checks that the odometry type used for the Kinetics Observer and the Tilt Observer match for the backup
-  /// @param koOdometryType type of odometry used by the Kinetics Observer
-  void checkCorrectBackupConf(measurements::OdometryType & koOdometryType);
-
-  /// @brief Sets the type of the odometry
-  /// @param newOdometryType The new type of odometry to use.
-  void setOdometryType(measurements::OdometryType newOdometryType);
 
 protected:
   /*! \brief update the robot pose in the world only for visualization purpose
@@ -197,17 +200,15 @@ protected:
                                    // initial jumps due to the finite differences.
 
   /* Odometry parameters */
-  using OdometryType = measurements::OdometryType;
-
   odometry::LeggedOdometryManager odometryManager_; // manager for the legged odometry
-  using LoContactsManager = odometry::LeggedOdometryManager::ContactsManager;
+
   double contactDetectionThreshold_; // threshold used for the contacts detection
 
-  /* Backup function's parameters */
-
-  bool asBackup_ = false; // indicates if the estimator is used as a backup or not
+  /* Variables for the use as a backup */
+  // indicates if the estimator is used as a backup or not
+  bool asBackup_ = false;
   // Buffer containing the estimated pose of the floating base in the world over the whole backup interval.
-  boost::circular_buffer<sva::PTransformd> backupFbKinematics_ = boost::circular_buffer<sva::PTransformd>(100);
+  boost::circular_buffer<sva::PTransformd> backupFbKinematics_;
 
   /* Debug variables */
   // "measured" local linear velocity of the IMU

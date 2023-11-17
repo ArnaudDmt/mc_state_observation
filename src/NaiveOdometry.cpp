@@ -1,6 +1,7 @@
 /* Copyright 2017-2020 CNRS-AIST JRL, CNRS-UM LIRMM */
 
 #include <mc_observers/ObserverMacros.h>
+#include "mc_state_observation/odometry/LeggedOdometryManager.h"
 #include <mc_state_observation/NaiveOdometry.h>
 #include <mc_state_observation/gui_helpers.h>
 
@@ -23,7 +24,7 @@ void NaiveOdometry::configure(const mc_control::MCController & ctl, const mc_rtc
 
   /* Configuration of the odometry */
   std::string odometryTypeStr = static_cast<std::string>(config("odometryType"));
-  std::string velocityUpdate = "noUpdate";
+  std::string velocityUpdate = "NoUpdate";
   config("velocityUpdate", velocityUpdate);
 
   odometry::LeggedOdometryManager::Configuration odomConfig(robot_, category_, odometryTypeStr);
@@ -38,7 +39,7 @@ void NaiveOdometry::configure(const mc_control::MCController & ctl, const mc_rtc
 
   std::string contactsDetectionString = static_cast<std::string>(config("contactsDetection"));
   LoContactsManager::ContactsDetection contactsDetectionMethod =
-      odometryManager_.contactsManager().stringToContactsDetection(contactsDetectionString);
+      odometryManager_.contactsManager().stringToContactsDetection(contactsDetectionString, category_);
 
   if(surfacesForContactDetection.size() > 0
      && contactsDetectionMethod != LoContactsManager::ContactsDetection::Surfaces)
@@ -130,7 +131,7 @@ bool NaiveOdometry::run(const mc_control::MCController & ctl)
 
   // The odometry manager will update the velocity with the desired method (update of the estimated made upstream or
   // with finite differences)
-  if(odometryManager_.velocityUpdate_ != odometry::LeggedOdometryManager::noUpdate)
+  if(odometryManager_.velocityUpdate_ != odometry::LeggedOdometryManager::VelocityUpdate::NoUpdate)
   {
     odometryManager_.run(ctl, logger, X_0_fb_, v_0_fb);
   }

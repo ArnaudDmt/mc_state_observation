@@ -45,7 +45,7 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
 
   std::string contactsDetectionString = static_cast<std::string>(config("contactsDetection"));
   KoContactsManager::ContactsDetection contactsDetectionMethod =
-      contactsManager_.stringToContactsDetection(contactsDetectionString);
+      contactsManager_.stringToContactsDetection(contactsDetectionString, observerName_);
 
   std::vector<std::string> contactsSensorsDisabledInit =
       config("contactsSensorDisabledInit", std::vector<std::string>());

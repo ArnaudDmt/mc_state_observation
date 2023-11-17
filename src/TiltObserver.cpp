@@ -77,7 +77,7 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
 
     std::string contactsDetectionString = static_cast<std::string>(config("contactsDetection"));
     LoContactsManager::ContactsDetection contactsDetectionMethod =
-        odometryManager_.contactsManager().stringToContactsDetection(contactsDetectionString);
+        odometryManager_.contactsManager().stringToContactsDetection(contactsDetectionString, observerName_);
 
     if(surfacesForContactDetection.size() > 0
        && contactsDetectionMethod != LoContactsManager::ContactsDetection::Surfaces)
@@ -94,7 +94,7 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
     contactDetectionThreshold_ = robot.mass() * so::cst::gravityConstant * contactDetectionPropThreshold;
 
     odometry::LeggedOdometryManager::Configuration odomConfig(robot_, observerName_, odometryManager_.odometryType_);
-    odomConfig.velocityUpdate(odometry::LeggedOdometryManager::noUpdate)
+    odomConfig.velocityUpdate(odometry::LeggedOdometryManager::VelocityUpdate::NoUpdate)
         .withModeSwitchInGui(false)
         .withYawEstimation(withYawEstimation);
 

@@ -1,5 +1,6 @@
 /* Copyright 2017-2020 CNRS-AIST JRL, CNRS-UM LIRMM */
 #include <mc_observers/ObserverMacros.h>
+#include <mc_rtc/logging.h>
 
 #include <mc_state_observation/MCKineticsObserver.h>
 #include <mc_state_observation/gui_helpers.h>
@@ -47,8 +48,6 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   KoContactsManager::ContactsDetection contactsDetectionMethod =
       contactsManager_.stringToContactsDetection(contactsDetectionString, observerName_);
 
-  std::vector<std::string> contactsSensorsDisabledInit =
-      config("contactsSensorDisabledInit", std::vector<std::string>());
   config("forceSensorsAsInput", forceSensorsAsInput_);
 
   if(contactsDetectionMethod == KoContactsManager::ContactsDetection::Surfaces)
@@ -58,19 +57,50 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
 
     measurements::ContactsManagerSurfacesConfiguration contactsConfig(observerName_, surfacesForContactDetection);
 
-    contactsConfig.contactDetectionThreshold(contactDetectionThreshold_)
-        .contactSensorsDisabledInit(contactsSensorsDisabledInit)
-        .verbose(true);
+    contactsConfig.contactDetectionThreshold(contactDetectionThreshold_).verbose(true);
     contactsManager_.init(ctl, robot_, contactsConfig);
+
+    // we set the force sensor of the desired contacts as disabled
+    std::vector<std::string> contactSensorsDisabledInit =
+        config("contactSensorsDisabledInit", std::vector<std::string>());
+    for(auto const & contactSensorDisabledInit : contactSensorsDisabledInit)
+    {
+      if(std::find(contactsManager_.getList().begin(), contactsManager_.getList().end(), contactSensorDisabledInit)
+         != contactsManager_.getList().end())
+      {
+        contactsManager_.contact(contactSensorDisabledInit).sensorEnabled_ = false;
+      }
+      else
+      {
+        mc_rtc::log::error_and_throw("The force sensor {} set as disabled on initialization does not exist.",
+                                     contactSensorDisabledInit);
+      }
+    }
   }
   if(contactsDetectionMethod == KoContactsManager::ContactsDetection::Sensors)
   {
     measurements::ContactsManagerSensorsConfiguration contactsConfig(observerName_);
     contactsConfig.contactDetectionThreshold(contactDetectionThreshold_)
-        .contactSensorsDisabledInit(contactsSensorsDisabledInit)
         .verbose(true)
         .forceSensorsToOmit(forceSensorsAsInput_);
     contactsManager_.init(ctl, robot_, contactsConfig);
+
+    // we set the force sensor of the desired contacts as disabled
+    std::vector<std::string> contactSensorsDisabledInit =
+        config("contactSensorsDisabledInit", std::vector<std::string>());
+    for(auto const & contactSensorDisabledInit : contactSensorsDisabledInit)
+    {
+      if(std::find(contactsManager_.getList().begin(), contactsManager_.getList().end(), contactSensorDisabledInit)
+         != contactsManager_.getList().end())
+      {
+        contactsManager_.contact(contactSensorDisabledInit).sensorEnabled_ = false;
+      }
+      else
+      {
+        mc_rtc::log::error_and_throw("The force sensor {} set as disabled on initialization does not exist.",
+                                     contactSensorDisabledInit);
+      }
+    }
   }
   if(contactsDetectionMethod == KoContactsManager::ContactsDetection::Solver)
   {
@@ -908,6 +938,7 @@ void MCKineticsObserver::setNewContact(const mc_control::MCController & ctl,
   }
 
   if(withDebugLogs_) { addContactLogEntries(logger, contact.id()); }
+  addContactToGui(ctl, contact);
 }
 
 void MCKineticsObserver::updateContact(const mc_control::MCController & ctl,
@@ -1399,8 +1430,8 @@ void MCKineticsObserver::addContactToGui(const mc_control::MCController & ctl, K
       {observerName_, "Contacts"},
       mc_rtc::gui::Checkbox(
           contact.name() + " : " + (contact.isSet_ ? "Contact is set" : "Contact is not set") + ": Use wrench sensor: ",
-          [this, &contact]() { return contact.sensorEnabled_; },
-          [this, &contact]()
+          [&contact]() { return contact.sensorEnabled_; },
+          [&contact]()
           {
             contact.sensorEnabled_ = !contact.sensorEnabled_;
             std::cout << std::endl

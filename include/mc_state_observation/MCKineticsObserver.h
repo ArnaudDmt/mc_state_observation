@@ -44,7 +44,10 @@ public:
   Eigen::Matrix<double, 6, 1> contactWrenchVector_;
   // contact wrench expressed in the centroid frame. Used for logs.
   Eigen::Matrix<double, 6, 1> wrenchInCentroid_ = Eigen::Matrix<double, 6, 1>::Zero();
-  // allows to know if the contact's measurements have to be added during the update.
+
+  // the sensor measurement has to be used by the observer
+  bool sensorEnabled_ = true;
+  // allows to know if the logs related to the contact's measurements have to be added.
   bool sensorWasEnabled_ = false;
 };
 

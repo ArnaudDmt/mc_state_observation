@@ -54,24 +54,16 @@ void NaiveOdometry::configure(const mc_control::MCController & ctl, const mc_rtc
 
   if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Surfaces)
   {
-    std::vector<std::string> contactSensorsDisabledInit =
-        config("contactsSensorDisabledInit", std::vector<std::string>());
-
     measurements::ContactsManagerSurfacesConfiguration contactsConfig(category_, surfacesForContactDetection);
-    contactsConfig.contactDetectionThreshold(contactDetectionThreshold_)
-        .contactSensorsDisabledInit(contactSensorsDisabledInit)
-        .verbose(verbose);
+    contactsConfig.contactDetectionThreshold(contactDetectionThreshold_).verbose(verbose);
     odometryManager_.init(ctl, odomConfig, contactsConfig);
   }
   if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Sensors)
   {
     std::vector<std::string> forceSensorsToOmit = config("forceSensorsToOmit", std::vector<std::string>());
-    std::vector<std::string> contactSensorsDisabledInit =
-        config("contactsSensorDisabledInit", std::vector<std::string>());
 
     measurements::ContactsManagerSensorsConfiguration contactsConfig(category_);
     contactsConfig.contactDetectionThreshold(contactDetectionThreshold_)
-        .contactSensorsDisabledInit(contactSensorsDisabledInit)
         .verbose(verbose)
         .forceSensorsToOmit(forceSensorsToOmit);
     odometryManager_.init(ctl, odomConfig, contactsConfig);

@@ -87,9 +87,6 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
                                                        "surfacesForContactDetection variable");
     }
 
-    std::vector<std::string> contactSensorsDisabledInit =
-        config("contactsSensorDisabledInit", std::vector<std::string>());
-
     double contactDetectionPropThreshold = config("contactDetectionPropThreshold", 0.11);
     contactDetectionThreshold_ = robot.mass() * so::cst::gravityConstant * contactDetectionPropThreshold;
 
@@ -101,9 +98,7 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
     if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Surfaces)
     {
       measurements::ContactsManagerSurfacesConfiguration contactsConfig(observerName_, surfacesForContactDetection);
-      contactsConfig.contactDetectionThreshold(contactDetectionThreshold_)
-          .contactSensorsDisabledInit(contactSensorsDisabledInit)
-          .verbose(verbose);
+      contactsConfig.contactDetectionThreshold(contactDetectionThreshold_).verbose(verbose);
       odometryManager_.init(ctl, odomConfig, contactsConfig);
     }
     if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Sensors)
@@ -112,7 +107,6 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
 
       measurements::ContactsManagerSensorsConfiguration contactsConfig(observerName_);
       contactsConfig.contactDetectionThreshold(contactDetectionThreshold_)
-          .contactSensorsDisabledInit(contactSensorsDisabledInit)
           .verbose(verbose)
           .forceSensorsToOmit(forceSensorsToOmit);
       odometryManager_.init(ctl, odomConfig, contactsConfig);

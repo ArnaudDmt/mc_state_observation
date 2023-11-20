@@ -29,11 +29,23 @@ struct KoContactWithSensor : public measurements::ContactWithSensor
 {
   using measurements::ContactWithSensor::ContactWithSensor;
 
+  inline void resetContact() noexcept
+  {
+    ContactWithSensor::resetContact();
+    sensorWasEnabled_ = false;
+  }
+
 public:
   // kinematics of the contact frame in the floating base's frame
   stateObservation::kine::Kinematics fbContactKine_;
   // kinematics of the sensor frame in the frame of the contact surface
   stateObservation::kine::Kinematics surfaceSensorKine_;
+  // measured contact wrench, expressed in the frame of the contact.
+  Eigen::Matrix<double, 6, 1> contactWrenchVector_;
+  // contact wrench expressed in the centroid frame. Used for logs.
+  Eigen::Matrix<double, 6, 1> wrenchInCentroid_ = Eigen::Matrix<double, 6, 1>::Zero();
+  // allows to know if the contact's measurements have to be added during the update.
+  bool sensorWasEnabled_ = false;
 };
 
 struct MCKineticsObserver : public mc_observers::Observer

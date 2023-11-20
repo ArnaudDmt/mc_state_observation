@@ -1325,7 +1325,7 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController & ctl,
 
   for(auto & contactWithSensor : contactsManager_.contacts())
   {
-    const measurements::ContactWithSensor & contact = contactWithSensor.second;
+    const KoContactWithSensor & contact = contactWithSensor.second;
     logger.addLogEntry(observerName_ + "_debug_wrenchesInCentroid_" + contact.name() + "_force",
                        [contact]() -> Eigen::Vector3d { return contact.wrenchInCentroid_.segment<3>(0); });
     logger.addLogEntry(observerName_ + "_debug_wrenchesInCentroid_" + contact.name() + "_torque",

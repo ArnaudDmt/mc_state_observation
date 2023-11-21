@@ -606,9 +606,9 @@ void TiltObserver::addToLogger(const mc_control::MCController & ctl,
                                mc_rtc::Logger & logger,
                                const std::string & category)
 {
-  logger.addLogEntry(category + "_constants_alpha", [this]() -> const double & { return alpha_; });
-  logger.addLogEntry(category + "_constants_beta", [this]() -> const double & { return beta_; });
-  logger.addLogEntry(category + "_constants_gamma", [this]() -> const double & { return gamma_; });
+  logger.addLogEntry(category + "_constants_alpha", [this]() -> double { return estimator_.getAlpha(); });
+  logger.addLogEntry(category + "_constants_beta", [this]() -> double { return estimator_.getBeta(); });
+  logger.addLogEntry(category + "_constants_gamma", [this]() -> double { return estimator_.getGamma(); });
 
   logger.addLogEntry(category + "_debug_OdometryType",
                      [this]() -> std::string

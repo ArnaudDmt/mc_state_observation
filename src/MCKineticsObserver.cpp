@@ -140,6 +140,7 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   gyroBiasInitCovariance_.setZero();
   unmodeledWrenchInitCovariance_.setZero();
   contactInitCovarianceFirstContacts_.setZero();
+  // if we stick to the control robot's anchor frame, we don't allow the correction of the contacts pose
   contactInitCovarianceFirstContacts_.block<3, 3>(0, 0) =
       (config("contactPositionInitVarianceFirstContacts").operator so::Vector3()).matrix().asDiagonal();
   contactInitCovarianceFirstContacts_.block<3, 3>(3, 3) =
@@ -150,10 +151,13 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
       (config("contactTorqueInitVarianceFirstContacts").operator so::Vector3()).matrix().asDiagonal();
 
   contactInitCovarianceNewContacts_.setZero();
+  // if we stick to the control robot's anchor frame, we don't allow the correction of the contacts pose
+
   contactInitCovarianceNewContacts_.block<3, 3>(0, 0) =
       (config("contactPositionInitVarianceNewContacts").operator so::Vector3()).matrix().asDiagonal();
   contactInitCovarianceNewContacts_.block<3, 3>(3, 3) =
       (config("contactOriInitVarianceNewContacts").operator so::Vector3()).matrix().asDiagonal();
+
   contactInitCovarianceNewContacts_.block<3, 3>(6, 6) =
       (config("contactForceInitVarianceNewContacts").operator so::Vector3()).matrix().asDiagonal();
   contactInitCovarianceNewContacts_.block<3, 3>(9, 9) =
@@ -169,6 +173,8 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   unmodeledWrenchProcessCovariance_.setZero();
 
   contactProcessCovariance_.setZero();
+  // if we stick to the control robot's anchor frame, we don't allow the correction of the contacts pose
+
   contactProcessCovariance_.block<3, 3>(0, 0) =
       (config("contactPositionProcessVariance").operator so::Vector3()).matrix().asDiagonal();
   contactProcessCovariance_.block<3, 3>(3, 3) =
@@ -486,7 +492,16 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 
           so::kine::Kinematics newWorldContactKineRef;
 
-          getOdometryWorldContactRest(ctl, contact, newWorldContactKineRef);
+          if(odometryType_
+             != measurements::OdometryType::None) // the Kinetics Observer performs odometry. The estimated
+                                                  // state is used to provide the new contacts references.
+          {
+            getOdometryWorldContactRest(ctl, contact, newWorldContactKineRef);
+          }
+          else // we don't perform odometry, the reference pose of the contact is its pose in the control robot
+          {
+            newWorldContactKineRef = getContactWorldKinematics(contact, robot, forceSensor);
+          }
 
           observer_.setStateContact(contactIndex, newWorldContactKineRef, contact.contactWrenchVector_, false);
         }
@@ -569,7 +584,15 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 
         so::kine::Kinematics newWorldContactKineRef;
 
-        getOdometryWorldContactRest(ctl, contact, newWorldContactKineRef);
+        if(odometryType_ != measurements::OdometryType::None) // the Kinetics Observer performs odometry. The estimated
+                                                              // state is used to provide the new contacts references.
+        {
+          getOdometryWorldContactRest(ctl, contact, newWorldContactKineRef);
+        }
+        else // we don't perform odometry, the reference pose of the contact is its pose in the control robot
+        {
+          newWorldContactKineRef = getContactWorldKinematics(contact, robot, forceSensor);
+        }
 
         observer_.setStateContact(contactIndex, newWorldContactKineRef, contact.contactWrenchVector_, true);
       }
@@ -644,7 +667,7 @@ void MCKineticsObserver::inputAdditionalWrench(const mc_rbdyn::Robot & inputRobo
     KoContactWithSensor & contact = contactWithSensor.second;
     const std::string & fsName = contact.forceSensor();
 
-    if(!contact.isSet_
+    if(!contact.isSet()
        && contact.sensorEnabled_) // if the contact is not set but we use the force sensor measurements,
                                   // then we give the measured force as an input to the Kinetics Observer
     {
@@ -1020,6 +1043,7 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController & ctl,
                                      mc_rtc::Logger & logger,
                                      const std::string & category)
 {
+  tiltObserver_.addToLogger(ctl, logger, tiltObserver_.observerName_);
   logger.addLogEntry(category + "_mcko_fb_posW", [this]() -> sva::PTransformd & { return X_0_fb_; });
   logger.addLogEntry(category + "_mcko_fb_velW", [this]() -> sva::MotionVecd & { return v_fb_0_; });
   logger.addLogEntry(category + "_mcko_fb_accW", [this]() -> sva::MotionVecd & { return a_fb_0_; });
@@ -1426,18 +1450,19 @@ void MCKineticsObserver::addToGUI(const mc_control::MCController &,
 
 void MCKineticsObserver::addContactToGui(const mc_control::MCController & ctl, KoContactWithSensor & contact)
 {
-  ctl.gui()->addElement(
-      {observerName_, "Contacts"},
-      mc_rtc::gui::Checkbox(
-          contact.name() + " : " + (contact.isSet_ ? "Contact is set" : "Contact is not set") + ": Use wrench sensor: ",
-          [&contact]() { return contact.sensorEnabled_; },
-          [&contact]()
-          {
-            contact.sensorEnabled_ = !contact.sensorEnabled_;
-            std::cout << std::endl
-                      << "Enable / disable :" + contact.name() + " " + std::to_string(contact.sensorEnabled_)
-                      << std::endl;
-          }));
+  ctl.gui()->addElement({observerName_, "Contacts"},
+                        mc_rtc::gui::Checkbox(
+                            contact.name() + " : " + (contact.isSet() ? "Contact is set" : "Contact is not set")
+                                + ": Use wrench sensor: ",
+                            [&contact]() { return contact.sensorEnabled_; },
+                            [&contact]()
+                            {
+                              contact.sensorEnabled_ = !contact.sensorEnabled_;
+                              std::cout << std::endl
+                                        << "Enable / disable :" + contact.name() + " "
+                                               + std::to_string(contact.sensorEnabled_)
+                                        << std::endl;
+                            }));
 }
 
 void MCKineticsObserver::addContactLogEntries(mc_rtc::Logger & logger, const int & contactIndex)
@@ -1586,7 +1611,11 @@ void MCKineticsObserver::addContactLogEntries(mc_rtc::Logger & logger, const int
                          return observer_.getUserContactInputPose(contactIndex).orientation.inverse().toQuaternion();
                        });
     logger.addLogEntry(observerName_ + "_debug_contactState_isSet_" + contactName,
-                       [this, contactIndex]() -> int { return int(contactsManager_.contact(contactIndex).isSet_); });
+                       [this, contactIndex]() -> std::string
+                       {
+                         if(contactsManager_.contact(contactIndex).isSet()) { return "Set"; }
+                         else { return "notSet"; }
+                       });
   }
 }
 

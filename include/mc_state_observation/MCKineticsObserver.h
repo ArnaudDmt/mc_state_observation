@@ -112,22 +112,25 @@ protected:
    */
 
   /// @brief Add the logs of the desired contact.
-  /// @param contactIndex The index of the contact.
+  /// @param Controller Controller
+  /// @param contact contact
   /// @param logger
-  void addContactLogEntries(mc_rtc::Logger & logger, const int & contactIndex);
+  void addContactLogEntries(const mc_control::MCController & ctl,
+                            mc_rtc::Logger & logger,
+                            const KoContactWithSensor & contact);
   /// @brief Remove the logs of the desired contact.
-  /// @param contactIndex The index of the contact.
+  /// @param contact Contact
   /// @param logger
-  void removeContactLogEntries(mc_rtc::Logger & logger, const int & contactIndex);
+  void removeContactLogEntries(mc_rtc::Logger & logger, const KoContactWithSensor & contact);
 
   /// @brief Add the measurements logs of the desired contact.
-  /// @param contactIndex The index of the contact.
+  /// @param contact Contact
   /// @param logger
-  void addContactMeasurementsLogEntries(mc_rtc::Logger & logger, const int & contactIndex);
+  void addContactMeasurementsLogEntries(mc_rtc::Logger & logger, const KoContactWithSensor & contact);
   /// @brief Remove the measurements logs of the desired contact.
-  /// @param contactIndex The index of the contact.
+  /// @param contact Contact
   /// @param logger
-  void removeContactMeasurementsLogEntries(mc_rtc::Logger & logger, const int & contactIndex);
+  void removeContactMeasurementsLogEntries(mc_rtc::Logger & logger, const KoContactWithSensor & contact);
 
   void addToLogger(const mc_control::MCController &, mc_rtc::Logger &, const std::string & category) override;
 
@@ -174,7 +177,7 @@ protected:
   /// @param robot robot the contacts belong to
   /// @param fs force sensor
   /// @return stateObservation::kine::Kinematics &
-  const stateObservation::kine::Kinematics getContactWorldKinematics(KoContactWithSensor & contact,
+  const stateObservation::kine::Kinematics getContactWorldKinematics(const KoContactWithSensor & contact,
                                                                      const mc_rbdyn::Robot & robot,
                                                                      const mc_rbdyn::ForceSensor & fs);
 

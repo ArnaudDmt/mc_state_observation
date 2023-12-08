@@ -408,6 +408,7 @@ void TiltObserver::runTiltEstimator(const mc_control::MCController & ctl, const 
                                            * worldAnchorKine_.linVel());
 
     estimator_.setMeasurement(imu.linearAcceleration(), imu.angularVelocity(), k + 1);
+    x1_ = estimator_.getVirtualLocalVelocityMeasurement();
 
     // If the following variable is set, it means that the mode of computation of the anchor frame changed.
     if(newWorldAnchorKine_.linVel.isSet())
@@ -426,6 +427,7 @@ void TiltObserver::runTiltEstimator(const mc_control::MCController & ctl, const 
       if(odometryManager_.prevAnchorFromContacts_)
       {
         estimator_.setMeasurement(so::Vector3::Zero(), imu.linearAcceleration(), imu.angularVelocity(), k + 1);
+        x1_ = estimator_.getVirtualLocalVelocityMeasurement();
         // estimator_.setAlpha(0);
       }
       else

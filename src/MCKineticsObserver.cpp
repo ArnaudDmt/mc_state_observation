@@ -1622,10 +1622,10 @@ void MCKineticsObserver::addContactLogEntries(const mc_control::MCController & c
         [this, &contact]() -> Eigen::Quaternion<double>
         { return observer_.getCentroidContactInputPose(contact.id()).orientation.inverse().toQuaternion(); });
 
-    logger.addLogEntry(observerName_ + "_debug_contactPose_" + contact.name()
-                           + "_worldContactPoseFromCentroid_position",
-                       [this, &contact]() -> Eigen::Vector3d
-                       { return observer_.getWorldContactPoseFromCentroid(contact.id()).position(); });
+    logger.addLogEntry(
+        observerName_ + "_debug_contactPose_" + contact.name() + "_worldContactPoseFromCentroid_position", &contact,
+        [this, &contact]() -> Eigen::Vector3d
+        { return observer_.getWorldContactPoseFromCentroid(contact.id()).position(); });
 
     logger.addLogEntry(
         observerName_ + "_debug_contactPose_" + contact.name() + "_worldContactPoseFromCentroid_orientation", &contact,

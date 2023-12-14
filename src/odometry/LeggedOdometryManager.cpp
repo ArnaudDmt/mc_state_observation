@@ -92,9 +92,13 @@ void LeggedOdometryManager::updateJointsConfiguration(const mc_control::MCContro
 
   // Copy the real configuration except for the floating base
   const auto & realQ = realRobot.mbc().q;
+  const auto & realAlpha = realRobot.mbc().alpha;
+
   std::copy(std::next(realQ.begin()), realQ.end(), std::next(odometryRobot().mbc().q.begin()));
+  std::copy(std::next(realAlpha.begin()), realAlpha.end(), std::next(odometryRobot().mbc().alpha.begin()));
 
   odometryRobot().forwardKinematics();
+  odometryRobot().forwardVelocity();
 }
 
 void LeggedOdometryManager::run(const mc_control::MCController & ctl, mc_rtc::Logger & logger, sva::PTransformd & pose)

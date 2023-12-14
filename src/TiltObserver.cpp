@@ -176,9 +176,14 @@ bool TiltObserver::run(const mc_control::MCController & ctl)
   const auto & realRobot = ctl.realRobot(robot_);
   auto & logger = (const_cast<mc_control::MCController &>(ctl)).logger();
 
-  std::vector<double> q0 = robot.mbc().q[0];
-  my_robots_->robot("updatedRobot").mbc().q = realRobot.mbc().q;
-  my_robots_->robot("updatedRobot").mbc().q[0] = q0;
+  const auto & realQ = realRobot.mbc().q;
+  const auto & realAlpha = realRobot.mbc().alpha;
+
+  std::copy(std::next(realQ.begin()), realQ.end(), std::next(my_robots_->robot("updatedRobot").mbc().q.begin()));
+  std::copy(std::next(realAlpha.begin()), realAlpha.end(),
+            std::next(my_robots_->robot("updatedRobot").mbc().alpha.begin()));
+  my_robots_->robot("updatedRobot").mbc().q[0] = robot.mbc().q[0];
+  my_robots_->robot("updatedRobot").mbc().alpha[0] = robot.mbc().alpha[0];
 
   my_robots_->robot("updatedRobot").forwardKinematics();
   my_robots_->robot("updatedRobot").forwardVelocity();

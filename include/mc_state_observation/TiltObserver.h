@@ -120,21 +120,21 @@ protected:
    * parameter related to the convergence of the linear velocity
    * of the IMU expressed in the control frame
    */
-  double finalAlpha_ = 50;
+  double finalAlpha_ = 5;
   ///  parameter related to the fast convergence of the tilt
-  double finalBeta_ = 5;
+  double finalBeta_ = 1;
   /// parameter related to the orthogonality
-  double finalGamma_ = 15;
+  double finalGamma_ = 2;
 
   /*!
    * initial value of the parameter related to the convergence of the linear velocity
    * of the IMU expressed in the control frame
    */
-  double alpha_ = 50;
+  double alpha_ = 5;
   /// initial value of the parameter related to the fast convergence of the tilt
-  double beta_ = 5;
+  double beta_ = 1;
   /// initial value of the parameter related to the orthogonality
-  double gamma_ = 15;
+  double gamma_ = 2;
 
   // flag indicating the variables we want in the resulting Kinematics object
   stateObservation::kine::Kinematics::Flags::Byte flagPoseVels_ =

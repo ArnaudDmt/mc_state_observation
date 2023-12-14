@@ -14,10 +14,13 @@ struct TiltObserver : public mc_observers::Observer
   friend struct MCKineticsObserver;
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 public:
-  TiltObserver(const std::string & type, double dt);
-
-  /// @brief Constructor called by the Kinetics Observer when using the Tilt Observer as a backup
-  TiltObserver(const std::string & type, double dt, bool asBackup, const std::string & categoryPrefix);
+  /// @brief Constructor for the TiltObserver.
+  /// @details The parameters asBackup and observerName are given only if the Tilt Observer is used as a backup by the
+  /// Kinetics Observer
+  TiltObserver(const std::string & type,
+               double dt,
+               bool asBackup = false,
+               const std::string & observerName = "TiltObserver");
 
   void configure(const mc_control::MCController & ctl, const mc_rtc::Configuration &) override;
 
@@ -103,7 +106,7 @@ protected:
 
 protected:
   // name of the observer
-  std::string observerName_ = "TiltObserver";
+  std::string observerName_;
 
   // container for our robots
   std::shared_ptr<mc_rbdyn::Robots> my_robots_;

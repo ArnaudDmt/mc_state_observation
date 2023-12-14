@@ -12,7 +12,7 @@ namespace so = stateObservation;
 namespace mc_state_observation
 {
 MCKineticsObserver::MCKineticsObserver(const std::string & type, double dt)
-: mc_observers::Observer(type, dt), observer_(4, 2), tiltObserver_(type, dt, true, "KoBackup_")
+: mc_observers::Observer(type, dt), observer_(4, 2), tiltObserver_(type, dt, true, "KoBackup_TiltObserver")
 {
   observer_.setSamplingTime(dt);
 }

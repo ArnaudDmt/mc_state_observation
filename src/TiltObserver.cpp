@@ -14,20 +14,16 @@ namespace so = stateObservation;
 using OdometryType = measurements::OdometryType;
 using LoContactsManager = odometry::LeggedOdometryManager::ContactsManager;
 
-TiltObserver::TiltObserver(const std::string & type, double dt)
-: mc_observers::Observer(type, dt), estimator_(alpha_, beta_, gamma_)
+TiltObserver::TiltObserver(const std::string & type, double dt, bool asBackup, const std::string & observerName)
+: mc_observers::Observer(type, dt), estimator_(alpha_, beta_, gamma_), odometryManager_(observerName)
 {
   estimator_.setSamplingTime(dt_);
   xk_.resize(9);
   xk_ << so::Vector3::Zero(), so::Vector3::Zero(), so::Vector3(0, 0, 1); // so::Vector3(0.49198, 0.66976, 0.55622);
   estimator_.setState(xk_, 0);
-}
 
-TiltObserver::TiltObserver(const std::string & type, double dt, bool asBackup, const std::string & categoryPrefix)
-: TiltObserver(type, dt)
-{
   asBackup_ = asBackup;
-  observerName_ = categoryPrefix + observerName_;
+  observerName_ = observerName;
 }
 
 void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc::Configuration & config)

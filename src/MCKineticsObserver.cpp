@@ -58,7 +58,10 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
     measurements::ContactsManagerSurfacesConfiguration contactsConfig(observerName_, surfacesForContactDetection);
 
     contactsConfig.contactDetectionThreshold(contactDetectionThreshold_).verbose(true);
-    contactsManager_.init(ctl, robot_, contactsConfig);
+
+    auto onAddedContact = [this, &ctl](KoContactWithSensor & addedContact) { addContactToGui(ctl, addedContact); };
+
+    contactsManager_.init(ctl, robot_, contactsConfig, onAddedContact);
 
     // we set the force sensor of the desired contacts as disabled
     std::vector<std::string> contactSensorsDisabledInit =
@@ -970,7 +973,6 @@ void MCKineticsObserver::setNewContact(const mc_control::MCController & ctl,
   }
 
   if(withDebugLogs_) { addContactLogEntries(ctl, logger, contact); }
-  addContactToGui(ctl, contact);
 }
 
 void MCKineticsObserver::updateContact(const mc_control::MCController & ctl,
@@ -1035,7 +1037,11 @@ void MCKineticsObserver::updateContacts(const mc_control::MCController & ctl, mc
     }
   };
 
-  contactsManager_.updateContacts(ctl, robot_, onNewContact, onMaintainedContact, onRemovedContact);
+  // action to execute when a contact is added to the manager during the run, which happens when the contact detection
+  // is using the solver.
+  auto onAddedContact = [this, &ctl](KoContactWithSensor & addedContact) { addContactToGui(ctl, addedContact); };
+
+  contactsManager_.updateContacts(ctl, robot_, onNewContact, onMaintainedContact, onRemovedContact, onAddedContact);
 }
 
 void MCKineticsObserver::mass(double mass)

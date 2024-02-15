@@ -666,14 +666,17 @@ void MCKineticsObserver::update(mc_rbdyn::Robot & robot)
 
   if(updateExtWrench_)
   {
-    so::kine::Kinematics fbFb; // "Zero" Kinematics
-    fbFb.setZero<so::Matrix3>(so::kine::Kinematics::Flags::all);
-
     auto & inputRobot = my_robots_->robot("inputRobot");
-    so::kine::Kinematics worldFbPose =
-        conversions::kinematics::fromSva(inputRobot.posW(), so::kine::Kinematics::Flags::pose);
 
-    so::Vector6 fbExtWrench = observer_.getUnmodeledWrenchIn(fbFb);
+    so::kine::Kinematics worldRightHandKine = conversions::kinematics::fromSva(
+        robot.forceSensor("RightHandForceSensor").X_0_s(robot), so::kine::Kinematics::Flags::pose);
+
+    so::kine::Kinematics worldFbKine =
+        conversions::kinematics::fromSva(robot.posW(), so::kine::Kinematics::Flags::pose);
+
+    so::kine::Kinematics fbRightHandKine = worldFbKine.getInverse() * worldRightHandKine;
+
+    so::Vector6 fbExtWrench = observer_.getUnmodeledWrenchIn(fbRightHandKine);
     sva::ForceVecd extWrenchFb(fbExtWrench.tail(3), fbExtWrench.head(3));
 
     inputRobot.mbc().force[0] = extWrenchFb;

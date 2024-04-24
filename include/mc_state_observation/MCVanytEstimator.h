@@ -150,8 +150,6 @@ protected:
   stateObservation::kine::Kinematics updatedWorldFbKine_;
   // kinematics of the anchor frame in the IMU frame after the encoders update
   stateObservation::kine::Kinematics updatedImuAnchorKine_;
-  // kinematics of the IMU in the world after the encoders update
-  stateObservation::kine::Kinematics updatedWorldImuKine_;
 
   /* Estimation results */
 
@@ -179,9 +177,6 @@ protected:
   int itersBeforeAnchorsVel_ = 10; // iteration from which we start to compute the velocity of the anchor frame. Avoids
                                    // initial jumps due to the finite differences.
 
-  /* Odometry parameters */
-  odometry::LeggedOdometryManager odometryManager_; // manager for the legged odometry
-
   double contactDetectionThreshold_; // threshold used for the contacts detection
 
   /* Variables for the use as a backup */
@@ -203,6 +198,12 @@ protected:
 
   double mu_contacts_ = 2;
   double mu_gyro_ = 2;
+
+public:
+  /* Odometry manager */
+  odometry::LeggedOdometryManager odometryManager_; // manager for the legged odometry
+  // kinematics of the IMU in the world after the encoders update
+  stateObservation::kine::Kinematics updatedWorldImuKine_;
 };
 
 } // namespace mc_state_observation

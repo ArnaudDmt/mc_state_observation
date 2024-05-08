@@ -83,17 +83,15 @@ void MCVanytEstimator::configure(const mc_control::MCController & ctl, const mc_
   }
 
   double contactDetectionPropThreshold = config("contactDetectionPropThreshold", 0.11);
-  contactDetectionThreshold_ = robot.mass() * so::cst::gravityConstant * contactDetectionPropThreshold;
 
   odometry::LeggedOdometryManager::Configuration odomConfig(robot_, observerName_, odometryManager_.odometryType_);
   odomConfig.velocityUpdate(odometry::LeggedOdometryManager::VelocityUpdate::NoUpdate)
-      .withModeSwitchInGui(false)
       .withYawEstimation(withYawEstimation);
 
   if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Surfaces)
   {
     measurements::ContactsManagerSurfacesConfiguration contactsConfig(observerName_, surfacesForContactDetection);
-    contactsConfig.contactDetectionThreshold(contactDetectionThreshold_).verbose(verbose);
+    contactsConfig.contactDetectionPropThreshold(contactDetectionPropThreshold).verbose(verbose);
     odometryManager_.init(ctl, odomConfig, contactsConfig);
   }
   if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Sensors)
@@ -101,7 +99,7 @@ void MCVanytEstimator::configure(const mc_control::MCController & ctl, const mc_
     std::vector<std::string> forceSensorsToOmit = config("forceSensorsToOmit", std::vector<std::string>());
 
     measurements::ContactsManagerSensorsConfiguration contactsConfig(observerName_);
-    contactsConfig.contactDetectionThreshold(contactDetectionThreshold_)
+    contactsConfig.contactDetectionPropThreshold(contactDetectionPropThreshold)
         .verbose(verbose)
         .forceSensorsToOmit(forceSensorsToOmit);
     odometryManager_.init(ctl, odomConfig, contactsConfig);
@@ -109,7 +107,7 @@ void MCVanytEstimator::configure(const mc_control::MCController & ctl, const mc_
   if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Solver)
   {
     measurements::ContactsManagerSolverConfiguration contactsConfig(observerName_);
-    contactsConfig.contactDetectionThreshold(contactDetectionThreshold_).verbose(verbose);
+    contactsConfig.contactDetectionPropThreshold(contactDetectionPropThreshold).verbose(verbose);
     odometryManager_.init(ctl, odomConfig, contactsConfig);
   }
 }
@@ -696,21 +694,6 @@ void MCVanytEstimator::addToGUI(const mc_control::MCController &,
   using namespace mc_state_observation::gui;
   gui.addElement(category, make_input_element("alpha", alpha_), make_input_element("beta", beta_),
                  make_input_element("gamma", gamma_));
-
-  // we allow to change the odometry type if the Tilt Observer is not used as a backup of the Kinetics Observer.
-  // Otherwise the type can be changed by changing the one of the Kinetics Observer.
-  if(asBackup_ != true)
-  {
-    gui.addElement({observerName_, "Odometry"},
-                   mc_rtc::gui::ComboInput(
-                       "Choose from list",
-                       {measurements::odometryTypeToSstring(measurements::OdometryType::Odometry6d),
-                        measurements::odometryTypeToSstring(measurements::OdometryType::Flat)},
-                       [this]() -> std::string
-                       { return measurements::odometryTypeToSstring(odometryManager_.odometryType_); },
-                       [this](const std::string & typeOfOdometry)
-                       { setOdometryType(measurements::stringToOdometryType(typeOfOdometry)); }));
-  }
 }
 
 } // namespace mc_state_observation

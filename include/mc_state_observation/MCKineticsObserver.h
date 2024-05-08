@@ -366,7 +366,7 @@ private:
 
   /* Settings of the Kinetics Observers */
   // mass of the robot
-  double mass_ = 42; // [kg]
+  double mass_; // [kg]
   // maximum amount of contacts that we want to use with the Kinetics Observer.
   int maxContacts_ = 4;
   // maximum amount of IMUs that we want to use with the Kinetics Observer.
@@ -444,8 +444,7 @@ private:
   /* Contacts manager variables */
   using KoContactsManager = measurements::ContactsManager<KoContactWithSensor>;
   KoContactsManager contactsManager_;
-  // threshold on the measured force for contact detection.
-  double contactDetectionThreshold_ = 0.0;
+
   // list of the force sensors that cannot be used with contacts but we want to use their measurements as inputs to the
   // Kinetics Observer
   std::vector<std::string> forceSensorsAsInput_ = std::vector<std::string>();

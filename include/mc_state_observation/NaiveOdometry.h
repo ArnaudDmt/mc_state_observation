@@ -102,10 +102,7 @@ private:
   /* custom list of robots to display */
   std::shared_ptr<mc_rbdyn::Robots> my_robots_;
 
-  // threshold on the force for the contact detection.
-  double contactDetectionThreshold_;
-
-  double mass_ = 42; // [kg]
+  double mass_; // [kg]
   // std::set<std::string> contacts_; ///< Sorted list of contacts
   std::set<std::string> oldContacts_;
 

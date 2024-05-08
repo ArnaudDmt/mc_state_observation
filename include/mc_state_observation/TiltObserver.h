@@ -17,10 +17,7 @@ public:
   /// @brief Constructor for the TiltObserver.
   /// @details The parameters asBackup and observerName are given only if the Tilt Observer is used as a backup by the
   /// Kinetics Observer
-  TiltObserver(const std::string & type,
-               double dt,
-               bool asBackup = false,
-               const std::string & observerName = "TiltObserver");
+  TiltObserver(const std::string & type, double dt, bool asBackup = false, const std::string & observerName = "Tilt");
 
   void configure(const mc_control::MCController & ctl, const mc_rtc::Configuration &) override;
 
@@ -212,8 +209,6 @@ protected:
 
   /* Odometry parameters */
   odometry::LeggedOdometryManager odometryManager_; // manager for the legged odometry
-
-  double contactDetectionThreshold_; // threshold used for the contacts detection
 
   /* Variables for the use as a backup */
   // indicates if the estimator is used as a backup or not

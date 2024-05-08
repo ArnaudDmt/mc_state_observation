@@ -177,8 +177,6 @@ protected:
   int itersBeforeAnchorsVel_ = 10; // iteration from which we start to compute the velocity of the anchor frame. Avoids
                                    // initial jumps due to the finite differences.
 
-  double contactDetectionThreshold_; // threshold used for the contacts detection
-
   /* Variables for the use as a backup */
   // indicates if the estimator is used as a backup or not
   bool asBackup_ = false;
@@ -193,7 +191,7 @@ protected:
   // pose of the IMU in the anchor frame
   sva::PTransformd X_C_IMU_;
 
-  stateObservation::kine::Orientation measuredOri_;
+  stateObservation::kine::Orientation measuredOri_ = stateObservation::kine::Orientation::zeroRotation();
   stateObservation::Vector measurements_;
 
   double mu_contacts_ = 2;

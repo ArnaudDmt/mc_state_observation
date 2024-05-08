@@ -54,8 +54,6 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
   // specific configurations for the use of odometry.
   if(odometryManager_.odometryType_ != measurements::OdometryType::None)
   {
-    const auto & robot = ctl.robot(robot_);
-
     bool verbose = config("verbose", true);
     bool withYawEstimation = config("withYawEstimation", true);
 
@@ -77,17 +75,16 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
     }
 
     double contactDetectionPropThreshold = config("contactDetectionPropThreshold", 0.11);
-    contactDetectionThreshold_ = robot.mass() * so::cst::gravityConstant * contactDetectionPropThreshold;
 
     odometry::LeggedOdometryManager::Configuration odomConfig(robot_, observerName_, odometryManager_.odometryType_);
     odomConfig.velocityUpdate(odometry::LeggedOdometryManager::VelocityUpdate::NoUpdate)
-        .withModeSwitchInGui(false)
         .withYawEstimation(withYawEstimation);
+    if(asBackup_) { odomConfig.withModeSwitchInGui(false); }
 
     if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Surfaces)
     {
       measurements::ContactsManagerSurfacesConfiguration contactsConfig(observerName_, surfacesForContactDetection);
-      contactsConfig.contactDetectionThreshold(contactDetectionThreshold_).verbose(verbose);
+      contactsConfig.contactDetectionPropThreshold(contactDetectionPropThreshold).verbose(verbose);
       odometryManager_.init(ctl, odomConfig, contactsConfig);
     }
     if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Sensors)
@@ -95,7 +92,7 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
       std::vector<std::string> forceSensorsToOmit = config("forceSensorsToOmit", std::vector<std::string>());
 
       measurements::ContactsManagerSensorsConfiguration contactsConfig(observerName_);
-      contactsConfig.contactDetectionThreshold(contactDetectionThreshold_)
+      contactsConfig.contactDetectionPropThreshold(contactDetectionPropThreshold)
           .verbose(verbose)
           .forceSensorsToOmit(forceSensorsToOmit);
       odometryManager_.init(ctl, odomConfig, contactsConfig);
@@ -103,7 +100,7 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
     if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Solver)
     {
       measurements::ContactsManagerSolverConfiguration contactsConfig(observerName_);
-      contactsConfig.contactDetectionThreshold(contactDetectionThreshold_).verbose(verbose);
+      contactsConfig.contactDetectionPropThreshold(contactDetectionPropThreshold).verbose(verbose);
       odometryManager_.init(ctl, odomConfig, contactsConfig);
     }
   }
@@ -837,15 +834,8 @@ void TiltObserver::addToGUI(const mc_control::MCController &,
   // Otherwise the type can be changed by changing the one of the Kinetics Observer.
   if(asBackup_ != true && odometryManager_.odometryType_ != measurements::OdometryType::None)
   {
-    gui.addElement({observerName_, "Odometry"},
-                   mc_rtc::gui::ComboInput(
-                       "Choose from list",
-                       {measurements::odometryTypeToSstring(measurements::OdometryType::Odometry6d),
-                        measurements::odometryTypeToSstring(measurements::OdometryType::Flat)},
-                       [this]() -> std::string
-                       { return measurements::odometryTypeToSstring(odometryManager_.odometryType_); },
-                       [this](const std::string & typeOfOdometry)
-                       { setOdometryType(measurements::stringToOdometryType(typeOfOdometry)); }));
+    std::vector<std::string> odomCategory = category;
+    odomCategory.insert(odomCategory.end(), {"Odometry"});
   }
 }
 

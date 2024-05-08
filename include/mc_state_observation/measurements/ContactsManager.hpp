@@ -1,6 +1,7 @@
 #pragma once
 #include <mc_rtc/logging.h>
 #include <mc_state_observation/measurements/ContactsManager.h>
+#include <state-observation/tools/definitions.hpp>
 
 namespace mc_state_observation::measurements
 {
@@ -16,9 +17,24 @@ void ContactsManager<ContactT>::init(const mc_control::MCController & ctl,
                                      Configuration conf,
                                      OnAddedContact onAddedContact)
 {
-  std::visit([this, &ctl, &robotName, onAddedContact](const auto & c)
-             { init_manager(ctl, robotName, c, onAddedContact); },
-             conf);
+  std::visit(
+      [this, &ctl, &robotName, onAddedContact](const auto & c)
+      {
+        observerName_ = c.observerName_;
+        verbose_ = c.verbose_;
+
+        const auto & robot = ctl.robot(robotName);
+
+        contactDetectionThreshold_ =
+            c.contactDetectionPropThreshold_ * robot.mass() * stateObservation::cst::gravityConstant;
+
+        auto & logger = (const_cast<mc_control::MCController &>(ctl)).logger();
+        logger.addLogEntry(c.observerName_ + "_ContactsDetection_forceThreshold",
+                           [this]() -> double { return contactDetectionThreshold_; });
+
+        init_manager(ctl, robotName, c, onAddedContact);
+      },
+      conf);
 }
 
 template<typename ContactT>
@@ -28,12 +44,8 @@ void ContactsManager<ContactT>::init_manager(const mc_control::MCController & ct
                                              const ContactsManagerSurfacesConfiguration & conf,
                                              OnAddedContact onAddedContact)
 {
-  observerName_ = conf.observerName_;
-  verbose_ = conf.verbose_;
-
   contactsDetectionMethod_ = Surfaces;
 
-  contactDetectionThreshold_ = conf.contactDetectionThreshold_;
   surfacesForContactDetection_ = conf.surfacesForContactDetection_;
 
   const auto & robot = ctl.robot(robotName);
@@ -71,12 +83,7 @@ void ContactsManager<ContactT>::init_manager(const mc_control::MCController & ct
                                              const ContactsManagerSensorsConfiguration & conf,
                                              OnAddedContact onAddedContact)
 {
-  observerName_ = conf.observerName_;
-  verbose_ = conf.verbose_;
-
   contactsDetectionMethod_ = Sensors;
-
-  contactDetectionThreshold_ = conf.contactDetectionThreshold_;
 
   const auto & robot = ctl.robot(robotName);
 
@@ -97,15 +104,10 @@ template<typename ContactT>
 template<typename OnAddedContact>
 void ContactsManager<ContactT>::init_manager(const mc_control::MCController &,
                                              const std::string &,
-                                             const ContactsManagerSolverConfiguration & conf,
+                                             const ContactsManagerSolverConfiguration &,
                                              OnAddedContact)
 {
-  observerName_ = conf.observerName_;
-  verbose_ = conf.verbose_;
-
   contactsDetectionMethod_ = Solver;
-
-  contactDetectionThreshold_ = conf.contactDetectionThreshold_;
 }
 
 template<typename ContactT>

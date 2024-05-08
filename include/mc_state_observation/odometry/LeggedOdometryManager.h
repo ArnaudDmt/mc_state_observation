@@ -333,7 +333,7 @@ public:
     bool withYaw_ = true;
     // If true, adds the possiblity to switch between 6d and flat odometry from the gui.
     // Should be set to false if this feature is implemented in the estimator using this library.
-    bool withModeSwitchInGui_ = false;
+    bool withModeSwitchInGui_ = true;
     // Indicates if we want to update the velocity and what method it must be updated with.
     VelocityUpdate velocityUpdate_ = LeggedOdometryManager::VelocityUpdate::NoUpdate;
 

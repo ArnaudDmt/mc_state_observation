@@ -31,7 +31,7 @@ void NaiveOdometry::configure(const mc_control::MCController & ctl, const mc_rtc
   config("velocityUpdate", velocityUpdate);
 
   odometry::LeggedOdometryManager::Configuration odomConfig(robot_, category_, odometryTypeStr);
-  odomConfig.velocityUpdate(velocityUpdate).withModeSwitchInGui(true).withYawEstimation(true);
+  odomConfig.velocityUpdate(velocityUpdate).withYawEstimation(true);
 
   /* Configuration of the contacts detection */
 
@@ -53,12 +53,11 @@ void NaiveOdometry::configure(const mc_control::MCController & ctl, const mc_rtc
   }
 
   double contactDetectionPropThreshold = config("contactDetectionPropThreshold", 0.11);
-  contactDetectionThreshold_ = mass_ * so::cst::gravityConstant * contactDetectionPropThreshold;
 
   if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Surfaces)
   {
     measurements::ContactsManagerSurfacesConfiguration contactsConfig(category_, surfacesForContactDetection);
-    contactsConfig.contactDetectionThreshold(contactDetectionThreshold_).verbose(verbose);
+    contactsConfig.contactDetectionPropThreshold(contactDetectionPropThreshold).verbose(verbose);
     odometryManager_.init(ctl, odomConfig, contactsConfig);
   }
   if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Sensors)
@@ -66,7 +65,7 @@ void NaiveOdometry::configure(const mc_control::MCController & ctl, const mc_rtc
     std::vector<std::string> forceSensorsToOmit = config("forceSensorsToOmit", std::vector<std::string>());
 
     measurements::ContactsManagerSensorsConfiguration contactsConfig(category_);
-    contactsConfig.contactDetectionThreshold(contactDetectionThreshold_)
+    contactsConfig.contactDetectionPropThreshold(contactDetectionPropThreshold)
         .verbose(verbose)
         .forceSensorsToOmit(forceSensorsToOmit);
     odometryManager_.init(ctl, odomConfig, contactsConfig);
@@ -74,7 +73,7 @@ void NaiveOdometry::configure(const mc_control::MCController & ctl, const mc_rtc
   if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Solver)
   {
     measurements::ContactsManagerSolverConfiguration contactsConfig(category_);
-    contactsConfig.contactDetectionThreshold(contactDetectionThreshold_).verbose(verbose);
+    contactsConfig.contactDetectionPropThreshold(contactDetectionPropThreshold).verbose(verbose);
     odometryManager_.init(ctl, odomConfig, contactsConfig);
   }
 }
@@ -177,8 +176,6 @@ void NaiveOdometry::addToLogger(const mc_control::MCController &, mc_rtc::Logger
 
   logger.addLogEntry(category + "_naive_fb_yaw",
                      [this]() -> double { return -so::kine::rotationMatrixToYawAxisAgnostic(X_0_fb_.rotation()); });
-
-  logger.addLogEntry(category + "_constants_forceThreshold", [this]() -> double { return contactDetectionThreshold_; });
 }
 
 void NaiveOdometry::removeFromLogger(mc_rtc::Logger & logger, const std::string & category)

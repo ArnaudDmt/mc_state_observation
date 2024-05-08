@@ -26,8 +26,6 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
 
   robot_ = config("robot", ctl.robot().name());
 
-  const auto & robot = ctl.robot(robot_);
-
   IMUs_ = config("imuSensor", ctl.robot().bodySensors());
   config("debug", debug_);
   config("verbose", verbose_);
@@ -41,7 +39,6 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   /* configuration of the contacts manager */
 
   double contactDetectionPropThreshold = config("contactDetectionPropThreshold", 0.11);
-  contactDetectionThreshold_ = robot.mass() * so::cst::gravityConstant * contactDetectionPropThreshold;
 
   std::string contactsDetectionString = static_cast<std::string>(config("contactsDetection"));
   KoContactsManager::ContactsDetection contactsDetectionMethod =
@@ -56,7 +53,7 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
 
     measurements::ContactsManagerSurfacesConfiguration contactsConfig(observerName_, surfacesForContactDetection);
 
-    contactsConfig.contactDetectionThreshold(contactDetectionThreshold_).verbose(true);
+    contactsConfig.contactDetectionPropThreshold(contactDetectionPropThreshold).verbose(true);
 
     auto onAddedContact = [this, &ctl](KoContactWithSensor & addedContact) { addContactToGui(ctl, addedContact); };
 
@@ -79,7 +76,7 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   if(contactsDetectionMethod == KoContactsManager::ContactsDetection::Sensors)
   {
     measurements::ContactsManagerSensorsConfiguration contactsConfig(observerName_);
-    contactsConfig.contactDetectionThreshold(contactDetectionThreshold_)
+    contactsConfig.contactDetectionPropThreshold(contactDetectionPropThreshold)
         .verbose(true)
         .forceSensorsToOmit(forceSensorsAsInput_);
     contactsManager_.init(ctl, robot_, contactsConfig);
@@ -101,7 +98,7 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   if(contactsDetectionMethod == KoContactsManager::ContactsDetection::Solver)
   {
     measurements::ContactsManagerSolverConfiguration contactsConfig(observerName_);
-    contactsConfig.contactDetectionThreshold(contactDetectionThreshold_).verbose(true);
+    contactsConfig.contactDetectionPropThreshold(contactDetectionPropThreshold).verbose(true);
     contactsManager_.init(ctl, robot_, contactsConfig);
   }
 
@@ -226,7 +223,10 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
 
   invincibilityFrame_ = int(1.5 / ctl.timeStep);
 
-  ctl.gui()->addElement({observerName_},
+  std::vector<std::string> nanBehaviourCategory;
+  nanBehaviourCategory.insert(nanBehaviourCategory.end(),
+                              {"ObserverPipelines", ctl.observerPipeline().name(), observerName_});
+  ctl.gui()->addElement({nanBehaviourCategory},
                         mc_rtc::gui::Button("SimulateNanBehaviour", [this]() { observer_.nanDetected_ = true; }));
 }
 
@@ -1060,7 +1060,6 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController & ctl,
 
   logger.addLogEntry(category + "_constants_mass", [this]() -> double { return observer_.getMass(); });
 
-  logger.addLogEntry(category + "_constants_forceThreshold", [this]() -> double { return contactDetectionThreshold_; });
   logger.addLogEntry(category + "_debug_estimationState",
                      [this]() -> std::string
                      {
@@ -1443,7 +1442,9 @@ void MCKineticsObserver::addToGUI(const mc_control::MCController &,
 
   if(odometryType_ != measurements::OdometryType::None)
   {
-    gui.addElement({observerName_, "Odometry"}, mc_rtc::gui::ComboInput(
+    std::vector<std::string> odomCategory = category;
+    odomCategory.insert(odomCategory.end(), {"Odometry"});
+    gui.addElement({odomCategory}, mc_rtc::gui::ComboInput(
                                                                   "Choose from list",  {measurements::odometryTypeToSstring(measurements::OdometryType::Odometry6d), measurements::odometryTypeToSstring(measurements::OdometryType::Flat)},
                                                                   [this]() -> std::string {
                                                                     return measurements::odometryTypeToSstring(odometryType_);
@@ -1457,7 +1458,10 @@ void MCKineticsObserver::addToGUI(const mc_control::MCController &,
 
 void MCKineticsObserver::addContactToGui(const mc_control::MCController & ctl, KoContactWithSensor & contact)
 {
-  ctl.gui()->addElement(&contact, {observerName_, "Contacts"},
+  std::vector<std::string> contactCategory;
+  contactCategory.insert(contactCategory.end(),
+                         {"ObserverPipelines", ctl.observerPipeline().name(), observerName_, "Contacts"});
+  ctl.gui()->addElement(&contact, {contactCategory},
                         mc_rtc::gui::Checkbox(
                             contact.name() + " : " + (contact.isSet() ? "Contact is set" : "Contact is not set")
                                 + ": Use wrench sensor: ",
@@ -1640,7 +1644,7 @@ void MCKineticsObserver::addContactLogEntries(const mc_control::MCController & c
                          return observer_.getUserContactInputPose(contact.id()).orientation.inverse().toQuaternion();
                        });
     logger.addLogEntry(observerName_ + "_debug_contactState_isSet_" + contact.name(), &contact,
-                       [this, &contact]() -> std::string { return contact.isSet() ? "Set" : "notSet"; });
+                       [&contact]() -> std::string { return contact.isSet() ? "Set" : "notSet"; });
   }
 }
 

@@ -14,9 +14,9 @@ struct ContactsManagerConfigurationPrvt
 {
   inline ContactsManagerConfigurationPrvt(const std::string & observerName) noexcept : observerName_(observerName) {}
 
-  inline ConfigurationType & contactDetectionThreshold(double contactDetectionThreshold) noexcept
+  inline ConfigurationType & contactDetectionPropThreshold(double contactDetectionPropThreshold) noexcept
   {
-    contactDetectionThreshold_ = contactDetectionThreshold;
+    contactDetectionPropThreshold_ = contactDetectionPropThreshold;
     return static_cast<ConfigurationType &>(*this);
   }
   inline ConfigurationType & verbose(bool verbose) noexcept
@@ -27,7 +27,7 @@ struct ContactsManagerConfigurationPrvt
 
   std::string observerName_;
 
-  double contactDetectionThreshold_ = 0.11;
+  double contactDetectionPropThreshold_ = 0.11;
   bool verbose_ = true;
 };
 } // namespace internal

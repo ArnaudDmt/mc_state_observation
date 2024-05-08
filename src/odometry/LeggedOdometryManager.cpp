@@ -85,7 +85,11 @@ void LeggedOdometryManager::init(const mc_control::MCController & ctl,
                      [this]() { return odometryRobot().accW(); });
   if(odomConfig.withModeSwitchInGui_)
   {
-    ctl.gui()->addElement({odometryName_, "Odometry"},
+    std::vector<std::string> odomCategory;
+    odomCategory.insert(odomCategory.end(),
+                        {"ObserverPipelines", ctl.observerPipeline().name(), odometryName_, "Odometry"});
+
+    ctl.gui()->addElement({odomCategory},
                           mc_rtc::gui::ComboInput(
                               "Choose from list",
                               {measurements::odometryTypeToSstring(measurements::OdometryType::Odometry6d),

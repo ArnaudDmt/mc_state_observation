@@ -58,6 +58,8 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
     std::vector<std::string> surfacesForContactDetection =
         config("surfacesForContactDetection", std::vector<std::string>());
 
+    contactSensorsIgnored_ = config("contactSensorsIgnored", std::vector<std::string>());
+
     measurements::ContactsManagerSurfacesConfiguration contactsConfig(observerName_, surfacesForContactDetection);
 
     contactsConfig.contactDetectionPropThreshold(contactDetectionPropThreshold).verbose(true);
@@ -1007,8 +1009,10 @@ void MCKineticsObserver::updateContact(const mc_control::MCController & ctl,
   // measured wrench in the frame of the contact.
   contact.fbContactKine_ = getContactWorldKinematicsAndWrench(contact, inputRobot, forceSensor, measuredWrench);
 
-  if(contact.sensorEnabled_) // the force sensor attached to the contact is used in the correction by the
-                             // Kinetics Observer.
+  if(contact.sensorEnabled_
+     && std::find(contactSensorsIgnored_.begin(), contactSensorsIgnored_.end(), contact.name())
+            == contactSensorsIgnored_.end()) // the force sensor attached to the contact is used in the correction by
+                                             // the Kinetics Observer.
   {
     observer_.updateContactWithWrenchSensor(contact.contactWrenchVector_, contactSensorCovariance_,
                                             contact.fbContactKine_, contact.id());
@@ -1018,18 +1022,37 @@ void MCKineticsObserver::updateContact(const mc_control::MCController & ctl,
 
 void MCKineticsObserver::updateContacts(const mc_control::MCController & ctl, mc_rtc::Logger & logger)
 {
+  for(auto & cont : contactSensorsIgnored_) { std::cout << std::endl << "ignored: " << cont << std::endl; }
+
   auto onNewContact = [this, &ctl, &logger](KoContactWithSensor & newContact)
-  { setNewContact(ctl, newContact, logger); };
+  {
+    if(std::find(contactSensorsIgnored_.begin(), contactSensorsIgnored_.end(), newContact.name())
+       == contactSensorsIgnored_.end())
+    {
+      std::cout << std::endl << newContact.name() << std::endl;
+      setNewContact(ctl, newContact, logger);
+    }
+  };
   auto onMaintainedContact = [this, &ctl, &logger](KoContactWithSensor & maintainedContact)
-  { updateContact(ctl, maintainedContact, logger); };
+  {
+    if(std::find(contactSensorsIgnored_.begin(), contactSensorsIgnored_.end(), maintainedContact.name())
+       == contactSensorsIgnored_.end())
+    {
+      updateContact(ctl, maintainedContact, logger);
+    }
+  };
   auto onRemovedContact = [this, &logger](KoContactWithSensor & removedContact)
   {
-    observer_.removeContact(removedContact.id());
-
-    if(withDebugLogs_)
+    if(std::find(contactSensorsIgnored_.begin(), contactSensorsIgnored_.end(), removedContact.name())
+       == contactSensorsIgnored_.end())
     {
-      removeContactLogEntries(logger, removedContact);
-      removeContactMeasurementsLogEntries(logger, removedContact);
+      observer_.removeContact(removedContact.id());
+
+      if(withDebugLogs_)
+      {
+        removeContactLogEntries(logger, removedContact);
+        removeContactMeasurementsLogEntries(logger, removedContact);
+      }
     }
   };
 

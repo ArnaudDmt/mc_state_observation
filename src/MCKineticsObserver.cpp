@@ -669,7 +669,7 @@ void MCKineticsObserver::inputAdditionalWrench(const mc_rbdyn::Robot & inputRobo
 
   for(auto & contactWithSensor : contactsManager_.contacts())
   {
-    KoContactWithSensor & contact = contactWithSensor.second;
+    const KoContactWithSensor & contact = contactWithSensor.second;
     const std::string & fsName = contact.forceSensor();
 
     if(!contact.isSet()
@@ -677,6 +677,16 @@ void MCKineticsObserver::inputAdditionalWrench(const mc_rbdyn::Robot & inputRobo
                                   // then we give the measured force as an input to the Kinetics Observer
     {
       sva::ForceVecd measuredWrench = measRobot.forceSensor(fsName).worldWrenchWithoutGravity(inputRobot);
+      additionalUserResultingForce_ += measuredWrench.force();
+      additionalUserResultingMoment_ += measuredWrench.moment();
+    }
+  }
+  // we add the wrench measured by the sensors that are not associated to contacts
+  for(auto & forceSensor : measRobot.forceSensors())
+  {
+    if(!contactsManager_.contacts().count(forceSensor.name()))
+    {
+      sva::ForceVecd measuredWrench = forceSensor.worldWrenchWithoutGravity(inputRobot);
       additionalUserResultingForce_ += measuredWrench.force();
       additionalUserResultingMoment_ += measuredWrench.moment();
     }

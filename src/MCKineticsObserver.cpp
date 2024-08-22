@@ -58,8 +58,6 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
     std::vector<std::string> surfacesForContactDetection =
         config("surfacesForContactDetection", std::vector<std::string>());
 
-    contactSensorsIgnored_ = config("contactSensorsIgnored", std::vector<std::string>());
-
     measurements::ContactsManagerSurfacesConfiguration contactsConfig(observerName_, surfacesForContactDetection);
 
     contactsConfig.contactDetectionPropThreshold(contactDetectionPropThreshold).verbose(true);
@@ -112,6 +110,9 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
     contactsConfig.contactDetectionPropThreshold(contactDetectionPropThreshold).verbose(true);
     contactsManager_.init(ctl, robot_, contactsConfig);
   }
+
+  contactSensorsIgnored_ = config("contactSensorsIgnored", std::vector<std::string>());
+  for(auto & contactName : contactSensorsIgnored_) { contactsManager_.contact(contactName).sensorEnabled_ = false; }
 
   /* Configuration of the Kinetics Observer's parameters */
 
@@ -1032,14 +1033,11 @@ void MCKineticsObserver::updateContact(const mc_control::MCController & ctl,
 
 void MCKineticsObserver::updateContacts(const mc_control::MCController & ctl, mc_rtc::Logger & logger)
 {
-  for(auto & cont : contactSensorsIgnored_) { std::cout << std::endl << "ignored: " << cont << std::endl; }
-
   auto onNewContact = [this, &ctl, &logger](KoContactWithSensor & newContact)
   {
     if(std::find(contactSensorsIgnored_.begin(), contactSensorsIgnored_.end(), newContact.name())
        == contactSensorsIgnored_.end())
     {
-      std::cout << std::endl << newContact.name() << std::endl;
       setNewContact(ctl, newContact, logger);
     }
   };

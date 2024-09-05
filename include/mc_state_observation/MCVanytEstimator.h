@@ -122,18 +122,13 @@ protected:
   /*! \brief Add logs related to delayed orientation measurements
    * @param logger
    * @param category Category in which to log this observer
-   * @param delayedMeas delayed measurement
    */
-  void addDelayedOriMeasLogs(mc_rtc::Logger &, const std::string & category, const DelayedOriMeasurement & delayedMeas);
+  void addDelayedOriMeasLogs(mc_rtc::Logger &, const std::string & category);
 
   /*! \brief Remove the logs related to delayed orientation measurements
    * @param logger
-   * @param category Category in which to log this observer
-   * @param delayedMeas delayed measurement
    */
-  void removeDelayedOriMeasLogs(mc_rtc::Logger &,
-                                const std::string & category,
-                                const DelayedOriMeasurement & delayedMeas);
+  void removeDelayedOriMeasLogs(mc_rtc::Logger &);
 
 public:
   // estimated kinematics of the IMU in the world

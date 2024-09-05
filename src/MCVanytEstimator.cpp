@@ -240,7 +240,7 @@ void MCVanytEstimator::runTiltEstimator(const mc_control::MCController & ctl, co
   {
     auto & logger = (const_cast<mc_control::MCController &>(ctl)).logger();
 
-    removeDelayedOriMeasLogs(logger, observerName_, delayedOriMeas_);
+    removeDelayedOriMeasLogs(logger);
     if(ctl.datastore().has("VisualGyroSensorDelay"))
     {
       const mc_rbdyn::BodySensor & visualGyro = ctl.realRobot(robot_).bodySensor("VisualGyroSensor");
@@ -442,7 +442,7 @@ void MCVanytEstimator::delayedOriMeasurementHandler(const mc_control::MCControll
                          "that you pass a delayed orientation measurement. The measurement will be ignored.");
     return;
   }
-  if(delay > iterationsBuffer.size())
+  if(delay > iterationsBuffer.size() || iterationsBuffer.size() == 0)
   {
     mc_rtc::log::warning("The orientation measurement is too old, the measurement will be ignored.");
     return;
@@ -462,7 +462,7 @@ void MCVanytEstimator::delayedOriMeasurementHandler(const mc_control::MCControll
 
   auto & logger = (const_cast<mc_control::MCController &>(ctl)).logger();
   delayedOriMeas_.updatedPoseWithMeas_ = iterationsBuffer.at(delay - 1).updatedPose_;
-  addDelayedOriMeasLogs(logger, observerName_, delayedOriMeas_);
+  addDelayedOriMeasLogs(logger, observerName_);
 }
 
 void MCVanytEstimator::setOdometryType(OdometryType newOdometryType)
@@ -476,39 +476,26 @@ void MCVanytEstimator::setOdometryType(OdometryType newOdometryType)
   odometryManager_.setOdometryType(newOdometryType);
 }
 
-void MCVanytEstimator::addDelayedOriMeasLogs(mc_rtc::Logger & logger,
-                                             const std::string & category,
-                                             const DelayedOriMeasurement & delayedMeas)
+void MCVanytEstimator::addDelayedOriMeasLogs(mc_rtc::Logger & logger, const std::string & category)
 {
-  logger.addLogEntry(category + "_delayedOriMeas_" + "meas", &delayedMeas,
-                     [&delayedMeas]() -> Eigen::Quaterniond
-                     {
-                       std::cout << std::endl
-                                 << "meas_: " << Eigen::Quaterniond(delayedMeas.meas_).coeffs() << std::endl;
-                       return Eigen::Quaterniond(delayedMeas.meas_);
-                     });
-  logger.addLogEntry(category + "_delayedOriMeas_" + "gain", &delayedMeas,
-                     [&delayedMeas]() -> double
-                     {
-                       std::cout << std::endl << "gain: " << delayedMeas.gain_ << std::endl;
-                       return delayedMeas.gain_;
-                     });
-  logger.addLogEntry(category + "_delayedOriMeas_" + "delayedoriRecieved", &delayedMeas,
+  logger.addLogEntry(category + "_delayedOriMeas_" + "meas", &delayedOriMeas_,
+                     [this]() -> Eigen::Quaterniond { return Eigen::Quaterniond(delayedOriMeas_.meas_).inverse(); });
+  logger.addLogEntry(category + "_delayedOriMeas_" + "gain", &delayedOriMeas_,
+                     [this]() -> double { return delayedOriMeas_.gain_; });
+  logger.addLogEntry(category + "_delayedOriMeas_" + "delayedoriRecieved", &delayedOriMeas_,
                      []() -> std::string { return "received"; });
 
-  conversions::kinematics::addToLogger(logger, delayedMeas.updatedPoseWithoutMeas_,
+  conversions::kinematics::addToLogger(logger, delayedOriMeas_.updatedPoseWithoutMeas_,
                                        category + "_delayedOriMeas_" + "updatedPoseWithoutMeas");
-  conversions::kinematics::addToLogger(logger, delayedMeas.updatedPoseWithMeas_,
+  conversions::kinematics::addToLogger(logger, delayedOriMeas_.updatedPoseWithMeas_,
                                        category + "_delayedOriMeas_" + "updatedPoseWithMeas");
 }
 
-void MCVanytEstimator::removeDelayedOriMeasLogs(mc_rtc::Logger & logger,
-                                                const std::string &,
-                                                const DelayedOriMeasurement & delayedMeas)
+void MCVanytEstimator::removeDelayedOriMeasLogs(mc_rtc::Logger & logger)
 {
-  logger.removeLogEntries(&delayedMeas);
-  conversions::kinematics::removeFromLogger(logger, delayedMeas.updatedPoseWithMeas_);
-  conversions::kinematics::removeFromLogger(logger, delayedMeas.updatedPoseWithoutMeas_);
+  logger.removeLogEntries(&delayedOriMeas_);
+  conversions::kinematics::removeFromLogger(logger, delayedOriMeas_.updatedPoseWithMeas_);
+  conversions::kinematics::removeFromLogger(logger, delayedOriMeas_.updatedPoseWithoutMeas_);
 }
 
 void MCVanytEstimator::addToLogger(const mc_control::MCController & ctl,

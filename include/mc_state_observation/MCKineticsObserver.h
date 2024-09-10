@@ -35,7 +35,7 @@ public:
   // kinematics of the contact frame in the floating base's frame
   stateObservation::kine::Kinematics fbContactKine_;
   // kinematics of the sensor frame in the frame of the contact surface
-  stateObservation::kine::Kinematics surfaceSensorKine_;
+  stateObservation::kine::Kinematics contactSensorKine_;
   // measured contact wrench, expressed in the frame of the contact.
   Eigen::Matrix<double, 6, 1> contactWrenchVector_;
   // contact wrench expressed in the centroid frame. Used for logs.
@@ -154,44 +154,26 @@ protected:
   /// @param logger Logger
   void updateContacts(const mc_control::MCController & ctl, mc_rtc::Logger & logger);
 
-  /// @brief Computes the kinematics of the contact attached to the robot in the world frame. Also expresses the wrench
-  /// measured at the sensor in the frame of the contact.
-  /// @param contact Contact of which we want to compute the kinematics
-  /// @param robot robot the contacts belong to
-  /// @param fs force sensor
-  /// @param measuredWrench wrench measured at the sensor
-  /// @return stateObservation::kine::Kinematics &
-  const stateObservation::kine::Kinematics getContactWorldKinematicsAndWrench(KoContactWithSensor & contact,
-                                                                              const mc_rbdyn::Robot & robot,
-                                                                              const mc_rbdyn::ForceSensor & fs,
-                                                                              const sva::ForceVecd & measuredWrench);
-
   /// @brief Computes the kinematics of the contact attached to the robot in the world frame.
+  /// @details Also updates the wrench measured at the contact if required.
   /// @param contact Contact of which we want to compute the kinematics
   /// @param robot robot the contacts belong to
   /// @param fs force sensor
   /// @return stateObservation::kine::Kinematics &
   const stateObservation::kine::Kinematics getContactWorldKinematics(const KoContactWithSensor & contact,
                                                                      const mc_rbdyn::Robot & robot,
-                                                                     const mc_rbdyn::ForceSensor & fs);
+                                                                     const mc_rbdyn::ForceSensor & fs,
+                                                                     const sva::ForceVecd * measuredWrench = nullptr);
 
   /// @brief Updates the measurements of the force sensor attached to a contact.
-  /// @details Expresses the measured wrench in the frame of the contact, as the sensor is not necessarily attached to
-  /// it.
+  /// @details Expresses the measured wrench in the frame of the contact. The sensor is generally not directly attached
+  /// to the contact, so the transformation from the sensor to the contact might be necessary.
   /// @param contact Contact associated to the sensor
-  /// @param surfaceSensorKine transformation from the sensor to the contact.
   /// @param measuredWrench measured wrench
+  /// @param surfaceSensorKine transformation from the sensor to the contact.
   void updateContactForceMeasurement(KoContactWithSensor & contact,
-                                     stateObservation::kine::Kinematics surfaceSensorKine,
-                                     const sva::ForceVecd & measuredWrench);
-
-  /// @brief Updates the measurements of the force sensor attached to a contact.
-  /// @details Expresses the measured wrench in the frame of the contact, as the sensor is not necessarily attached to
-  /// it.
-  /// @param contact Contact associated to the sensor
-  /// @param surfaceSensorKine transformation from the sensor to the contact.
-  /// @param measuredWrench measured wrench
-  void updateContactForceMeasurement(KoContactWithSensor & contact, const sva::ForceVecd & measuredWrench);
+                                     const sva::ForceVecd & measuredWrench,
+                                     const stateObservation::kine::Kinematics * contactSensorKine = nullptr);
 
   /// @brief Computes the rest pose of the contact in the world using the visco-elastic model.
   /// @details Uses the measured wrench to obtain the rest pose of the contact from the one obtained by forward
@@ -213,7 +195,7 @@ protected:
   /// @param ctl Controller
   /// @param contact Contact to update
   /// @param logger Logger
-  void updateContact(const mc_control::MCController & ctl, KoContactWithSensor & contact, mc_rtc::Logger & logger);
+  void updateContact(const mc_control::MCController & ctl, KoContactWithSensor & contact);
 
 public:
   /** Get robot mass.
@@ -376,7 +358,7 @@ private:
   stateObservation::Matrix3 angDamping_;
 
   // indicates if the debug logs have to be added.
-  bool withDebugLogs_ = true;
+  bool withDebugLogs_ = false;
 
   // indicates if we want to perform odometry, and if yes, flat or 6d odometry
   measurements::OdometryType odometryType_;

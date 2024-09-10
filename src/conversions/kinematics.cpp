@@ -137,6 +137,16 @@ void removeFromLogger(mc_rtc::Logger & logger, const stateObservation::kine::Kin
   logger.removeLogEntries(&kine);
 }
 
+void removeFromLogger(mc_rtc::Logger & logger, const std::string & prefix)
+{
+  logger.removeLogEntry(prefix + "_position");
+  logger.removeLogEntry(prefix + "_ori");
+  logger.removeLogEntry(prefix + "_linVel");
+  logger.removeLogEntry(prefix + "_angVel");
+  logger.removeLogEntry(prefix + "_linAcc");
+  logger.removeLogEntry(prefix + "_angAcc");
+}
+
 ///////////////////////////////////////////////////////////////////////
 /// -------------------Kinematics to SVA conversion--------------------
 ///////////////////////////////////////////////////////////////////////

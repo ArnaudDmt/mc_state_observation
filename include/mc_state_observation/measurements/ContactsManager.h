@@ -222,7 +222,7 @@ protected:
   // unordered map containing all the contacts
   std::unordered_map<std::string, ContactT> listContacts_;
   // Index generator, incremented everytime a new contact is created
-  int idx_ = 0;
+  unsigned idx_ = 0;
 
   // method used to detect the contacts
   ContactsDetection contactsDetectionMethod_ = Undefined;

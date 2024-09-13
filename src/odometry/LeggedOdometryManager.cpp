@@ -479,14 +479,14 @@ void LeggedOdometryManager::setNewContact(LoContactWithSensor & contact, const m
   if(odometryType_ == measurements::OdometryType::Flat) { contact.worldRefKine_.position()(2) = 0.0; }
 }
 
-const so::kine::Kinematics & LeggedOdometryManager::getCurrentContactKinematics(LoContactWithSensor & contact)
+const so::kine::Kinematics & LeggedOdometryManager::recomputeContactKinematics(LoContactWithSensor & contact)
 {
   // if the kinematics of the contact in the floating base has not been updated yet (k_est_ = k_iter_ - 1), we cannot
   // use them.
   if(k_data_ != k_iter_)
   {
-    BOOST_ASSERT_MSG(false, "This is the first call to this function for that iteration, please use the overload "
-                            "taking the force sensor as a parameter.");
+    BOOST_ASSERT_MSG(false, "This is the first call for the kinematics of the contact in the world for that iteration, "
+                            "please use the overload taking the force sensor as a parameter.");
   }
   // if the kinematics of the contact in the floating base have already been updated but the pose of the robot still has
   // not changed, we don't need to recompute the kinematics of the contact in the world.
@@ -496,52 +496,6 @@ const so::kine::Kinematics & LeggedOdometryManager::getCurrentContactKinematics(
         conversions::kinematics::fromSva(odometryRobot().posW(), odometryRobot().velW());
     contact.currentWorldKine_ = worldFbKine * contact.contactFbKine_.getInverse();
   };
-
-  return contact.currentWorldKine_;
-}
-
-const so::kine::Kinematics & LeggedOdometryManager::getContactKinematics(LoContactWithSensor & contact,
-                                                                         const mc_rbdyn::ForceSensor & fs)
-{
-  // robot is necessary because odometry robot doesn't have the copy of the force measurements
-  const sva::PTransformd & bodyContactSensorPose = fs.X_p_f();
-  so::kine::Kinematics bodyContactSensorKine =
-      conversions::kinematics::fromSva(bodyContactSensorPose, so::kine::Kinematics::Flags::vel);
-
-  // kinematics of the sensor's parent body in the world
-  so::kine::Kinematics worldBodyKine =
-      conversions::kinematics::fromSva(odometryRobot().mbc().bodyPosW[odometryRobot().bodyIndexByName(fs.parentBody())],
-                                       so::kine::Kinematics::Flags::pose);
-
-  so::kine::Kinematics worldSensorKine = worldBodyKine * bodyContactSensorKine;
-
-  if(contactsManager_.getContactsDetection() == ContactsManager::ContactsDetection::Sensors)
-  {
-    // If the contact is detecting using thresholds, we will then consider the sensor frame as
-    // the contact surface frame directly.
-    contact.currentWorldKine_ = worldSensorKine;
-    contact.forceNorm(fs.wrenchWithoutGravity(odometryRobot()).force().norm());
-  }
-  else // the kinematics of the contact are the ones of the associated surface
-  {
-    // the kinematics of the contacts are the ones of the surface, but we must transport the measured wrench
-    const mc_rbdyn::Surface & contactSurface = odometryRobot().surface(contact.surface());
-
-    sva::PTransformd bodySurfacePose = contactSurface.X_b_s();
-    so::kine::Kinematics bodySurfaceKine =
-        conversions::kinematics::fromSva(bodySurfacePose, so::kine::Kinematics::Flags::vel);
-
-    sva::PTransformd worldBodyPos = odometryRobot().mbc().bodyPosW[contactSurface.bodyIndex(odometryRobot())];
-    sva::MotionVecd worldBodyVel = odometryRobot().mbc().bodyVelW[contactSurface.bodyIndex(odometryRobot())];
-    so::kine::Kinematics worldBodyKine = conversions::kinematics::fromSva(worldBodyPos, worldBodyVel);
-
-    contact.currentWorldKine_ = worldBodyKine * bodySurfaceKine;
-
-    contact.contactSensorPose_ = contact.currentWorldKine_.getInverse() * worldSensorKine;
-    // expressing the force measurement in the frame of the surface
-    contact.forceNorm(
-        (contact.contactSensorPose_.orientation * fs.wrenchWithoutGravity(odometryRobot()).force()).norm());
-  }
 
   return contact.currentWorldKine_;
 }
@@ -607,7 +561,7 @@ void LeggedOdometryManager::correctContactsRef()
     // we store the pose of the contact before it is corrected
     mContact->worldRefKineBeforeCorrection_ = mContact->worldRefKine_;
 
-    mContact->newIncomingWorldRefKine_ = getCurrentContactKinematics(*mContact);
+    mContact->newIncomingWorldRefKine_ = recomputeContactKinematics(*mContact);
 
     // double tau = ctl_dt_ / (kappa_ * mContact->lifeTime());
     mContact->weightingCoeff((1 - lambdaInf_) * exp(-kappa_ * mContact->lifeTime()) + lambdaInf_);
@@ -634,7 +588,7 @@ void LeggedOdometryManager::correctContactsRef()
 so::kine::Kinematics LeggedOdometryManager::getContactKineIn(LoContactWithSensor & contact,
                                                              stateObservation::kine::Kinematics & worldTargetKine)
 {
-  so::kine::Kinematics targetContactKine = worldTargetKine.getInverse() * getCurrentContactKinematics(contact);
+  so::kine::Kinematics targetContactKine = worldTargetKine.getInverse() * recomputeContactKinematics(contact);
   return targetContactKine;
 }
 
@@ -684,7 +638,7 @@ stateObservation::Vector3 & LeggedOdometryManager::getCurrentWorldAnchorPos(cons
     if(!(mContact->isSet() && mContact->wasAlreadySet())) { continue; }
     linKineUpdatable = true;
 
-    const so::kine::Kinematics & worldContactKine = getCurrentContactKinematics(*mContact);
+    const so::kine::Kinematics & worldContactKine = recomputeContactKinematics(*mContact);
 
     // force weighted sum of the estimated floating base positions
     worldAnchorPos_ += worldContactKine.position() * mContact->lambda();

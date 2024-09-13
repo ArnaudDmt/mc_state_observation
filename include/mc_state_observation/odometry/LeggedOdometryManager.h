@@ -466,12 +466,13 @@ public:
   stateObservation::kine::Kinematics getAnchorKineIn(stateObservation::kine::Kinematics & worldTargetKine);
 
   /// @brief Computes the kinematics of the contact attached to the odometry robot in the world frame from the current
-  /// floating base pose and encoders. Also updates the reading of the associated force sensor.
-  /// @details Also computes the velocity of the contacts in the world frame, which can be used to obtain their
-  /// velocity in other frames attached to the robot.
+  /// floating base pose and encoders.
+  /// @details Faster function that can be called once the function ContactWithSensor::getContactKinematics(const
+  /// mc_rbdyn::Robot &, const mc_rbdyn::Robot &). Also computes the velocity of the contacts in
+  /// the world frame, which can be used to obtain their velocity in other frames attached to the robot.
   /// @param contact Contact of which we want to compute the kinematics
   /// @return stateObservation::kine::Kinematics &
-  const stateObservation::kine::Kinematics & getCurrentContactKinematics(LoContactWithSensor & contact);
+  const stateObservation::kine::Kinematics & recomputeContactKinematics(LoContactWithSensor & contact);
 
   /**
    * @brief Returns the position of the anchor point in the world from the current contacts reference position.

@@ -44,19 +44,19 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   config("withDebugLogs", withDebugLogs_);
 
   /* configuration of the contacts manager */
+  auto contactsConf = config("contacts");
+  double contactDetectionPropThreshold = contactsConf("contactDetectionPropThreshold", 0.11);
 
-  double contactDetectionPropThreshold = config("contactDetectionPropThreshold", 0.11);
-
-  std::string contactsDetectionString = static_cast<std::string>(config("contactsDetection"));
+  std::string contactsDetectionString = static_cast<std::string>(contactsConf("contactsDetection"));
   KoContactsManager::ContactsDetection contactsDetectionMethod =
       contactsManager_.stringToContactsDetection(contactsDetectionString, observerName_);
 
-  config("forceSensorsAsInput", forceSensorsAsInput_);
+  contactsConf("forceSensorsAsInput", forceSensorsAsInput_);
 
   if(contactsDetectionMethod == KoContactsManager::ContactsDetection::Surfaces)
   {
     std::vector<std::string> surfacesForContactDetection =
-        config("surfacesForContactDetection", std::vector<std::string>());
+        contactsConf("surfacesForContactDetection", std::vector<std::string>());
 
     measurements::ContactsManagerSurfacesConfiguration contactsConfig(observerName_, surfacesForContactDetection);
 
@@ -70,7 +70,7 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
 
     // we set the force sensor of the desired contacts as disabled
     std::vector<std::string> contactSensorsDisabledInit =
-        config("contactSensorsDisabledInit", std::vector<std::string>());
+        contactsConf("contactSensorsDisabledInit", std::vector<std::string>());
     for(auto const & contactSensorDisabledInit : contactSensorsDisabledInit)
     {
       auto * contact = contactsManager_.findContact(contactSensorDisabledInit);
@@ -92,7 +92,7 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
 
     // we set the force sensor of the desired contacts as disabled
     std::vector<std::string> contactSensorsDisabledInit =
-        config("contactSensorsDisabledInit", std::vector<std::string>());
+        contactsConf("contactSensorsDisabledInit", std::vector<std::string>());
     for(const auto & contactSensorDisabledInit : contactSensorsDisabledInit)
     {
       auto * contact = contactsManager_.findContact(contactSensorDisabledInit);
@@ -111,7 +111,7 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
     contactsManager_.init(ctl, robot_, contactsConfig);
   }
 
-  contactSensorsIgnored_ = config("contactSensorsIgnored", std::vector<std::string>());
+  contactSensorsIgnored_ = contactsConf("contactSensorsIgnored", std::vector<std::string>());
   for(auto & contactName : contactSensorsIgnored_) { contactsManager_.contact(contactName).sensorEnabled_ = false; }
 
   /* Configuration of the Kinetics Observer's parameters */
@@ -121,10 +121,15 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
 
   observer_.setWithUnmodeledWrench(withUnmodeledWrench_);
   observer_.setWithGyroBias(withGyroBias_);
-  observer_.useFiniteDifferencesJacobians(config("withFiniteDifferences"));
-  so::Vector dx(observer_.getStateSize());
-  dx.setConstant(static_cast<double>(config("finiteDifferenceStep")));
-  observer_.setFiniteDifferenceStep(dx);
+  bool useFiniteDifferences = config("withFiniteDifferences");
+  if(useFiniteDifferences)
+  {
+    observer_.useFiniteDifferencesJacobians(useFiniteDifferences);
+    so::Vector dx(observer_.getStateSize());
+    dx.setConstant(static_cast<double>(config("finiteDifferenceStep")));
+    observer_.setFiniteDifferenceStep(dx);
+  }
+
   observer_.setWithAccelerationEstimation(config("withAccelerationEstimation"));
 
   linStiffness_ = (config("linStiffness").operator so::Vector3()).matrix().asDiagonal();
@@ -137,46 +142,53 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   zeroMotion_.linear().setZero();
   zeroMotion_.angular().setZero();
 
+  auto variancesConfig = config("ekfVariances");
   // Initial State
-  statePositionInitCovariance_ = (config("statePositionInitVariance").operator so::Vector3()).matrix().asDiagonal();
-  stateOriInitCovariance_ = (config("stateOriInitVariance").operator so::Vector3()).matrix().asDiagonal();
-  stateLinVelInitCovariance_ = (config("stateLinVelInitVariance").operator so::Vector3()).matrix().asDiagonal();
-  stateAngVelInitCovariance_ = (config("stateAngVelInitVariance").operator so::Vector3()).matrix().asDiagonal();
+  statePositionInitCovariance_ =
+      (variancesConfig("statePositionInitVariance").operator so::Vector3()).matrix().asDiagonal();
+  stateOriInitCovariance_ = (variancesConfig("stateOriInitVariance").operator so::Vector3()).matrix().asDiagonal();
+  stateLinVelInitCovariance_ =
+      (variancesConfig("stateLinVelInitVariance").operator so::Vector3()).matrix().asDiagonal();
+  stateAngVelInitCovariance_ =
+      (variancesConfig("stateAngVelInitVariance").operator so::Vector3()).matrix().asDiagonal();
   gyroBiasInitCovariance_.setZero();
   unmodeledWrenchInitCovariance_.setZero();
   contactInitCovarianceFirstContacts_.setZero();
   // if we stick to the control robot's anchor frame, we don't allow the correction of the contacts pose
   contactInitCovarianceFirstContacts_.block<3, 3>(0, 0) =
-      (config("contactPositionInitVarianceFirstContacts").operator so::Vector3()).matrix().asDiagonal();
+      (variancesConfig("contactPositionInitVarianceFirstContacts").operator so::Vector3()).matrix().asDiagonal();
   contactInitCovarianceFirstContacts_.block<3, 3>(3, 3) =
-      (config("contactOriInitVarianceFirstContacts").operator so::Vector3()).matrix().asDiagonal();
+      (variancesConfig("contactOriInitVarianceFirstContacts").operator so::Vector3()).matrix().asDiagonal();
   contactInitCovarianceFirstContacts_.block<3, 3>(6, 6) =
-      (config("contactForceInitVarianceFirstContacts").operator so::Vector3()).matrix().asDiagonal();
+      (variancesConfig("contactForceInitVarianceFirstContacts").operator so::Vector3()).matrix().asDiagonal();
   contactInitCovarianceFirstContacts_.block<3, 3>(9, 9) =
-      (config("contactTorqueInitVarianceFirstContacts").operator so::Vector3()).matrix().asDiagonal();
+      (variancesConfig("contactTorqueInitVarianceFirstContacts").operator so::Vector3()).matrix().asDiagonal();
 
   contactInitCovarianceNewContacts_.setZero();
   // if we stick to the control robot's anchor frame, we don't allow the correction of the contacts pose
 
   contactInitCovarianceNewContacts_.block<3, 3>(0, 0) =
-      (config("contactPositionInitVarianceNewContacts").operator so::Vector3()).matrix().asDiagonal();
+      (variancesConfig("contactPositionInitVarianceNewContacts").operator so::Vector3()).matrix().asDiagonal();
   contactInitCovarianceNewContacts_.block<3, 3>(3, 3) =
-      (config("contactOriInitVarianceNewContacts").operator so::Vector3()).matrix().asDiagonal();
+      (variancesConfig("contactOriInitVarianceNewContacts").operator so::Vector3()).matrix().asDiagonal();
 
   contactInitCovarianceNewContacts_.block<3, 3>(6, 6) =
-      (config("contactForceInitVarianceNewContacts").operator so::Vector3()).matrix().asDiagonal();
+      (variancesConfig("contactForceInitVarianceNewContacts").operator so::Vector3()).matrix().asDiagonal();
   contactInitCovarianceNewContacts_.block<3, 3>(9, 9) =
-      (config("contactTorqueInitVarianceNewContacts").operator so::Vector3()).matrix().asDiagonal();
+      (variancesConfig("contactTorqueInitVarianceNewContacts").operator so::Vector3()).matrix().asDiagonal();
 
   contactInitCovarianceNewContacts_flat_(2, 2) = 0.0;
   contactInitCovarianceFirstContacts_flat_(2, 2) = 0.0;
 
   // Process //
   statePositionProcessCovariance_ =
-      (config("statePositionProcessVariance").operator so::Vector3()).matrix().asDiagonal();
-  stateOriProcessCovariance_ = (config("stateOriProcessVariance").operator so::Vector3()).matrix().asDiagonal();
-  stateLinVelProcessCovariance_ = (config("stateLinVelProcessVariance").operator so::Vector3()).matrix().asDiagonal();
-  stateAngVelProcessCovariance_ = (config("stateAngVelProcessVariance").operator so::Vector3()).matrix().asDiagonal();
+      (variancesConfig("statePositionProcessVariance").operator so::Vector3()).matrix().asDiagonal();
+  stateOriProcessCovariance_ =
+      (variancesConfig("stateOriProcessVariance").operator so::Vector3()).matrix().asDiagonal();
+  stateLinVelProcessCovariance_ =
+      (variancesConfig("stateLinVelProcessVariance").operator so::Vector3()).matrix().asDiagonal();
+  stateAngVelProcessCovariance_ =
+      (variancesConfig("stateAngVelProcessVariance").operator so::Vector3()).matrix().asDiagonal();
   gyroBiasProcessCovariance_.setZero();
   unmodeledWrenchProcessCovariance_.setZero();
 
@@ -184,47 +196,49 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   // if we stick to the control robot's anchor frame, we don't allow the correction of the contacts pose
 
   contactProcessCovariance_.block<3, 3>(0, 0) =
-      (config("contactPositionProcessVariance").operator so::Vector3()).matrix().asDiagonal();
+      (variancesConfig("contactPositionProcessVariance").operator so::Vector3()).matrix().asDiagonal();
   contactProcessCovariance_.block<3, 3>(3, 3) =
-      (config("contactOrientationProcessVariance").operator so::Vector3()).matrix().asDiagonal();
+      (variancesConfig("contactOrientationProcessVariance").operator so::Vector3()).matrix().asDiagonal();
   contactProcessCovariance_.block<3, 3>(6, 6) =
-      (config("contactForceProcessVariance").operator so::Vector3()).matrix().asDiagonal();
+      (variancesConfig("contactForceProcessVariance").operator so::Vector3()).matrix().asDiagonal();
   contactProcessCovariance_.block<3, 3>(9, 9) =
-      (config("contactTorqueProcessVariance").operator so::Vector3()).matrix().asDiagonal();
+      (variancesConfig("contactTorqueProcessVariance").operator so::Vector3()).matrix().asDiagonal();
 
   // Unmodeled Wrench //
   if(withUnmodeledWrench_)
   {
     // initial
     unmodeledWrenchInitCovariance_.block<3, 3>(0, 0) =
-        (config("unmodeledForceInitVariance").operator so::Vector3()).matrix().asDiagonal();
+        (variancesConfig("unmodeledForceInitVariance").operator so::Vector3()).matrix().asDiagonal();
     unmodeledWrenchInitCovariance_.block<3, 3>(3, 3) =
-        (config("unmodeledTorqueInitVariance").operator so::Vector3()).matrix().asDiagonal();
+        (variancesConfig("unmodeledTorqueInitVariance").operator so::Vector3()).matrix().asDiagonal();
 
     // process
     unmodeledWrenchProcessCovariance_.block<3, 3>(0, 0) =
-        (config("unmodeledForceProcessVariance").operator so::Vector3()).matrix().asDiagonal();
+        (variancesConfig("unmodeledForceProcessVariance").operator so::Vector3()).matrix().asDiagonal();
     unmodeledWrenchProcessCovariance_.block<3, 3>(3, 3) =
-        (config("unmodeledTorqueProcessVariance").operator so::Vector3()).matrix().asDiagonal();
+        (variancesConfig("unmodeledTorqueProcessVariance").operator so::Vector3()).matrix().asDiagonal();
   }
   // Gyrometer Bias
   if(withGyroBias_)
   {
-    gyroBiasInitCovariance_ = (config("gyroBiasInitVariance").operator so::Vector3()).matrix().asDiagonal();
-    gyroBiasProcessCovariance_ = (config("gyroBiasProcessVariance").operator so::Vector3()).matrix().asDiagonal();
+    gyroBiasInitCovariance_ = (variancesConfig("gyroBiasInitVariance").operator so::Vector3()).matrix().asDiagonal();
+    gyroBiasProcessCovariance_ =
+        (variancesConfig("gyroBiasProcessVariance").operator so::Vector3()).matrix().asDiagonal();
   }
 
   // Sensor //
-  positionSensorCovariance_ = (config("positionSensorVariance").operator so::Vector3()).matrix().asDiagonal();
-  orientationSensorCoVariance_ = (config("orientationSensorVariance").operator so::Vector3()).matrix().asDiagonal();
-  acceleroSensorCovariance_ = (config("acceleroSensorVariance").operator so::Vector3()).matrix().asDiagonal();
-  gyroSensorCovariance_ = (config("gyroSensorVariance").operator so::Vector3()).matrix().asDiagonal();
+  positionSensorCovariance_ = (variancesConfig("positionSensorVariance").operator so::Vector3()).matrix().asDiagonal();
+  orientationSensorCoVariance_ =
+      (variancesConfig("orientationSensorVariance").operator so::Vector3()).matrix().asDiagonal();
+  acceleroSensorCovariance_ = (variancesConfig("acceleroSensorVariance").operator so::Vector3()).matrix().asDiagonal();
+  gyroSensorCovariance_ = (variancesConfig("gyroSensorVariance").operator so::Vector3()).matrix().asDiagonal();
   // absoluteOriSensorCovariance_ = (config("absOriSensorVariance").operator so::Vector3()).matrix().asDiagonal();
   contactSensorCovariance_.setZero();
   contactSensorCovariance_.block<3, 3>(0, 0) =
-      (config("forceSensorVariance").operator so::Vector3()).matrix().asDiagonal();
+      (variancesConfig("forceSensorVariance").operator so::Vector3()).matrix().asDiagonal();
   contactSensorCovariance_.block<3, 3>(3, 3) =
-      (config("torqueSensorVariance").operator so::Vector3()).matrix().asDiagonal();
+      (variancesConfig("torqueSensorVariance").operator so::Vector3()).matrix().asDiagonal();
 
   setObserverCovariances();
 
@@ -456,9 +470,9 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 
       invincibilityIter_++;
       // While converging again after being reset, the estimation made by the Kinetics Observer is very inaccurate and
-      // cannot be used. So we let it converge during the invincibility frame while using the estimation of the Tilt to
-      // update the real robot. Then we start over using the Kinetics Observer starting from the final kinematics
-      // obtained from the Tilt Observer.
+      // cannot be used. So we let it converge during the invincibility frame while using the estimation of the Tilt
+      // Observer to update the real robot. Then we start over using the Kinetics Observer starting from the final
+      // kinematics obtained from the Tilt Observer.
       if(invincibilityIter_ == invincibilityFrame_)
       {
         update(inputRobot);
@@ -1376,31 +1390,62 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController & ctl,
                      });
 
   /* Plots of the prediction */
-  logger.addLogEntry(observerName_ + "_prediction_positionW_",
+  logger.addLogEntry(
+      observerName_ + "_prediction_posW",
+      [this]() -> Eigen::Vector3d
+      {
+        so::kine::LocalKinematics predictedWorldCentroidLocKine(
+            observer_.getEKF().getLastPrediction().segment(observer_.posIndex(), observer_.sizePos + observer_.sizeOri),
+            so::kine::Kinematics::Flags::pose);
+        so::kine::Kinematics predictedWorlCentroidKine(predictedWorldCentroidLocKine);
+        return predictedWorlCentroidKine.position();
+      });
+
+  logger.addLogEntry(
+      observerName_ + "_prediction_worldFbPos",
+      [this]() -> Eigen::Vector3d
+      {
+        auto & inputRobot = my_robots_->robot("inputRobot");
+
+        so::kine::LocalKinematics predictedWorldCentroidLocKine(
+            observer_.getEKF().getLastPrediction().segment(observer_.posIndex(), observer_.sizePos + observer_.sizeOri),
+            so::kine::Kinematics::Flags::pose);
+        so::kine::Kinematics predictedWorldCentroidKine(predictedWorldCentroidLocKine);
+
+        so::kine::Kinematics fbCentroidKine;
+        fbCentroidKine.position = inputRobot.com();
+        fbCentroidKine.orientation.setZeroRotation();
+
+        so::kine::Kinematics predictedWorldFbKine = predictedWorldCentroidKine * fbCentroidKine.getInverse();
+
+        return predictedWorldFbKine.position();
+      });
+
+  logger.addLogEntry(observerName_ + "_prediction_locPos",
                      [this]() -> Eigen::Vector3d {
                        return observer_.getEKF().getLastPrediction().segment(observer_.posIndex(), observer_.sizePos);
                      });
   logger.addLogEntry(
-      observerName_ + "_prediction_linVelW_",
+      observerName_ + "_prediction_locLinVel",
       [this]() -> Eigen::Vector3d
       { return observer_.getEKF().getLastPrediction().segment(observer_.linVelIndex(), observer_.sizeLinVel); });
-  logger.addLogEntry(observerName_ + "_prediction_oriW_",
+  logger.addLogEntry(observerName_ + "_prediction_ori",
                      [this]() -> Eigen::Quaterniond
                      {
                        so::kine::Orientation ori;
                        ori.fromVector4(
                            observer_.getEKF().getLastPrediction().segment(observer_.oriIndex(), observer_.sizeOri));
-                       return ori.toQuaternion();
+                       return ori.inverse().toQuaternion();
                      });
   logger.addLogEntry(
-      observerName_ + "_prediction_angVelW_",
+      observerName_ + "_prediction_locAngVel",
       [this]() -> Eigen::Vector3d
       { return observer_.getEKF().getLastPrediction().segment(observer_.angVelIndex(), observer_.sizeAngVelTangent); });
   logger.addLogEntry(
-      observerName_ + "_prediction_unmodeledForce_",
+      observerName_ + "_prediction_unmodeledForce",
       [this]() -> Eigen::Vector3d
       { return observer_.getEKF().getLastPrediction().segment(observer_.unmodeledForceIndex(), observer_.sizeForce); });
-  logger.addLogEntry(observerName_ + "_prediction_unmodeledTorque_",
+  logger.addLogEntry(observerName_ + "_prediction_unmodeledTorque",
                      [this]() -> Eigen::Vector3d {
                        return observer_.getEKF().getLastPrediction().segment(observer_.unmodeledTorqueIndex(),
                                                                              observer_.sizeTorque);
@@ -1513,17 +1558,15 @@ void MCKineticsObserver::addContactToGui(const mc_control::MCController & ctl,
                               if(!contact.sensorEnabled_)
                               {
                                 contact.sensorEnabled_ = true;
+                                mc_rtc::log::info("{}: contact's sensors enabled", contact.name());
                                 if(contact.isSet()) { addContactMeasurementsLogEntries(logger, contact); }
                               }
                               else
                               {
                                 contact.sensorEnabled_ = false;
+                                mc_rtc::log::info("{}: contact's sensors disabled", contact.name());
                                 if(contact.isSet()) { removeContactMeasurementsLogEntries(logger, contact); }
                               }
-                              std::cout << std::endl
-                                        << "Enable / disable :" + contact.name() + " "
-                                               + std::to_string(contact.sensorEnabled_)
-                                        << std::endl;
                             }));
 }
 
@@ -1609,33 +1652,115 @@ void MCKineticsObserver::addContactLogEntries(const mc_control::MCController & c
                            .diagonal();
                      });
 
-  logger.addLogEntry(observerName_ + "_prediction_contact_" + contact.name() + "_position", &contact,
+  logger.addLogEntry(
+      observerName_ + "_prediction_contact_" + contact.name() + "_poseWorldFromCentroid_pos", &contact,
+      [this, &contact]() -> Eigen::Vector3d
+      {
+        auto & inputRobot = my_robots_->robot("inputRobot");
+
+        so::kine::LocalKinematics predictedWorldCentroidLocKine(
+            observer_.getEKF().getLastPrediction().segment(observer_.posIndex(), observer_.sizePos + observer_.sizeOri),
+            so::kine::Kinematics::Flags::pose);
+        so::kine::Kinematics predictedWorldCentroidKine(predictedWorldCentroidLocKine);
+        so::kine::Kinematics fbCentroidKine;
+        fbCentroidKine.position = inputRobot.com();
+        fbCentroidKine.orientation.setZeroRotation();
+
+        so::kine::Kinematics predictedWorldContactKine =
+            predictedWorldCentroidKine * fbCentroidKine.getInverse() * contact.fbContactKine_;
+
+        return predictedWorldContactKine.position();
+      });
+
+  logger.addLogEntry(observerName_ + "_prediction_contact_" + contact.name() + "_poseWorldFromCentroid_ori", &contact,
+                     [this, &contact]() -> Eigen::Quaterniond
+                     {
+                       so::kine::Orientation predictedWorldCentroidLocKine;
+                       predictedWorldCentroidLocKine.fromVector4(
+                           observer_.getEKF().getLastPrediction().segment(observer_.oriIndex(), observer_.sizeOri));
+
+                       so::kine::Orientation predictedWorldContactOri(so::Matrix3(
+                           predictedWorldCentroidLocKine.toMatrix3() * contact.fbContactKine_.orientation.toMatrix3()));
+
+                       return predictedWorldContactOri.inverse().toQuaternion();
+                     });
+
+  logger.addLogEntry(observerName_ + "_prediction_contact_" + contact.name() + "_poseWorldFromCentroid_linVel",
+                     &contact,
                      [this, &contact]() -> Eigen::Vector3d
                      {
-                       return observer_.getEKF().getInnovation().segment(observer_.contactPosIndexTangent(contact.id()),
-                                                                         observer_.sizePos);
+                       auto & inputRobot = my_robots_->robot("inputRobot");
+
+                       so::kine::LocalKinematics predictedWorldCentroidLocKine(
+                           observer_.getEKF().getLastPrediction().segment(
+                               observer_.posIndex(),
+                               observer_.sizePos + observer_.sizeOri + observer_.sizeLinVel + observer_.sizeAngVel),
+                           so::kine::Kinematics::Flags::pose | so::kine::Kinematics::Flags::vel);
+                       so::kine::Kinematics predictedWorldCentroidKine(predictedWorldCentroidLocKine);
+
+                       so::kine::Kinematics fbCentroidKine;
+                       fbCentroidKine.position = inputRobot.com();
+                       fbCentroidKine.linVel = inputRobot.comVelocity();
+                       fbCentroidKine.orientation.setZeroRotation();
+                       fbCentroidKine.angVel = so::Vector3::Zero();
+
+                       so::kine::Kinematics predictedWorldContactKine =
+                           predictedWorldCentroidKine * fbCentroidKine.getInverse() * contact.fbContactKine_;
+
+                       return predictedWorldContactKine.linVel();
                      });
-  logger.addLogEntry(observerName_ + "_prediction_contact_" + contact.name() + "_orientation", &contact,
+
+  logger.addLogEntry(observerName_ + "_prediction_contact_" + contact.name() + "_poseWorldFromCentroid_angVel",
+                     &contact,
+                     [this, &contact]() -> Eigen::Vector3d
+                     {
+                       auto & inputRobot = my_robots_->robot("inputRobot");
+
+                       so::kine::LocalKinematics predictedWorldCentroidLocKine(
+                           observer_.getEKF().getLastPrediction().segment(
+                               observer_.posIndex(),
+                               observer_.sizePos + observer_.sizeOri + observer_.sizeLinVel + observer_.sizeAngVel),
+                           so::kine::Kinematics::Flags::pose | so::kine::Kinematics::Flags::vel);
+                       so::kine::Kinematics predictedWorldCentroidKine(predictedWorldCentroidLocKine);
+
+                       so::kine::Kinematics fbCentroidKine;
+                       fbCentroidKine.position = inputRobot.com();
+                       fbCentroidKine.linVel = inputRobot.comVelocity();
+                       fbCentroidKine.orientation.setZeroRotation();
+                       fbCentroidKine.angVel = so::Vector3::Zero();
+
+                       so::kine::Kinematics predictedWorldContactKine =
+                           predictedWorldCentroidKine * fbCentroidKine.getInverse() * contact.fbContactKine_;
+
+                       return predictedWorldContactKine.angVel();
+                     });
+
+  logger.addLogEntry(observerName_ + "_prediction_contact_" + contact.name() + "_restPos_W", &contact,
+                     [this, &contact]() -> Eigen::Vector3d {
+                       return observer_.getEKF().getLastPrediction().segment(observer_.contactPosIndex(contact.id()),
+                                                                             observer_.sizePos);
+                     });
+  logger.addLogEntry(observerName_ + "_prediction_contact_" + contact.name() + "_restOri_W", &contact,
                      [this, &contact]() -> Eigen::Quaternion<double>
                      {
                        so::kine::Orientation ori;
                        return ori
-                           .fromVector4(observer_.getEKF().getInnovation().segment(
-                               observer_.contactOriIndexTangent(contact.id()), observer_.sizeOri))
+                           .fromVector4(observer_.getEKF().getLastPrediction().segment(
+                               observer_.contactOriIndex(contact.id()), observer_.sizeOri))
                            .inverse()
                            .toQuaternion();
                      });
   logger.addLogEntry(observerName_ + "_prediction_contact_" + contact.name() + "_forces", &contact,
                      [this, &contact]() -> Eigen::Vector3d
                      {
-                       return observer_.getEKF().getInnovation().segment(
-                           observer_.contactForceIndexTangent(contact.id()), observer_.sizeForce);
+                       return observer_.getEKF().getLastPrediction().segment(observer_.contactForceIndex(contact.id()),
+                                                                             observer_.sizeForce);
                      });
   logger.addLogEntry(observerName_ + "_prediction_contact_" + contact.name() + "_torques", &contact,
                      [this, &contact]() -> Eigen::Vector3d
                      {
-                       return observer_.getEKF().getInnovation().segment(
-                           observer_.contactTorqueIndexTangent(contact.id()), observer_.sizeTorque);
+                       return observer_.getEKF().getLastPrediction().segment(observer_.contactTorqueIndex(contact.id()),
+                                                                             observer_.sizeTorque);
                      });
 
   logger.addLogEntry(observerName_ + "_debug_contactWrench_Centroid_" + contact.name() + "_force", &contact,
@@ -1740,7 +1865,6 @@ void MCKineticsObserver::addContactMeasurementsLogEntries(mc_rtc::Logger & logge
 void MCKineticsObserver::removeContactLogEntries(mc_rtc::Logger & logger, const KoContactWithSensor & contact)
 {
   logger.removeLogEntries(&contact);
-  // logger.removeLogEntry(observerName_ + "_debug_zmp_" + contact.name());
 }
 
 void MCKineticsObserver::removeContactMeasurementsLogEntries(mc_rtc::Logger & logger,

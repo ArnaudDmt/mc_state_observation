@@ -1,4 +1,5 @@
 #pragma once
+#include "mc_state_observation/ContactsObserver.h"
 #include <mc_state_observation/conversions/kinematics.h>
 #include <mc_state_observation/odometry/LeggedOdometryManager.h>
 
@@ -64,24 +65,25 @@ void LeggedOdometryManager::initContacts(const mc_control::MCController & ctl,
   // contacts using the obtained pose of the floating base.
 
   const auto & robot = ctl.robot(robotName_);
+  auto & datastore = (const_cast<mc_control::MCController &>(ctl)).datastore();
+  ObserversContactsManager & contactsManager = *datastore.get<ObserversContactsManager *>("observers_contactMap");
 
   double sumForces_position = 0.0;
   posUpdatable_ = false;
-  newContacts_.clear();
-  maintainedContacts_.clear();
 
-  auto onNewContact = [this, &ctl, &logger, &runParams](LoContactWithSensor & newContact)
+  for(auto & contact : contactsManager.newContacts_)
   {
+    auto & newContact = *contact;
+
     addContactLogEntries(ctl, logger, newContact);
 
-    newContacts_.push_back(&newContact);
     if constexpr(!std::is_same_v<OnNewContactObserver, std::nullptr_t>) { (*runParams.onNewContactFn)(newContact); }
   };
 
-  auto onMaintainedContact =
-      [this, &robot, &runParams, &sumForces_position, &ctl](LoContactWithSensor & maintainedContact)
+  for(auto & contact : contactsManager.maintainedContacts_)
   {
-    maintainedContacts_.push_back(&maintainedContact);
+    auto & maintainedContact = *contact;
+
     maintainedContact.lifeTimeIncrement(ctl.timeStep);
 
     // current estimate of the pose of the robot in the world
@@ -113,7 +115,7 @@ void LeggedOdometryManager::initContacts(const mc_control::MCController & ctl,
     posUpdatable_ = true;
   };
 
-  auto onRemovedContact = [this, &logger, &runParams](LoContactWithSensor & removedContact)
+  auto onRemovedContact = [this, &logger, &runParams](measurements::ContactWithSensor & removedContact)
   {
     removeContactLogEntries(logger, removedContact);
     if constexpr(!std::is_same_v<OnRemovedContactObserver, std::nullptr_t>)

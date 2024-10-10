@@ -112,8 +112,6 @@ private:
   sva::MotionVecd v_0_fb;
 
   odometry::LeggedOdometryManager odometryManager_;
-
-  using LoContactsManager = odometry::LeggedOdometryManager::ContactsManager;
 };
 
 } // namespace mc_state_observation

@@ -13,9 +13,7 @@ namespace mc_state_observation::odometry
 /// -------------------------Legged Odometry---------------------------
 ///////////////////////////////////////////////////////////////////////
 
-void LeggedOdometryManager::init(const mc_control::MCController & ctl,
-                                 const Configuration & odomConfig,
-                                 const ContactsManagerConfiguration & contactsConf)
+void LeggedOdometryManager::init(const mc_control::MCController & ctl, const Configuration & odomConfig)
 
 {
   robotName_ = odomConfig.robotName_;
@@ -38,8 +36,6 @@ void LeggedOdometryManager::init(const mc_control::MCController & ctl,
   fbKine_ = conversions::kinematics::fromSva(robot.posW(), stateObservation::kine::Kinematics::Flags::pose);
   fbKine_.linVel = robot.velW().linear();
   fbKine_.angVel = robot.velW().angular();
-
-  contactsManager_.init(ctl, robotName_, contactsConf);
 
   sva::PTransformd worldAnchorKine;
   if(!ctl.datastore().has("KinematicAnchorFrame::" + ctl.robot(robotName_).name()))
@@ -266,7 +262,7 @@ void LeggedOdometryManager::selectForOrientationOdometry(bool & oriUpdatable, do
 
     // the position of the floating base in the world can be obtained by a weighted average of the estimations for each
     // contact
-    for(LoContactWithSensor & oriOdomContact : contactsManager_.oriOdometryContacts_)
+    for(measurements::ContactWithSensor & oriOdomContact : contactsManager_.oriOdometryContacts_)
     {
       // the orientation can be computed using contacts
       oriUpdatable = true;
@@ -466,7 +462,8 @@ void LeggedOdometryManager::updateOdometryRobot(const mc_control::MCController &
   if(acc != nullptr) { odometryRobot().forwardAcceleration(); }
 }
 
-void LeggedOdometryManager::setNewContact(LoContactWithSensor & contact, const mc_rbdyn::Robot & measurementsRobot)
+void LeggedOdometryManager::setNewContact(measurements::ContactWithSensor & contact,
+                                          const mc_rbdyn::Robot & measurementsRobot)
 {
   contact.resetLifeTime();
 
@@ -508,7 +505,7 @@ void LeggedOdometryManager::setNewContact(LoContactWithSensor & contact, const m
   if(odometryType_ == measurements::OdometryType::Flat) { contact.worldRefKine_.position()(2) = 0.0; }
 }
 
-const so::kine::Kinematics & LeggedOdometryManager::recomputeContactKinematics(LoContactWithSensor & contact)
+const so::kine::Kinematics & LeggedOdometryManager::recomputeContactKinematics(measurements::ContactWithSensor & contact)
 {
   // if the kinematics of the contact in the floating base have not been updated yet (k_est_ = k_iter_ - 1), we cannot
   // use them.
@@ -537,7 +534,7 @@ const so::kine::Kinematics & LeggedOdometryManager::recomputeContactKinematics(L
   return contact.currentWorldKine_;
 }
 
-const so::kine::Kinematics & LeggedOdometryManager::getContactKinematics(LoContactWithSensor & contact,
+const so::kine::Kinematics & LeggedOdometryManager::getContactKinematics(measurements::ContactWithSensor & contact,
                                                                          const mc_rbdyn::ForceSensor & fs)
 {
   // robot is necessary because odometry robot doesn't have the copy of the force measurements
@@ -606,7 +603,7 @@ const so::kine::Kinematics & LeggedOdometryManager::getContactKinematics(LoConta
 
 void LeggedOdometryManager::addContactLogEntries(const mc_control::MCController & ctl,
                                                  mc_rtc::Logger & logger,
-                                                 const LoContactWithSensor & contact)
+                                                 const measurements::ContactWithSensor & contact)
 {
   const std::string & contactName = contact.name();
 
@@ -647,7 +644,8 @@ void LeggedOdometryManager::addContactLogEntries(const mc_control::MCController 
                      [&contact]() -> double { return contact.weightingCoeff(); });
 }
 
-void LeggedOdometryManager::removeContactLogEntries(mc_rtc::Logger & logger, const LoContactWithSensor & contact)
+void LeggedOdometryManager::removeContactLogEntries(mc_rtc::Logger & logger,
+                                                    const measurements::ContactWithSensor & contact)
 {
   conversions::kinematics::removeFromLogger(logger, contact.worldRefKine_);
   conversions::kinematics::removeFromLogger(logger, contact.worldRefKineBeforeCorrection_);
@@ -689,7 +687,7 @@ void LeggedOdometryManager::correctContactsRef()
   k_correct_ = k_data_;
 }
 
-so::kine::Kinematics LeggedOdometryManager::getContactKineIn(LoContactWithSensor & contact,
+so::kine::Kinematics LeggedOdometryManager::getContactKineIn(measurements::ContactWithSensor & contact,
                                                              stateObservation::kine::Kinematics & worldTargetKine)
 {
   so::kine::Kinematics targetContactKine = worldTargetKine.getInverse() * recomputeContactKinematics(contact);

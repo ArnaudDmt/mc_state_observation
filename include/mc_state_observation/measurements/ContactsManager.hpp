@@ -203,6 +203,8 @@ void ContactsManager<ContactT>::findContactsFromSolver(const mc_control::MCContr
   // Filled-up when verbose
   std::string new_contact_set;
   bool show_new_contacts = false;
+  newContacts_.clear();
+  maintainedContacts_.clear();
 
   auto insert_contact = [&, this](const std::string & surfaceName)
   {
@@ -215,6 +217,7 @@ void ContactsManager<ContactT>::findContactsFromSolver(const mc_control::MCContr
       {
         contactsDetected_ = true;
         contactWS.isSet(true);
+        maintainedContacts_.push_back(&contact);
         onMaintainedContact(contactWS);
       }
       else if(contactWS.forceNorm() > schmittTrigger_.upperThreshold)
@@ -222,6 +225,8 @@ void ContactsManager<ContactT>::findContactsFromSolver(const mc_control::MCContr
         contactsDetected_ = true;
         contactWS.isSet(true);
         show_new_contacts = true;
+
+        newContacts_.push_back(&contact);
         onNewContact(contactWS);
       }
       if(verbose_)
@@ -263,6 +268,8 @@ void ContactsManager<ContactT>::findContactsFromSurfaces(const mc_control::MCCon
   // Filled-up when verbose
   std::string new_contact_set;
   bool show_new_contacts = false;
+  newContacts_.clear();
+  maintainedContacts_.clear();
 
   for(auto & [_, contact] : contacts())
   {
@@ -275,6 +282,7 @@ void ContactsManager<ContactT>::findContactsFromSurfaces(const mc_control::MCCon
       {
         contactsDetected_ = true;
         contact.isSet(true);
+        maintainedContacts_.push_back(&contact);
         onMaintainedContact(contact);
       }
       else if(contact.forceNorm() > schmittTrigger_.upperThreshold)
@@ -283,6 +291,7 @@ void ContactsManager<ContactT>::findContactsFromSurfaces(const mc_control::MCCon
         contact.isSet(true);
 
         show_new_contacts = true;
+        newContacts_.push_back(&contact);
         onNewContact(contact);
       }
       if(verbose_)

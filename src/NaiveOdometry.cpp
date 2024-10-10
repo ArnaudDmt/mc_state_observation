@@ -2,6 +2,7 @@
 
 #include <mc_observers/ObserverMacros.h>
 #include "mc_state_observation/odometry/LeggedOdometryManager.h"
+#include <mc_state_observation/ContactsObserver.h>
 #include <mc_state_observation/NaiveOdometry.h>
 #include <mc_state_observation/gui_helpers.h>
 
@@ -23,8 +24,6 @@ void NaiveOdometry::configure(const mc_control::MCController & ctl, const mc_rtc
 {
   robot_ = config("robot", ctl.robot().name());
 
-  bool verbose = config("verbose", true);
-
   /* Configuration of the odometry */
   std::string odometryTypeStr = static_cast<std::string>(config("odometryType"));
   std::string velocityUpdate = "NoUpdate";
@@ -40,56 +39,10 @@ void NaiveOdometry::configure(const mc_control::MCController & ctl, const mc_rtc
   std::vector<std::string> surfacesForContactDetection;
   config("surfacesForContactDetection", surfacesForContactDetection);
 
-  std::string contactsDetectionString = static_cast<std::string>(config("contactsDetection"));
-  LoContactsManager::ContactsDetection contactsDetectionMethod =
-      odometryManager_.contactsManager().stringToContactsDetection(contactsDetectionString, category_);
+  auto & datastore = (const_cast<mc_control::MCController &>(ctl)).datastore();
+  ObserversContactsManager & contactsManager = *datastore.get<ObserversContactsManager *>("observers_contactMap");
 
-  if(surfacesForContactDetection.size() > 0
-     && contactsDetectionMethod != LoContactsManager::ContactsDetection::Surfaces)
-  {
-    mc_rtc::log::error_and_throw<std::runtime_error>(
-        "You selected the contacts detection using surfaces but didn't add the list of surfaces, please add it usign "
-        "the variable surfacesForContactDetection");
-  }
-
-  if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Surfaces)
-  {
-    measurements::ContactsManagerSurfacesConfiguration contactsConfig(category_, surfacesForContactDetection);
-    contactsConfig.verbose(verbose);
-    if(config.has("schmittTriggerLowerPropThreshold") && config.has("schmittTriggerUpperPropThreshold"))
-    {
-      double schmittTriggerLowerPropThreshold = config("schmittTriggerLowerPropThreshold");
-      double schmittTriggerUpperPropThreshold = config("schmittTriggerUpperPropThreshold");
-      contactsConfig.schmittTriggerPropThresholds(schmittTriggerLowerPropThreshold, schmittTriggerUpperPropThreshold);
-    }
-    odometryManager_.init(ctl, odomConfig, contactsConfig);
-  }
-  if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Sensors)
-  {
-    std::vector<std::string> forceSensorsToOmit = config("forceSensorsToOmit", std::vector<std::string>());
-
-    measurements::ContactsManagerSensorsConfiguration contactsConfig(category_);
-    contactsConfig.verbose(verbose).forceSensorsToOmit(forceSensorsToOmit);
-    if(config.has("schmittTriggerLowerPropThreshold") && config.has("schmittTriggerUpperPropThreshold"))
-    {
-      double schmittTriggerLowerPropThreshold = config("schmittTriggerLowerPropThreshold");
-      double schmittTriggerUpperPropThreshold = config("schmittTriggerUpperPropThreshold");
-      contactsConfig.schmittTriggerPropThresholds(schmittTriggerLowerPropThreshold, schmittTriggerUpperPropThreshold);
-    }
-    odometryManager_.init(ctl, odomConfig, contactsConfig);
-  }
-  if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Solver)
-  {
-    measurements::ContactsManagerSolverConfiguration contactsConfig(category_);
-    contactsConfig.verbose(verbose);
-    if(config.has("schmittTriggerLowerPropThreshold") && config.has("schmittTriggerUpperPropThreshold"))
-    {
-      double schmittTriggerLowerPropThreshold = config("schmittTriggerLowerPropThreshold");
-      double schmittTriggerUpperPropThreshold = config("schmittTriggerUpperPropThreshold");
-      contactsConfig.schmittTriggerPropThresholds(schmittTriggerLowerPropThreshold, schmittTriggerUpperPropThreshold);
-    }
-    odometryManager_.init(ctl, odomConfig, contactsConfig);
-  }
+  odometryManager_.init(ctl, odomConfig, contactsConfig);
 }
 
 void NaiveOdometry::reset(const mc_control::MCController & ctl)

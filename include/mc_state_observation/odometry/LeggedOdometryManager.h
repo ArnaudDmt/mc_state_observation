@@ -25,14 +25,14 @@ namespace mc_state_observation::odometry
 ///////////////////////////////////////////////////////////////////////
 // Enhancement of the class ContactWithSensor with the reference of the contact in the world and the force measured by
 // the associated sensor
-class LoContactWithSensor : public measurements::ContactWithSensor
+class LoContactWithSensors : public measurements::ContactWithSensor
 {
   using measurements::ContactWithSensor::ContactWithSensor;
 
 public:
   inline void resetContact() noexcept override
   {
-    measurements::Contact::resetContact();
+    measurements::ContactWithSensor::resetContact();
     lifeTime_ = 0.0;
   }
 
@@ -80,7 +80,7 @@ protected:
 struct LeggedOdometryManager
 {
 public:
-  using ContactsManager = measurements::ContactsManager<LoContactWithSensor>;
+  using ContactsManager = measurements::ContactsManager<measurements::ContactWithSensor>;
 
   struct KineParams
   {
@@ -284,7 +284,8 @@ protected:
     // comparison function that sorts the contacts based on their measured force.
     struct sortByForce
     {
-      inline bool operator()(const LoContactWithSensor & contact1, const LoContactWithSensor & contact2) const noexcept
+      inline bool operator()(const measurements::ContactWithSensor & contact1,
+                             const measurements::ContactWithSensor & contact2) const noexcept
       {
         return (contact1.forceNorm() < contact2.forceNorm());
       }
@@ -293,7 +294,7 @@ protected:
   public:
     // list of contacts used for the orientation odometry. At most two contacts can be used for this estimation, and
     // contacts at hands are not considered. The contacts with the highest measured force are used.
-    std::set<std::reference_wrapper<LoContactWithSensor>, sortByForce> oriOdometryContacts_;
+    std::set<std::reference_wrapper<measurements::ContactWithSensor>, sortByForce> oriOdometryContacts_;
   };
 
 public:
@@ -317,8 +318,7 @@ public:
   ////////////////////////////////////////////////////////////////////
 
   /// @brief Configuration structure that helps setting up the odometry parameters
-  /// @details The configuration is used once passed in the @ref init(const mc_control::MCController &, Configuration,
-  /// ContactsManagerConfiguration) function
+  /// @details The configuration is used once passed in the @ref init(const mc_control::MCController &) function
   struct Configuration
   {
     /// @brief Configuration's constructor
@@ -408,28 +408,12 @@ public:
     odometryName_ = odometryName;
     ctl_dt_ = dt_;
   }
-  /**
-   * @brief  Returns a list of pointers to the contacts maintained during the current iteration.
-   *
-   * @return const std::vector<LoContactWithSensor *>&
-   */
-  inline const std::vector<LoContactWithSensor *> & newContacts() { return newContacts_; }
-  /**
-   * @brief  Returns a list of pointers to the contacts created on the current iteration.
-   *
-   * @return const std::vector<LoContactWithSensor *>&
-   */
-  inline const std::vector<LoContactWithSensor *> & maintainedContacts() { return maintainedContacts_; }
 
   /// @brief Initializer for the odometry manager.
-  /// @details Version for the contact detection using a thresholding on the contact force sensors measurements or by
-  /// direct input from the solver.
   /// @param ctl Controller
   /// @param odomConfig Desired configuraion of the odometry
   /// @param verbose
-  void init(const mc_control::MCController & ctl,
-            const Configuration & odomConfig,
-            const ContactsManagerConfiguration & contactsConf);
+  void init(const mc_control::MCController & ctl, const Configuration & odomConfig);
 
   void reset();
 
@@ -487,7 +471,7 @@ public:
   /// the world frame, which can be used to obtain their velocity in other frames attached to the robot.
   /// @param contact Contact of which we want to compute the kinematics
   /// @return stateObservation::kine::Kinematics &
-  const stateObservation::kine::Kinematics & recomputeContactKinematics(LoContactWithSensor & contact);
+  const stateObservation::kine::Kinematics & recomputeContactKinematics(measurements::ContactWithSensor & contact);
 
   /**
    * @brief Returns the position of the anchor point in the world from the current contacts reference position.
@@ -506,9 +490,6 @@ public:
 
   /// @brief Getter for the odometry robot used for the estimation.
   inline mc_rbdyn::Robot & odometryRobot() { return odometryRobot_->robot("odometryRobot"); }
-
-  /// @brief Getter for the contacts manager.
-  inline LeggedOdometryContactsManager & contactsManager() { return contactsManager_; }
 
   /*! \brief Add the odometry to the logger
    *
@@ -583,7 +564,7 @@ private:
   /// @brief Computes the reference kinematics of the newly set contact in the world.
   /// @param contact The new contact
   /// @param measurementsRobot The robot containing the contact's force sensor
-  void setNewContact(LoContactWithSensor & contact, const mc_rbdyn::Robot & measurementsRobot);
+  void setNewContact(measurements::ContactWithSensor & contact, const mc_rbdyn::Robot & measurementsRobot);
 
   /// @brief Computes the kinematics of the contact attached to the odometry robot in the world frame from the current
   /// floating base pose and encoders. Also updates the reading of the associated force sensor.
@@ -594,14 +575,14 @@ private:
   /// @param contact Contact of which we want to compute the kinematics.
   /// @param fs The force sensor associated to the contact.
   /// @return stateObservation::kine::Kinematics &.
-  const stateObservation::kine::Kinematics & getContactKinematics(LoContactWithSensor & contact,
+  const stateObservation::kine::Kinematics & getContactKinematics(measurements::ContactWithSensor & contact,
                                                                   const mc_rbdyn::ForceSensor & fs);
 
   /// @brief Gives the kinematics of the contact in the desired frame.
   /// @details If the velocity of the target frame in the world frame is given, the velocity of the anchor point in the
   /// target frame will also be contained in the returned Kinematics object.
   /// @param worldTargetKine Kinematics of the target frame in the world frame.
-  stateObservation::kine::Kinematics getContactKineIn(LoContactWithSensor & contact,
+  stateObservation::kine::Kinematics getContactKineIn(measurements::ContactWithSensor & contact,
                                                       stateObservation::kine::Kinematics & worldTargetKine);
 
   /// @brief Returns the position of the odometry robot's anchor point based on the current floating
@@ -636,12 +617,12 @@ private:
   /// @param contactName
   void addContactLogEntries(const mc_control::MCController & ctl,
                             mc_rtc::Logger & logger,
-                            const LoContactWithSensor & contact);
+                            const measurements::ContactWithSensor & contact);
 
   /// @brief Remove the log entries corresponding to the contact.
   /// @param logger
   /// @param contactName
-  void removeContactLogEntries(mc_rtc::Logger & logger, const LoContactWithSensor & contact);
+  void removeContactLogEntries(mc_rtc::Logger & logger, const measurements::ContactWithSensor & contact);
 
   /// @brief Returns a VelocityUpdate object corresponding to the given string.
   /// @details Allows to set the velocity update method directly from a string, most likely obtained from a
@@ -659,17 +640,12 @@ protected:
   std::string odometryName_;
   // Name of the robot
   std::string robotName_;
-  // contacts manager used by this odometry manager
-  LeggedOdometryContactsManager contactsManager_;
+
   // odometry robot that is updated by the legged odometry and can then update the real robot if required.
   std::shared_ptr<mc_rbdyn::Robots> odometryRobot_;
   // tracked kinematics of the floating base
   stateObservation::kine::Kinematics fbKine_;
 
-  // contacts created on the current iteration
-  std::vector<LoContactWithSensor *> newContacts_;
-  // contacts maintained during the current iteration
-  std::vector<LoContactWithSensor *> maintainedContacts_;
   // time constant defining how fast the contact reference poses are corrected by the one of the floating base
   double kappa_ = 1 / (2 * M_PI);
   // gain allowing for the contribution of the contact pose measurement into the reference pose even after a long

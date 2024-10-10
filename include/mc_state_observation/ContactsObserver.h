@@ -8,10 +8,12 @@
 namespace mc_state_observation
 {
 
-struct ContactDetector : public mc_observers::Observer
+typedef measurements::ContactsManager<measurements::ContactWithSensor> ObserversContactsManager;
+
+struct ContactsObserver : public mc_observers::Observer
 {
 public:
-  ContactDetector(const std::string & type, double dt);
+  ContactsObserver(const std::string & type, double dt);
 
   void configure(const mc_control::MCController & ctl, const mc_rtc::Configuration &) override;
 
@@ -45,10 +47,9 @@ protected:
 protected:
   /// @{
   std::string robot_ = ""; ///< Name of robot
-  std::unordered_map<std::string, measurements::ContactWithSensor> contacts_;
 
-  /// initialization of the extended Kalman filter
-  stateObservation::Hmm_contact_force hmm_;
+  // contacts manager used by this odometry manager
+  measurements::ContactsManager<measurements::ContactWithSensor> contactsManager_;
 };
 
 } // namespace mc_state_observation

@@ -223,10 +223,17 @@ private:
                            const ContactsManagerSolverConfiguration & conf,
                            OnAddedContact onAddedContact = nullptr);
 
+public:
+  // contacts created on the current iteration
+  std::vector<ContactT *> newContacts_;
+  // contacts maintained during the current iteration
+  std::vector<ContactT *> maintainedContacts_;
+
 protected:
   // map of contacts used by the manager.
   // unordered map containing all the contacts
   std::unordered_map<std::string, ContactT> listContacts_;
+
   // Index generator, incremented everytime a new contact is created
   unsigned idx_ = 0;
 

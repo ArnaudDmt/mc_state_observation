@@ -58,7 +58,7 @@ add_so_observer(NaiveOdometry)
 add_so_observer(TiltObserver)
 add_so_observer(MCVanytEstimator)
 add_so_observer(MocapVisualizer)
-add_so_observer(ContactDetector)
+add_so_observer(ContactsObserver)
 
 add_kineticsobserver()
 

@@ -42,6 +42,7 @@ public:
   Eigen::Matrix<double, 6, 1> wrenchInCentroid_ = Eigen::Matrix<double, 6, 1>::Zero();
   // for debug only
   stateObservation::Vector6 viscoElasticWrenchAfterCorrection_;
+  stateObservation::kine::Kinematics initKine_;
 
   // the sensor measurement has to be used by the observer
   bool sensorEnabled_ = true;
@@ -480,6 +481,9 @@ private:
   stateObservation::Vector correctedMeasurements_;
   // For logs only. Kinematics of the centroid frame within the world frame
   stateObservation::kine::Kinematics globalCentroidKinematics_;
+
+  std::vector<std::string> contactSensorsIgnored_;
+  bool ignoreWrenchSensors_ = false;
 };
 
 } // namespace mc_state_observation

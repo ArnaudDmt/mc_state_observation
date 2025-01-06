@@ -480,6 +480,9 @@ private:
   stateObservation::Vector correctedMeasurements_;
   // For logs only. Kinematics of the centroid frame within the world frame
   stateObservation::kine::Kinematics globalCentroidKinematics_;
+
+  stateObservation::kine::Kinematics leftFootKine_;
+  stateObservation::kine::Kinematics rightFootKine_;
 };
 
 } // namespace mc_state_observation

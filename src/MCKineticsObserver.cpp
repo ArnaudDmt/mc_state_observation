@@ -688,6 +688,34 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
         }
       }
     }
+
+    // the kinematics of the contacts are the ones of the surface, but we must transport the measured wrench
+    const mc_rbdyn::Surface & leftFootSurface = realRobot.surface("LeftFootCenter");
+
+    sva::PTransformd bodySurfacePose = leftFootSurface.X_b_s();
+    so::kine::Kinematics bodySurfaceKine =
+        conversions::kinematics::fromSva(bodySurfacePose, so::kine::Kinematics::Flags::vel);
+
+    sva::PTransformd worldBodyPos = realRobot.mbc().bodyPosW[leftFootSurface.bodyIndex(realRobot)];
+    sva::MotionVecd worldBodyVel = realRobot.mbc().bodyVelW[leftFootSurface.bodyIndex(realRobot)];
+    so::kine::Kinematics worldBodyKine = conversions::kinematics::fromSva(worldBodyPos, worldBodyVel);
+
+    leftFootKine_ = worldBodyKine * bodySurfaceKine;
+    leftFootKine_.linVel = leftFootKine_.orientation.toMatrix3().transpose() * leftFootKine_.linVel();
+    leftFootKine_.angVel = leftFootKine_.orientation.toMatrix3().transpose() * leftFootKine_.angVel();
+
+    const mc_rbdyn::Surface & rightFootSurface = realRobot.surface("RightFootCenter");
+
+    bodySurfacePose = rightFootSurface.X_b_s();
+    bodySurfaceKine = conversions::kinematics::fromSva(bodySurfacePose, so::kine::Kinematics::Flags::vel);
+
+    worldBodyPos = realRobot.mbc().bodyPosW[rightFootSurface.bodyIndex(realRobot)];
+    worldBodyVel = realRobot.mbc().bodyVelW[rightFootSurface.bodyIndex(realRobot)];
+    worldBodyKine = conversions::kinematics::fromSva(worldBodyPos, worldBodyVel);
+
+    rightFootKine_ = worldBodyKine * bodySurfaceKine;
+    rightFootKine_.linVel = rightFootKine_.orientation.toMatrix3().transpose() * rightFootKine_.linVel();
+    rightFootKine_.angVel = rightFootKine_.orientation.toMatrix3().transpose() * rightFootKine_.angVel();
   }
 
   /* Update of the visual representation (only a visual feature) of the observed robot */
@@ -1120,6 +1148,10 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController & ctl,
                                      const std::string & category)
 {
   category_ = category;
+
+  conversions::kinematics::addToLogger(logger, leftFootKine_, category_ + "_Aymeric_LeftFootKine");
+  conversions::kinematics::addToLogger(logger, rightFootKine_, category_ + "_Aymeric_RightFootKine");
+
   tiltObserver_.addToLogger(ctl, logger, category + "_" + tiltObserver_.name());
   logger.addLogEntry(category_ + "_mcko_fb_posW", [this]() -> sva::PTransformd & { return X_0_fb_; });
   logger.addLogEntry(category_ + "_mcko_fb_velW", [this]() -> sva::MotionVecd & { return v_fb_0_; });

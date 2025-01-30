@@ -483,6 +483,18 @@ private:
 
   stateObservation::kine::Kinematics leftFootKine_;
   stateObservation::kine::Kinematics rightFootKine_;
+  stateObservation::kine::Kinematics rightHandKine_;
+  stateObservation::kine::Kinematics leftHandKine_;
+
+  stateObservation::Vector3 leftFootForce_;
+  stateObservation::Vector3 rightFootForce_;
+  stateObservation::Vector3 rightHandForce_;
+  stateObservation::Vector3 leftHandForce_;
+
+  stateObservation::Vector3 leftFootTorque_;
+  stateObservation::Vector3 rightFootTorque_;
+  stateObservation::Vector3 rightHandTorque_;
+  stateObservation::Vector3 leftHandTorque_;
 };
 
 } // namespace mc_state_observation

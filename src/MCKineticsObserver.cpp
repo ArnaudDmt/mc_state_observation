@@ -688,34 +688,6 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
         }
       }
     }
-
-    // the kinematics of the contacts are the ones of the surface, but we must transport the measured wrench
-    const mc_rbdyn::Surface & leftFootSurface = realRobot.surface("LeftFootCenter");
-
-    sva::PTransformd bodySurfacePose = leftFootSurface.X_b_s();
-    so::kine::Kinematics bodySurfaceKine =
-        conversions::kinematics::fromSva(bodySurfacePose, so::kine::Kinematics::Flags::vel);
-
-    sva::PTransformd worldBodyPos = realRobot.mbc().bodyPosW[leftFootSurface.bodyIndex(realRobot)];
-    sva::MotionVecd worldBodyVel = realRobot.mbc().bodyVelW[leftFootSurface.bodyIndex(realRobot)];
-    so::kine::Kinematics worldBodyKine = conversions::kinematics::fromSva(worldBodyPos, worldBodyVel);
-
-    leftFootKine_ = worldBodyKine * bodySurfaceKine;
-    leftFootKine_.linVel = leftFootKine_.orientation.toMatrix3().transpose() * leftFootKine_.linVel();
-    leftFootKine_.angVel = leftFootKine_.orientation.toMatrix3().transpose() * leftFootKine_.angVel();
-
-    const mc_rbdyn::Surface & rightFootSurface = realRobot.surface("RightFootCenter");
-
-    bodySurfacePose = rightFootSurface.X_b_s();
-    bodySurfaceKine = conversions::kinematics::fromSva(bodySurfacePose, so::kine::Kinematics::Flags::vel);
-
-    worldBodyPos = realRobot.mbc().bodyPosW[rightFootSurface.bodyIndex(realRobot)];
-    worldBodyVel = realRobot.mbc().bodyVelW[rightFootSurface.bodyIndex(realRobot)];
-    worldBodyKine = conversions::kinematics::fromSva(worldBodyPos, worldBodyVel);
-
-    rightFootKine_ = worldBodyKine * bodySurfaceKine;
-    rightFootKine_.linVel = rightFootKine_.orientation.toMatrix3().transpose() * rightFootKine_.linVel();
-    rightFootKine_.angVel = rightFootKine_.orientation.toMatrix3().transpose() * rightFootKine_.angVel();
   }
 
   /* Update of the visual representation (only a visual feature) of the observed robot */
@@ -754,6 +726,99 @@ void MCKineticsObserver::update(mc_control::MCController & ctl) // this function
   update(realRobot);
   realRobot.forwardKinematics();
   realRobot.forwardVelocity();
+
+  // the kinematics of the contacts are the ones of the surface, but we must transport the measured wrench
+  const mc_rbdyn::Surface & leftFootSurface = realRobot.surface("LeftFootCenter");
+
+  sva::PTransformd bodySurfacePose = leftFootSurface.X_b_s();
+  so::kine::Kinematics bodySurfaceKine =
+      conversions::kinematics::fromSva(bodySurfacePose, so::kine::Kinematics::Flags::vel);
+
+  sva::PTransformd worldBodyPos = realRobot.mbc().bodyPosW[leftFootSurface.bodyIndex(realRobot)];
+  sva::MotionVecd worldBodyVel = realRobot.mbc().bodyVelW[leftFootSurface.bodyIndex(realRobot)];
+  so::kine::Kinematics worldBodyKine = conversions::kinematics::fromSva(worldBodyPos, worldBodyVel);
+
+  leftFootKine_ = worldBodyKine * bodySurfaceKine;
+  leftFootKine_.linVel = leftFootKine_.orientation.toMatrix3().transpose() * leftFootKine_.linVel();
+  leftFootKine_.angVel = leftFootKine_.orientation.toMatrix3().transpose() * leftFootKine_.angVel();
+
+  const mc_rbdyn::ForceSensor & fsLeftFoot = ctl.robot().indirectSurfaceForceSensor(leftFootSurface.name());
+  so::kine::Kinematics worldFsKine =
+      conversions::kinematics::fromSva(fsLeftFoot.X_0_f(realRobot), so::kine::Kinematics::Flags::pose);
+  so::kine::Kinematics contactSensorKine = leftFootKine_.getInverse() * worldFsKine;
+  sva::ForceVecd wrenchLeftFoot = fsLeftFoot.wrenchWithoutGravity(realRobot);
+  leftFootForce_ = contactSensorKine.orientation.toMatrix3() * wrenchLeftFoot.force();
+  leftFootTorque_ = contactSensorKine.orientation * wrenchLeftFoot.couple()
+                    + contactSensorKine.position().cross(wrenchLeftFoot.force());
+
+  const mc_rbdyn::Surface & rightFootSurface = realRobot.surface("RightFootCenter");
+
+  bodySurfacePose = rightFootSurface.X_b_s();
+  bodySurfaceKine = conversions::kinematics::fromSva(bodySurfacePose, so::kine::Kinematics::Flags::vel);
+
+  worldBodyPos = realRobot.mbc().bodyPosW[rightFootSurface.bodyIndex(realRobot)];
+  worldBodyVel = realRobot.mbc().bodyVelW[rightFootSurface.bodyIndex(realRobot)];
+  worldBodyKine = conversions::kinematics::fromSva(worldBodyPos, worldBodyVel);
+
+  rightFootKine_ = worldBodyKine * bodySurfaceKine;
+  rightFootKine_.linVel = rightFootKine_.orientation.toMatrix3().transpose() * rightFootKine_.linVel();
+  rightFootKine_.angVel = rightFootKine_.orientation.toMatrix3().transpose() * rightFootKine_.angVel();
+
+  const mc_rbdyn::ForceSensor & fsRightFoot = ctl.robot().indirectSurfaceForceSensor(rightFootSurface.name());
+  worldFsKine = conversions::kinematics::fromSva(fsRightFoot.X_0_f(realRobot), so::kine::Kinematics::Flags::pose);
+  contactSensorKine = rightFootKine_.getInverse() * worldFsKine;
+  sva::ForceVecd wrenchRightFoot = fsRightFoot.wrenchWithoutGravity(realRobot);
+  rightFootForce_ = contactSensorKine.orientation.toMatrix3() * wrenchRightFoot.force();
+  rightFootTorque_ = contactSensorKine.orientation * wrenchRightFoot.couple()
+                     + contactSensorKine.position().cross(wrenchRightFoot.force());
+
+  const mc_rbdyn::Surface & leftHandSurface = realRobot.surface("LeftHandCloseContact");
+
+  bodySurfacePose = leftHandSurface.X_b_s();
+  bodySurfaceKine = conversions::kinematics::fromSva(bodySurfacePose, so::kine::Kinematics::Flags::vel);
+
+  worldBodyPos = realRobot.mbc().bodyPosW[leftHandSurface.bodyIndex(realRobot)];
+  worldBodyVel = realRobot.mbc().bodyVelW[leftHandSurface.bodyIndex(realRobot)];
+  worldBodyKine = conversions::kinematics::fromSva(worldBodyPos, worldBodyVel);
+
+  leftHandKine_ = worldBodyKine * bodySurfaceKine;
+  leftHandKine_.linVel = leftHandKine_.orientation.toMatrix3().transpose() * leftHandKine_.linVel();
+  leftHandKine_.angVel = leftHandKine_.orientation.toMatrix3().transpose() * leftHandKine_.angVel();
+
+  const mc_rbdyn::ForceSensor & fsLeftHand = ctl.robot().indirectSurfaceForceSensor(leftHandSurface.name());
+  worldFsKine = conversions::kinematics::fromSva(fsLeftHand.X_0_f(realRobot), so::kine::Kinematics::Flags::pose);
+  contactSensorKine = leftHandKine_.getInverse() * worldFsKine;
+  sva::ForceVecd wrenchLeftHand = fsLeftHand.wrenchWithoutGravity(realRobot);
+  leftHandForce_ = contactSensorKine.orientation.toMatrix3() * wrenchLeftHand.force();
+  leftHandTorque_ = contactSensorKine.orientation * wrenchLeftHand.couple()
+                    + contactSensorKine.position().cross(wrenchLeftHand.force());
+
+  const mc_rbdyn::Surface & rightHandSurface = realRobot.surface("RightHandCloseContact");
+
+  bodySurfacePose = rightHandSurface.X_b_s();
+  bodySurfaceKine = conversions::kinematics::fromSva(bodySurfacePose, so::kine::Kinematics::Flags::vel);
+
+  worldBodyPos = realRobot.mbc().bodyPosW[rightHandSurface.bodyIndex(realRobot)];
+  worldBodyVel = realRobot.mbc().bodyVelW[rightHandSurface.bodyIndex(realRobot)];
+  worldBodyKine = conversions::kinematics::fromSva(worldBodyPos, worldBodyVel);
+
+  rightHandKine_ = worldBodyKine * bodySurfaceKine;
+  rightHandKine_.linVel = rightHandKine_.orientation.toMatrix3().transpose() * rightHandKine_.linVel();
+  rightHandKine_.angVel = rightHandKine_.orientation.toMatrix3().transpose() * rightHandKine_.angVel();
+
+  const mc_rbdyn::ForceSensor & fsRightHand = ctl.robot().indirectSurfaceForceSensor(rightHandSurface.name());
+  worldFsKine = conversions::kinematics::fromSva(fsRightHand.X_0_f(realRobot), so::kine::Kinematics::Flags::pose);
+  contactSensorKine = rightHandKine_.getInverse() * worldFsKine;
+  sva::ForceVecd wrenchRightHand = fsRightHand.wrenchWithoutGravity(realRobot);
+  rightHandForce_ = contactSensorKine.orientation.toMatrix3() * wrenchRightHand.force();
+  rightHandTorque_ = contactSensorKine.orientation * wrenchRightHand.couple()
+                     + contactSensorKine.position().cross(wrenchRightHand.force());
+
+  std::cout << std::endl << "rHand mass: " << fsRightHand.calib().mass << std::endl;
+  std::cout << std::endl << "rHand offset: " << fsRightHand.calib().offset << std::endl;
+
+  std::cout << std::endl << "lFoot mass: " << fsLeftFoot.calib().mass << std::endl;
+  std::cout << std::endl << "lFoot offset: " << fsLeftFoot.calib().offset << std::endl;
 }
 
 // used only to update the visual representation of the estimated robot
@@ -1151,6 +1216,20 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController & ctl,
 
   conversions::kinematics::addToLogger(logger, leftFootKine_, category_ + "_Aymeric_LeftFootKine");
   conversions::kinematics::addToLogger(logger, rightFootKine_, category_ + "_Aymeric_RightFootKine");
+  conversions::kinematics::addToLogger(logger, leftHandKine_, category_ + "_Aymeric_LeftHandKine");
+  conversions::kinematics::addToLogger(logger, rightHandKine_, category_ + "_Aymeric_RightHandKine");
+
+  logger.addLogEntry(category_ + "_Aymeric_LeftFootForce", [this]() -> Eigen::Vector3d & { return leftFootForce_; });
+  logger.addLogEntry(category_ + "_Aymeric_RightFootForce", [this]() -> Eigen::Vector3d & { return rightFootForce_; });
+  logger.addLogEntry(category_ + "_Aymeric_LeftHandForce", [this]() -> Eigen::Vector3d & { return leftHandForce_; });
+  logger.addLogEntry(category_ + "_Aymeric_RightHandForce", [this]() -> Eigen::Vector3d & { return rightHandForce_; });
+
+  logger.addLogEntry(category_ + "_Aymeric_LeftFootTorque", [this]() -> Eigen::Vector3d & { return leftFootTorque_; });
+  logger.addLogEntry(category_ + "_Aymeric_RightFootTorque",
+                     [this]() -> Eigen::Vector3d & { return rightFootTorque_; });
+  logger.addLogEntry(category_ + "_Aymeric_LeftHandTorque", [this]() -> Eigen::Vector3d & { return leftHandTorque_; });
+  logger.addLogEntry(category_ + "_Aymeric_RightHandTorque",
+                     [this]() -> Eigen::Vector3d & { return rightHandTorque_; });
 
   tiltObserver_.addToLogger(ctl, logger, category + "_" + tiltObserver_.name());
   logger.addLogEntry(category_ + "_mcko_fb_posW", [this]() -> sva::PTransformd & { return X_0_fb_; });

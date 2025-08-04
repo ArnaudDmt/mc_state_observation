@@ -42,6 +42,21 @@ macro(add_kineticsobserver)
            mc_state_observation TiltObserver)
 endmacro()
 
+macro(add_kineticsobserver_fg)
+  add_subdirectory(
+    ${CMAKE_SOURCE_DIR}/../KineticsObserver_factorGraphs
+    ${CMAKE_BINARY_DIR}/kinetics_observer_fg_build
+  )
+
+  add_observer(
+    MCKineticsObserverFG "MCKineticsObserverFG.cpp"
+    "${CMAKE_SOURCE_DIR}/include/${PROJECT_NAME}/MCKineticsObserverFG.h")
+
+  target_link_libraries(
+    MCKineticsObserver
+    PUBLIC mc_rtc::mc_control state-observation::state-observation kinetics_observer_fg)
+endmacro()
+
 macro(add_observer_with_filter observer_name)
   add_observer(
     ${observer_name}
@@ -54,11 +69,12 @@ endmacro()
 add_so_observer(AttitudeObserver)
 # add_so_observer(NaiveOdometry)
 add_so_observer(TiltObserver)
-add_so_observer(MCWaiko)
+# add_so_observer(MCWaiko)
 # add_so_observer(MCViking)
-# add_so_observer(MocapVisualizer)
+add_so_observer(MocapVisualizer)
 
-# add_kineticsobserver()
+add_kineticsobserver()
+add_kineticsobserver_fg()
 
 if(WITH_ROS_OBSERVERS)
   add_simple_observer(MocapObserver)

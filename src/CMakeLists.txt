@@ -53,7 +53,7 @@ macro(add_kineticsobserver_fg)
     "${CMAKE_SOURCE_DIR}/include/${PROJECT_NAME}/MCKineticsObserverFG.h")
 
   target_link_libraries(
-    MCKineticsObserver
+    MCKineticsObserverFG
     PUBLIC mc_rtc::mc_control state-observation::state-observation kinetics_observer_fg)
 endmacro()
 

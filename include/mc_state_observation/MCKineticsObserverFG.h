@@ -7,7 +7,7 @@
 #include <kinetics_observer_fg.hpp>
 #include <mc_state_observation/measurements/ContactsManager.h>
 #include <mc_state_observation/measurements/measurements.h>
-#include <state-observation/dynamics-estimators/kinetics-observer.hpp>
+#include <state-observation/tools/rigid-body-kinematics.hpp>
 
 namespace mc_state_observation
 {
@@ -68,17 +68,14 @@ protected:
   /// @param robot The robot to update.
   void update(mc_rbdyn::Robot & robot);
 
-  /// @brief Initializer for the Kinetics Observer's state vector
-  /// @param robot The control robot
-  void initObserverStateVector(const mc_control::MCController & ctl, const mc_rbdyn::Robot & robot);
-
   /// @brief Sums up the wrenches measured by the unused force sensors expressed in the centroid frame to give them as
   /// an input to the Kinetics Observer
   /// @param inputRobot A robot whose configuration is the one of real robot, but whose pose, velocities and
   /// accelerations are set to zero in the control frame. Allows to ease computations performed in the local frame of
   /// the robot.
   /// @param measRobot The control robot. Used to retrieve the measurements.
-  void inputAdditionalWrench(const mc_rbdyn::Robot & inputRobot, const mc_rbdyn::Robot & measRobot);
+  stateObservation::Vector6 inputAdditionalWrench(const mc_rbdyn::Robot & inputRobot,
+                                                  const mc_rbdyn::Robot & measRobot);
 
   /// @brief Adds the measurement of the desired sensors to the external force given as an input to the Kinetics
   /// Observer
@@ -87,12 +84,10 @@ protected:
   /// accelerations are set to zero in the control frame. Allows to ease computations performed in the local frame of
   /// the robot.
   /// @param measRobot The control robot. Used to retrieve the measurements.
-  /// @param inputAddtionalForce the external force given as input
-  /// @param inputAddtionalTorque the external torque given as input
+  /// @param inputAddtionalWrench the external wrench given as input
   void addSensorsAsInputs(const mc_rbdyn::Robot & inputRobot,
                           const mc_rbdyn::Robot & measRobot,
-                          stateObservation::Vector3 & inputAddtionalForce,
-                          stateObservation::Vector3 & inputAddtionalTorque);
+                          stateObservation::Vector6 & inputAddtionalWrench);
 
   /// @brief Update the IMUs, including the measurements, measurement covariances and kinematics in the floating
   /// base's frame (user frame)
@@ -176,16 +171,6 @@ protected:
   void updateContactForceMeasurement(KoContactWithSensor & contact,
                                      const sva::ForceVecd & measuredWrench,
                                      const stateObservation::kine::Kinematics * contactSensorKine = nullptr);
-
-  /// @brief Computes the rest pose of the contact in the world using the visco-elastic model.
-  /// @details Uses the measured wrench to obtain the rest pose of the contact from the one obtained by forward
-  /// kinematics. The visco-elastic model allows to compute the slight displacement resulting from the applied wrench.
-  /// @param ctl Controller
-  /// @param contact Contact for which we compute the rest pose.
-  /// @param worldContactKineRef rest pose of the contact in the world, which is modified by this function.
-  void getOdometryWorldContactRest(const mc_control::MCController & ctl,
-                                   KoContactWithSensor & contact,
-                                   stateObservation::kine::Kinematics & worldContactKineRef);
 
   /// @brief Creates a new contact
   /// @param ctl Controller
@@ -313,7 +298,7 @@ private:
   unsigned maxIMUs_;
 
   // instance of the Kinetics Observer
-  stateObservation::KineticsObserver observer_;
+  ko_fg::KineticsObserverFG observer_;
 
   // category to plot the estimator in
   std::string category_;
@@ -334,6 +319,7 @@ private:
 
   // state vector resulting from the Kinetics Observer esimation
   Eigen::VectorXd res_;
+  stateObservation::kine::Kinematics worldFbKine_;
   // pose of the floating base within the world frame (real one, not the one of the control robot)
   sva::PTransformd X_0_fb_;
   // velocity of the floating base within the world frame (real one, not the one of the control robot)
@@ -437,16 +423,10 @@ private:
   sva::PTransformd zeroPose_;
   // zero velocity or acceleration
   sva::MotionVecd zeroMotion_;
-  // kinematics of the CoM within the world frame of the input robot
-  stateObservation::kine::Kinematics worldCoMKine_;
+  // kinematics of the centroid frame in the floating base
+  stateObservation::kine::Kinematics fbCentroidKine_;
   /**< grouped inertia */
   sva::RBInertiad inertiaWaist_;
-  // total force measured by the sensors that are not associated to a currently set contact and expressed in the
-  // floating base's frame. Used as an input for the Kinetics Observer.
-  stateObservation::Vector3 additionalUserResultingForce_ = stateObservation::Vector3::Zero();
-  // total torque measured by the sensors that are not associated to a currently set contact and expressed in the
-  // floating base's frame. Used as an input for the Kinetics Observer.
-  stateObservation::Vector3 additionalUserResultingMoment_ = stateObservation::Vector3::Zero();
 
   /* Variables for the backup */
   // iteration on which the backup was required for the last time
@@ -458,6 +438,8 @@ private:
   int invincibilityFrame_ = 0;
   // iterations ellapsed within the invincibility frame
   int invincibilityIter_;
+
+  size_t k_;
 
   // Buffer containing the estimated pose of the floating base in the world over the whole backup interval.
   boost::circular_buffer<stateObservation::kine::Kinematics> koBackupFbKinematics_;

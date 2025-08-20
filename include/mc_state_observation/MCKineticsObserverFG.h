@@ -34,6 +34,7 @@ struct KoContactWithSensor : public measurements::ContactWithSensor
 public:
   // kinematics of the contact frame in the floating base's frame
   stateObservation::kine::Kinematics fbContactKine_;
+  stateObservation::kine::Kinematics centroidContactKine_;
   // kinematics of the sensor frame in the frame of the contact surface
   stateObservation::kine::Kinematics contactSensorKine_;
   // measured contact wrench, expressed in the frame of the contact.
@@ -61,6 +62,8 @@ struct MCKineticsObserverFG : public mc_observers::Observer
   void update(mc_control::MCController & ctl) override;
 
 protected:
+  void initObserver(const mc_control::MCController & ctl);
+
   /// @brief sets all the covariances required by the Kinetics Observer
   void setObserverCovariances();
   /// @brief Update the pose and velocities of the robot in the world frame. Used only to update the ones of the robot
@@ -88,6 +91,9 @@ protected:
   void addSensorsAsInputs(const mc_rbdyn::Robot & inputRobot,
                           const mc_rbdyn::Robot & measRobot,
                           stateObservation::Vector6 & inputAddtionalWrench);
+
+  std::pair<stateObservation::Matrix3, stateObservation::Vector3> computeInertiaAndAngMomentum(
+      const mc_rbdyn::Robot & inputRobot);
 
   /// @brief Update the IMUs, including the measurements, measurement covariances and kinematics in the floating
   /// base's frame (user frame)
@@ -278,7 +284,7 @@ public:
   /** Get last measurement vector sent to observer.
    *
    */
-  inline const Eigen::VectorXd measurements() const { return observer_.getEKF().getLastMeasurement(); }
+  // inline const Eigen::VectorXd measurements() const { return observer_.getEKF().getLastMeasurement(); }
 
   /** Floating-base transform estimate.
    *
@@ -300,6 +306,8 @@ private:
   // instance of the Kinetics Observer
   ko_fg::KineticsObserverFG observer_;
 
+  measurements::ContactsManagerConfiguration contactsConf_;
+
   // category to plot the estimator in
   std::string category_;
   // name of the robot
@@ -320,6 +328,9 @@ private:
   // state vector resulting from the Kinetics Observer esimation
   Eigen::VectorXd res_;
   stateObservation::kine::Kinematics worldFbKine_;
+  stateObservation::kine::LocalKinematics worldCentroidLocKine_;
+  stateObservation::kine::Kinematics worldCentroidKine_;
+
   // pose of the floating base within the world frame (real one, not the one of the control robot)
   sva::PTransformd X_0_fb_;
   // velocity of the floating base within the world frame (real one, not the one of the control robot)
@@ -330,14 +341,14 @@ private:
   /* Parameters of the robot */
   // mass of the robot
   double mass_; // [kg]
-  // linear stiffness of contacts
-  stateObservation::Matrix3 linStiffness_;
-  // linear damping of contacts
-  stateObservation::Matrix3 linDamping_;
-  // angular stiffness of contacts
-  stateObservation::Matrix3 angStiffness_;
-  // linear damping of contacts
-  stateObservation::Matrix3 angDamping_;
+
+  // Noises
+  std::array<double, 4> contactInitNoises_;
+  std::array<double, 2> contactMeasNoises_;
+  std::array<double, 4> contactProcessNoises_;
+
+  // Contact flexbilities
+  std::array<stateObservation::Matrix3, 4> contactFlexibilities_;
 
   // indicates if the debug logs have to be added.
   bool withDebugLogs_ = false;
@@ -425,6 +436,7 @@ private:
   sva::MotionVecd zeroMotion_;
   // kinematics of the centroid frame in the floating base
   stateObservation::kine::Kinematics fbCentroidKine_;
+  stateObservation::kine::Kinematics centroidFbKine_;
   /**< grouped inertia */
   sva::RBInertiad inertiaWaist_;
 

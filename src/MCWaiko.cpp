@@ -1,5 +1,6 @@
 #include <mc_observers/ObserverMacros.h>
 
+#include "mc_state_observation/measurements/ContactsManager.h"
 #include "mc_state_observation/measurements/measurements.h"
 #include <mc_state_observation/MCWaiko.h>
 #include <mc_state_observation/gui_helpers.h>
@@ -81,11 +82,10 @@ void MCWaiko::configure(const mc_control::MCController & ctl, const mc_rtc::Conf
   contactsConfig("surfacesForContactDetection", surfacesForContactDetection);
 
   std::string contactsDetectionString = static_cast<std::string>(contactsConfig("contactsDetection"));
-  LoContactsManager::ContactsDetection contactsDetectionMethod =
+  measurements::ContactsDetection contactsDetectionMethod =
       odometryManager_.contactsManager().stringToContactsDetection(contactsDetectionString, name());
 
-  if(surfacesForContactDetection.size() > 0
-     && contactsDetectionMethod != LoContactsManager::ContactsDetection::Surfaces)
+  if(surfacesForContactDetection.size() > 0 && contactsDetectionMethod != measurements::ContactsDetection::Surfaces)
   {
     mc_rtc::log::error_and_throw<std::runtime_error>("Another type of contacts detection than Surfaces is currently "
                                                      "used, please change it to 'Surfaces' or empty the "
@@ -107,52 +107,40 @@ void MCWaiko::configure(const mc_control::MCController & ctl, const mc_rtc::Conf
     double lambdaInf = odomConfig("lambdaInf");
     odometryManager_.lambdaInf(lambdaInf);
   }
-  if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Surfaces)
+
+  measurements::ContactsManagerConfiguration contactsConf(contactsDetectionMethod, name());
+  contactsConf.verbose(verbose);
+  if(contactsConfig.has("schmittTriggerLowerPropThreshold") && contactsConfig.has("schmittTriggerUpperPropThreshold"))
   {
-    if(surfacesForContactDetection.size() == 0)
-    {
-      mc_rtc::log::error_and_throw<std::runtime_error>("The list of surfaces for the contact detection is empty.");
-    }
-
-    measurements::ContactsManagerSurfacesConfiguration contactsConf(name(), surfacesForContactDetection);
-    contactsConf.verbose(verbose);
-
-    if(contactsConfig.has("schmittTriggerLowerPropThreshold") && contactsConfig.has("schmittTriggerUpperPropThreshold"))
-    {
-      double schmittTriggerLowerPropThreshold = contactsConfig("schmittTriggerLowerPropThreshold");
-      double schmittTriggerUpperPropThreshold = contactsConfig("schmittTriggerUpperPropThreshold");
-      contactsConf.schmittTriggerPropThresholds(schmittTriggerLowerPropThreshold, schmittTriggerUpperPropThreshold);
-    }
-
-    odometryManager_.init(ctl, odometryConfig, contactsConf);
+    double schmittTriggerLowerPropThreshold = contactsConfig("schmittTriggerLowerPropThreshold");
+    double schmittTriggerUpperPropThreshold = contactsConfig("schmittTriggerUpperPropThreshold");
+    contactsConf.schmittTriggerPropThresholds(schmittTriggerLowerPropThreshold, schmittTriggerUpperPropThreshold);
   }
-  if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Sensors)
+
+  switch(contactsDetectionMethod)
   {
-    std::vector<std::string> forceSensorsToOmit = odomConfig("forceSensorsToOmit", std::vector<std::string>());
-
-    measurements::ContactsManagerSensorsConfiguration contactsConf(name());
-    contactsConf.verbose(verbose).forceSensorsToOmit(forceSensorsToOmit);
-    if(contactsConfig.has("schmittTriggerLowerPropThreshold") && contactsConfig.has("schmittTriggerUpperPropThreshold"))
+    case measurements::Surfaces:
     {
-      double schmittTriggerLowerPropThreshold = contactsConfig("schmittTriggerLowerPropThreshold");
-      double schmittTriggerUpperPropThreshold = contactsConfig("schmittTriggerUpperPropThreshold");
-      contactsConf.schmittTriggerPropThresholds(schmittTriggerLowerPropThreshold, schmittTriggerUpperPropThreshold);
-    }
+      if(surfacesForContactDetection.size() == 0)
+      {
+        mc_rtc::log::error_and_throw<std::runtime_error>("The list of surfaces for the contact detection is empty.");
+      }
 
-    odometryManager_.init(ctl, odometryConfig, contactsConf);
-  }
-  if(contactsDetectionMethod == LoContactsManager::ContactsDetection::Solver)
-  {
-    measurements::ContactsManagerSolverConfiguration contactsConf(name());
-    contactsConf.verbose(verbose);
-    if(contactsConfig.has("schmittTriggerLowerPropThreshold") && contactsConfig.has("schmittTriggerUpperPropThreshold"))
-    {
-      double schmittTriggerLowerPropThreshold = contactsConfig("schmittTriggerLowerPropThreshold");
-      double schmittTriggerUpperPropThreshold = contactsConfig("schmittTriggerUpperPropThreshold");
-      contactsConf.schmittTriggerPropThresholds(schmittTriggerLowerPropThreshold, schmittTriggerUpperPropThreshold);
+      contactsConf.surfacesForContactDetection(surfacesForContactDetection);
+      break;
     }
-    odometryManager_.init(ctl, odometryConfig, contactsConf);
+    case measurements::Sensors:
+    {
+      std::vector<std::string> forceSensorsToOmit = odomConfig("forceSensorsToOmit", std::vector<std::string>());
+
+      contactsConf.forceSensorsToOmit(forceSensorsToOmit);
+      break;
+    }
+    default:
+      break;
   }
+
+  odometryManager_.init(ctl, odometryConfig, contactsConf);
 }
 
 void MCWaiko::reset(const mc_control::MCController & ctl)

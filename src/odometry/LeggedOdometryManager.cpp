@@ -1,5 +1,6 @@
 #include <mc_rtc/logging.h>
 
+#include "mc_state_observation/measurements/ContactsManager.h"
 #include <mc_state_observation/measurements/measurements.h>
 
 #include <mc_state_observation/odometry/LeggedOdometryManager.h>
@@ -15,7 +16,7 @@ namespace mc_state_observation::odometry
 
 void LeggedOdometryManager::init(const mc_control::MCController & ctl,
                                  const Configuration & odomConfig,
-                                 const ContactsManagerConfiguration & contactsConf)
+                                 const measurements::ContactsManagerConfiguration & contactsConf)
 
 {
   robotName_ = odomConfig.robotName_;
@@ -482,7 +483,7 @@ void LeggedOdometryManager::setNewContact(LoContactWithSensor & contact, const m
   // If the contact is not detected using surfaces, we must consider that the frame of the sensor is the one of the
   // surface).
 
-  if(contactsManager_.getContactsDetection() == ContactsManager::ContactsDetection::Sensors)
+  if(contactsManager_.getContactsDetection() == measurements::ContactsDetection::Sensors)
   {
     so::kine::Kinematics worldNewContactKineOdometryRobot;
     so::kine::Kinematics worldContactKineRef;
@@ -569,7 +570,7 @@ const so::kine::Kinematics & LeggedOdometryManager::getContactKinematics(LoConta
   }
   so::kine::Kinematics worldSensorKine = worldBodyKine * bodyContactSensorKine;
 
-  if(contactsManager_.getContactsDetection() == ContactsManager::ContactsDetection::Sensors)
+  if(contactsManager_.getContactsDetection() == measurements::ContactsDetection::Sensors)
   {
     // If the contact is detecting using thresholds, we will then consider the sensor frame as
     // the contact surface frame directly.

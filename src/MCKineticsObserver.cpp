@@ -2,6 +2,7 @@
 #include <mc_observers/ObserverMacros.h>
 #include <mc_rtc/logging.h>
 
+#include "mc_state_observation/measurements/ContactsManager.h"
 #include <mc_state_observation/MCKineticsObserver.h>
 #include <mc_state_observation/gui_helpers.h>
 
@@ -50,25 +51,26 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   auto contactsConfig = config("contacts");
 
   std::string contactsDetectionString = static_cast<std::string>(contactsConfig("contactsDetection"));
-  KoContactsManager::ContactsDetection contactsDetectionMethod =
+  measurements::ContactsDetection contactsDetectionMethod =
       contactsManager_.stringToContactsDetection(contactsDetectionString, name());
 
   contactsConfig("forceSensorsAsInput", forceSensorsAsInput_);
 
-  if(contactsDetectionMethod == KoContactsManager::ContactsDetection::Surfaces)
+  measurements::ContactsManagerConfiguration contactsConf(contactsDetectionMethod, name());
+  contactsConf.verbose(true);
+  if(contactsConfig.has("schmittTriggerLowerPropThreshold") && contactsConfig.has("schmittTriggerUpperPropThreshold"))
+  {
+    double schmittTriggerLowerPropThreshold = contactsConfig("schmittTriggerLowerPropThreshold");
+    double schmittTriggerUpperPropThreshold = contactsConfig("schmittTriggerUpperPropThreshold");
+    contactsConf.schmittTriggerPropThresholds(schmittTriggerLowerPropThreshold, schmittTriggerUpperPropThreshold);
+  }
+
+  if(contactsDetectionMethod == measurements::ContactsDetection::Surfaces)
   {
     std::vector<std::string> surfacesForContactDetection =
         contactsConfig("surfacesForContactDetection", std::vector<std::string>());
 
-    measurements::ContactsManagerSurfacesConfiguration contactsConf(name(), surfacesForContactDetection);
-
-    contactsConf.verbose(true);
-    if(contactsConfig.has("schmittTriggerLowerPropThreshold") && contactsConfig.has("schmittTriggerUpperPropThreshold"))
-    {
-      double schmittTriggerLowerPropThreshold = contactsConfig("schmittTriggerLowerPropThreshold");
-      double schmittTriggerUpperPropThreshold = contactsConfig("schmittTriggerUpperPropThreshold");
-      contactsConf.schmittTriggerPropThresholds(schmittTriggerLowerPropThreshold, schmittTriggerUpperPropThreshold);
-    }
+    contactsConf.surfacesForContactDetection(surfacesForContactDetection);
 
     auto & logger = (const_cast<mc_control::MCController &>(ctl)).logger();
     auto onAddedContact = [this, &ctl, &logger](KoContactWithSensor & addedContact)
@@ -90,16 +92,12 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
       contact->sensorEnabled_ = false;
     }
   }
-  if(contactsDetectionMethod == KoContactsManager::ContactsDetection::Sensors)
+  else { measurements::ContactsManagerConfiguration contactsConf(contactsDetectionMethod, name()); }
+
+  if(contactsDetectionMethod == measurements::ContactsDetection::Sensors)
   {
-    measurements::ContactsManagerSensorsConfiguration contactsConf(name());
-    contactsConf.verbose(true).forceSensorsToOmit(forceSensorsAsInput_);
-    if(contactsConfig.has("schmittTriggerLowerPropThreshold") && contactsConfig.has("schmittTriggerUpperPropThreshold"))
-    {
-      double schmittTriggerLowerPropThreshold = contactsConfig("schmittTriggerLowerPropThreshold");
-      double schmittTriggerUpperPropThreshold = contactsConfig("schmittTriggerUpperPropThreshold");
-      contactsConf.schmittTriggerPropThresholds(schmittTriggerLowerPropThreshold, schmittTriggerUpperPropThreshold);
-    }
+    contactsConf.forceSensorsToOmit(forceSensorsAsInput_);
+
     contactsManager_.init(ctl, robot_, contactsConf);
 
     // we set the force sensor of the desired contacts as disabled
@@ -116,16 +114,8 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
       contact->sensorEnabled_ = false;
     }
   }
-  if(contactsDetectionMethod == KoContactsManager::ContactsDetection::Solver)
+  if(contactsDetectionMethod == measurements::ContactsDetection::Solver)
   {
-    measurements::ContactsManagerSolverConfiguration contactsConf(name());
-    contactsConf.verbose(true);
-    if(contactsConfig.has("schmittTriggerLowerPropThreshold") && contactsConfig.has("schmittTriggerUpperPropThreshold"))
-    {
-      double schmittTriggerLowerPropThreshold = contactsConfig("schmittTriggerLowerPropThreshold");
-      double schmittTriggerUpperPropThreshold = contactsConfig("schmittTriggerUpperPropThreshold");
-      contactsConf.schmittTriggerPropThresholds(schmittTriggerLowerPropThreshold, schmittTriggerUpperPropThreshold);
-    }
     contactsManager_.init(ctl, robot_, contactsConf);
   }
 
@@ -529,7 +519,7 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
           const mc_rbdyn::ForceSensor & forceSensor = robot.forceSensor(contact.forceSensor());
 
           // the tilt of the robot changed so the contribution of the gravity to the measurements changed too
-          if(contactsManager_.getContactsDetection() == KoContactsManager::ContactsDetection::Sensors)
+          if(contactsManager_.getContactsDetection() == measurements::ContactsDetection::Sensors)
           {
             updateContactForceMeasurement(contact, forceSensor.wrenchWithoutGravity(inputRobot));
           }
@@ -621,7 +611,7 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
         // Update of the force measurements (the offset due to the gravity changed)
         const mc_rbdyn::ForceSensor & forceSensor = inputRobot.forceSensor(contact.forceSensor());
 
-        if(contactsManager_.getContactsDetection() == KoContactsManager::ContactsDetection::Sensors)
+        if(contactsManager_.getContactsDetection() == measurements::ContactsDetection::Sensors)
         {
           updateContactForceMeasurement(contact, forceSensor.wrenchWithoutGravity(inputRobot));
         }
@@ -838,7 +828,7 @@ const so::kine::Kinematics MCKineticsObserver::getContactWorldKinematics(const K
 
   so::kine::Kinematics worldSensorKine = worldBodyKine * bodyContactSensorKine;
 
-  if(contactsManager_.getContactsDetection() == KoContactsManager::ContactsDetection::Sensors)
+  if(contactsManager_.getContactsDetection() == measurements::ContactsDetection::Sensors)
   {
     // If the contact is detecting using thresholds, we will then consider the sensor frame as
     // the contact surface frame directly.

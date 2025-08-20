@@ -54,7 +54,7 @@ macro(add_kineticsobserver_fg)
 
   target_link_libraries(
     MCKineticsObserverFG
-    PUBLIC mc_rtc::mc_control state-observation::state-observation kinetics_observer_fg)
+    PUBLIC mc_rtc::mc_control state-observation::state-observation  mc_state_observation kinetics_observer_fg)
 endmacro()
 
 macro(add_observer_with_filter observer_name)

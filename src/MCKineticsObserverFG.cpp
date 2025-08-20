@@ -1,11 +1,20 @@
 /* Copyright 2017-2020 CNRS-AIST JRL, CNRS-UM LIRMM */
 #include <mc_observers/ObserverMacros.h>
 #include <mc_rtc/logging.h>
+#include "kinetics_observer_fg.hpp"
+#include "mc_state_observation/measurements/ContactsManager.h"
+#include <array>
+#include <cstddef>
+#include <gtsam/geometry/Pose3.h>
 #include <mc_state_observation/MCKineticsObserverFG.h>
 #include <mc_state_observation/conversions/kinematics.h>
 #include <mc_state_observation/gui_helpers.h>
 
 #include "mc_state_observation/measurements/measurements.h"
+#include <state-observation/tools/definitions.hpp>
+#include <state-observation/tools/rigid-body-kinematics.hpp>
+#include <unordered_map>
+#include <utility>
 
 using namespace ko_fg;
 
@@ -13,7 +22,7 @@ namespace so = stateObservation;
 namespace mc_state_observation
 {
 MCKineticsObserverFG::MCKineticsObserverFG(const std::string & type, double dt)
-: mc_observers::Observer(type, dt), observer_(1)
+: mc_observers::Observer(type, dt), observer_(1), contactsConf_()
 {
   observer_.setSamplingTime(dt);
 }
@@ -48,118 +57,77 @@ void MCKineticsObserverFG::configure(const mc_control::MCController & ctl, const
   auto contactsConfig = config("contacts");
 
   std::string contactsDetectionString = static_cast<std::string>(contactsConfig("contactsDetection"));
-  KoContactsManager::ContactsDetection contactsDetectionMethod =
+  measurements::ContactsDetection contactsDetectionMethod =
       contactsManager_.stringToContactsDetection(contactsDetectionString, name());
 
   contactsConfig("forceSensorsAsInput", forceSensorsAsInput_);
 
-  if(contactsDetectionMethod == KoContactsManager::ContactsDetection::Surfaces)
+  contactsConf_ = measurements::ContactsManagerConfiguration(contactsDetectionMethod, name());
+  contactsConf_.verbose(true);
+  if(contactsConfig.has("schmittTriggerLowerPropThreshold") && contactsConfig.has("schmittTriggerUpperPropThreshold"))
   {
-    std::vector<std::string> surfacesForContactDetection =
-        contactsConfig("surfacesForContactDetection", std::vector<std::string>());
-
-    measurements::ContactsManagerSurfacesConfiguration contactsConf(name(), surfacesForContactDetection);
-
-    contactsConf.verbose(true);
-    if(contactsConfig.has("schmittTriggerLowerPropThreshold") && contactsConfig.has("schmittTriggerUpperPropThreshold"))
-    {
-      double schmittTriggerLowerPropThreshold = contactsConfig("schmittTriggerLowerPropThreshold");
-      double schmittTriggerUpperPropThreshold = contactsConfig("schmittTriggerUpperPropThreshold");
-      contactsConf.schmittTriggerPropThresholds(schmittTriggerLowerPropThreshold, schmittTriggerUpperPropThreshold);
-    }
-
-    auto & logger = (const_cast<mc_control::MCController &>(ctl)).logger();
-    auto onAddedContact = [this, &ctl, &logger](KoContactWithSensor & addedContact)
-    { addContactToGui(ctl, addedContact, logger); };
-
-    contactsManager_.init(ctl, robot_, contactsConf, onAddedContact);
-
-    // we set the force sensor of the desired contacts as disabled
-    std::vector<std::string> contactSensorsDisabledInit =
-        contactsConfig("contactSensorsDisabledInit", std::vector<std::string>());
-    for(auto const & contactSensorDisabledInit : contactSensorsDisabledInit)
-    {
-      auto * contact = contactsManager_.findContact(contactSensorDisabledInit);
-      if(!contact)
-      {
-        mc_rtc::log::error_and_throw("The force sensor {} set as disabled on initialization does not exist.",
-                                     contactSensorDisabledInit);
-      }
-      contact->sensorEnabled_ = false;
-    }
+    double schmittTriggerLowerPropThreshold = contactsConfig("schmittTriggerLowerPropThreshold");
+    double schmittTriggerUpperPropThreshold = contactsConfig("schmittTriggerUpperPropThreshold");
+    contactsConf_.schmittTriggerPropThresholds(schmittTriggerLowerPropThreshold, schmittTriggerUpperPropThreshold);
   }
-  if(contactsDetectionMethod == KoContactsManager::ContactsDetection::Sensors)
-  {
-    measurements::ContactsManagerSensorsConfiguration contactsConf(name());
-    contactsConf.verbose(true).forceSensorsToOmit(forceSensorsAsInput_);
-    if(contactsConfig.has("schmittTriggerLowerPropThreshold") && contactsConfig.has("schmittTriggerUpperPropThreshold"))
-    {
-      double schmittTriggerLowerPropThreshold = contactsConfig("schmittTriggerLowerPropThreshold");
-      double schmittTriggerUpperPropThreshold = contactsConfig("schmittTriggerUpperPropThreshold");
-      contactsConf.schmittTriggerPropThresholds(schmittTriggerLowerPropThreshold, schmittTriggerUpperPropThreshold);
-    }
-    contactsManager_.init(ctl, robot_, contactsConf);
 
-    // we set the force sensor of the desired contacts as disabled
-    std::vector<std::string> contactSensorsDisabledInit =
-        contactsConfig("contactSensorsDisabledInit", std::vector<std::string>());
-    for(const auto & contactSensorDisabledInit : contactSensorsDisabledInit)
-    {
-      auto * contact = contactsManager_.findContact(contactSensorDisabledInit);
-      if(!contact)
-      {
-        mc_rtc::log::error_and_throw("The force sensor {} set as disabled on initialization does not exist.",
-                                     contactSensorDisabledInit);
-      }
-      contact->sensorEnabled_ = false;
-    }
-  }
-  if(contactsDetectionMethod == KoContactsManager::ContactsDetection::Solver)
+  switch(contactsDetectionMethod)
   {
-    measurements::ContactsManagerSolverConfiguration contactsConf(name());
-    contactsConf.verbose(true);
-    if(contactsConfig.has("schmittTriggerLowerPropThreshold") && contactsConfig.has("schmittTriggerUpperPropThreshold"))
+    case measurements::Surfaces:
     {
-      double schmittTriggerLowerPropThreshold = contactsConfig("schmittTriggerLowerPropThreshold");
-      double schmittTriggerUpperPropThreshold = contactsConfig("schmittTriggerUpperPropThreshold");
-      contactsConf.schmittTriggerPropThresholds(schmittTriggerLowerPropThreshold, schmittTriggerUpperPropThreshold);
+      std::vector<std::string> surfacesForContactDetection =
+          contactsConfig("surfacesForContactDetection", std::vector<std::string>());
+
+      contactsConf_.surfacesForContactDetection(surfacesForContactDetection);
+
+      // we set the force sensor of the desired contacts as disabled
+      std::vector<std::string> contactSensorsDisabledInit =
+          contactsConfig("contactSensorsDisabledInit", std::vector<std::string>());
+      for(auto const & contactSensorDisabledInit : contactSensorsDisabledInit)
+      {
+        auto * contact = contactsManager_.findContact(contactSensorDisabledInit);
+        if(!contact)
+        {
+          mc_rtc::log::error_and_throw("The force sensor {} set as disabled on initialization does not exist.",
+                                       contactSensorDisabledInit);
+        }
+        contact->sensorEnabled_ = false;
+      }
+      break;
     }
-    contactsManager_.init(ctl, robot_, contactsConf);
+    case measurements::Sensors:
+    {
+      contactsConf_.forceSensorsToOmit(forceSensorsAsInput_);
+
+      // we set the force sensor of the desired contacts as disabled
+      std::vector<std::string> contactSensorsDisabledInit =
+          contactsConfig("contactSensorsDisabledInit", std::vector<std::string>());
+      for(const auto & contactSensorDisabledInit : contactSensorsDisabledInit)
+      {
+        auto * contact = contactsManager_.findContact(contactSensorDisabledInit);
+        if(!contact)
+        {
+          mc_rtc::log::error_and_throw("The force sensor {} set as disabled on initialization does not exist.",
+                                       contactSensorDisabledInit);
+        }
+        contact->sensorEnabled_ = false;
+      }
+      break;
+    }
+    case measurements::Solver:
+    {
+    }
+    default:
+      break;
   }
 
   /* Configuration of the Kinetics Observer's parameters */
 
-  linStiffness_ = (config("linStiffness").operator so::Vector3()).matrix().asDiagonal();
-  angStiffness_ = (config("angStiffness").operator so::Vector3()).matrix().asDiagonal();
-  linDamping_ = (config("linDamping").operator so::Vector3()).matrix().asDiagonal();
-  angDamping_ = (config("angDamping").operator so::Vector3()).matrix().asDiagonal();
+  contactFlexibilities_[0] = (config("linStiffness").operator so::Vector3()).matrix().asDiagonal();
+  contactFlexibilities_[1] = (config("angStiffness").operator so::Vector3()).matrix().asDiagonal();
+  contactFlexibilities_[2] = (config("linDamping").operator so::Vector3()).matrix().asDiagonal();
+  contactFlexibilities_[3] = (config("angDamping").operator so::Vector3()).matrix().asDiagonal();
 
-  zeroPose_.translation().setZero();
-  zeroPose_.rotation().setIdentity();
-  zeroMotion_.linear().setZero();
-  zeroMotion_.angular().setZero();
-
-  std::vector<double> contactInitNoises;
-  contactInitNoises.push_back(1e-6);
-  contactInitNoises.push_back(1e-6);
-  contactInitNoises.push_back(1e-6);
-  contactInitNoises.push_back(1e-6);
-
-  std::vector<double> contactProcessNoises;
-  contactProcessNoises.push_back(1e-6);
-  contactProcessNoises.push_back(1e-6);
-  contactProcessNoises.push_back(1e-6);
-  contactProcessNoises.push_back(1e-6);
-
-  std::vector<double> contactMeasNoises;
-  contactMeasNoises.push_back(1e-10);
-  contactMeasNoises.push_back(1e-10);
-
-  std::vector<Matrix3> contactFlexibilities;
-  contactFlexibilities.push_back(Matrix3::Identity() * 3e5);
-  contactFlexibilities.push_back(Matrix3::Identity() * 1000);
-  contactFlexibilities.push_back(Matrix3::Identity() * 150);
-  contactFlexibilities.push_back(Matrix3::Identity() * 17);
   // Unmodeled Wrench //
 }
 
@@ -213,35 +181,30 @@ void MCKineticsObserverFG::reset(const mc_control::MCController & ctl)
 
   X_0_fb_ = realRobot.posW().translation();
 
-  initObserverStateVector(ctl, realRobot);
-
-  observer_.init(1, mass_, const Matrix3 & I, const Vector3 & sigma, const Vector & initState,
-                 const std::vector<double> & initNoises, const std::vector<double> & processNoise,
-                 const std::vector<double> & imuNoises, const std::vector<size_t> & imuIDs);
-
+  initObserver(ctl);
   k_ = 0;
-}
 
-void MCKineticsObserverFG::addSensorsAsInputs(const mc_rbdyn::Robot & inputRobot,
-                                              const mc_rbdyn::Robot & measRobot,
-                                              so::Vector6 & inputAddtionalWrench)
-{
-  for(const std::string & fsName : forceSensorsAsInput_)
+  if(contactsConf_.contactsDetection_ == measurements::ContactsDetection::Surfaces)
   {
-    const mc_rbdyn::ForceSensor & forceSensor = measRobot.forceSensor(fsName);
-    sva::ForceVecd measuredWrench = forceSensor.worldWrenchWithoutGravity(inputRobot);
+    auto & logger = (const_cast<mc_control::MCController &>(ctl)).logger();
 
-    inputAddtionalWrench.segment(0, 3) += measuredWrench.force();
-    inputAddtionalWrench.segment(3, 3) += measuredWrench.moment();
+    auto onAddedContact = [this, &ctl, &logger](KoContactWithSensor & addedContact)
+    {
+      addContactToGui(ctl, addedContact, logger);
+      observer_.addContactToList(addedContact.id(), contactFlexibilities_, contactProcessNoises_, contactMeasNoises_);
+    };
+    contactsManager_.init(ctl, robot_, contactsConf_, onAddedContact);
   }
 }
 
-bool MCKineticsObserverFG::run(const mc_control::MCController & ctl)
+void MCKineticsObserverFG::initObserver(const mc_control::MCController & ctl)
 {
-  const auto & robot = ctl.robot(robot_);
   const auto & realRobot = ctl.realRobot(robot_);
+
+  worldFbKine_ = conversions::kinematics::fromSva(realRobot.posW(),
+                                                  so::kine::Kinematics::Flags::vel | so::kine::Kinematics::Flags::acc);
+
   auto & inputRobot = my_robots_->robot("inputRobot");
-  auto & logger = (const_cast<mc_control::MCController &>(ctl)).logger();
 
   // Copy the real configuration except for the floating base
   const auto & realQ = realRobot.mbc().q;
@@ -272,6 +235,136 @@ bool MCKineticsObserverFG::run(const mc_control::MCController & ctl)
   fbCentroidKine_.linAcc = inputRobot.comAcceleration();
   fbCentroidKine_.angAcc.set().setZero();
 
+  centroidFbKine_ = fbCentroidKine_.getInverse();
+
+  worldCentroidKine_ = worldFbKine_ * fbCentroidKine_;
+  worldCentroidLocKine_ = worldCentroidKine_;
+
+  Vector initState;
+  initState.resize(28);
+  auto initPos = initState.segment<3>(0);
+  auto initQuat = initState.segment<4>(3);
+  auto initLinVel = initState.segment<3>(7);
+  auto initAngVel = initState.segment<3>(10);
+  auto initLinAcc = initState.segment<3>(13);
+  auto initAngAcc = initState.segment<3>(16);
+  auto initExtForce = initState.segment<3>(19);
+  auto initExtTorque = initState.segment<3>(22);
+  auto initBias = initState.segment<3>(25);
+
+  initPos = worldCentroidLocKine_.position();
+  initQuat = worldCentroidLocKine_.orientation.toQuaternion().coeffs();
+  initLinVel = worldCentroidLocKine_.linVel();
+  initAngVel = worldCentroidLocKine_.angVel();
+  initLinAcc = worldCentroidLocKine_.linAcc();
+  initAngAcc = worldCentroidLocKine_.angAcc();
+  initExtForce.setZero();
+  initExtTorque.setZero();
+  initBias.setZero();
+
+  std::vector<double> initNoises;
+  std::vector<double> processNoises;
+  std::unordered_map<size_t, std::array<double, 4>> imuNoises;
+
+  initNoises.push_back(1e-2); // pos
+  initNoises.push_back(1e-2); // ori
+  initNoises.push_back(1e-2); // linVel
+  initNoises.push_back(1e-2); // angVel
+  initNoises.push_back(1e-2); // linAcc
+  initNoises.push_back(1e-2); // angAcc
+  initNoises.push_back(1e-0); // extForce
+  initNoises.push_back(1e-0); // extTorque
+
+  processNoises.push_back(1e-4); // pos
+  processNoises.push_back(1e-4); // ori
+  processNoises.push_back(1e-4); // linVel
+  processNoises.push_back(1e-4); // angVel
+  processNoises.push_back(1e-4); // linAcc
+  processNoises.push_back(1e-4); // angAcc
+  processNoises.push_back(1e-3); // extForce
+  processNoises.push_back(1e-3); // extTorque
+
+  imuNoises.insert({0, {1e-2, 1e-5, 1e-6, 1e-6}});
+
+  contactInitNoises_.at(0) = 1e-2;
+  contactInitNoises_.at(1) = 1e-2;
+  contactInitNoises_.at(2) = 1e1;
+  contactInitNoises_.at(3) = 1e1;
+
+  contactProcessNoises_.at(0) = 1e-5;
+  contactProcessNoises_.at(1) = 1e-5;
+  contactProcessNoises_.at(2) = 1e2;
+  contactProcessNoises_.at(3) = 1e2;
+
+  contactMeasNoises_.at(0) = 1e1;
+  contactMeasNoises_.at(1) = 1e1;
+
+  auto [inertiaMatrix, angularMomentium] = computeInertiaAndAngMomentum(realRobot);
+  observer_.init(1, mass_, inertiaMatrix, angularMomentium, initState, initNoises, processNoises, imuNoises, {});
+}
+
+void MCKineticsObserverFG::addSensorsAsInputs(const mc_rbdyn::Robot & inputRobot,
+                                              const mc_rbdyn::Robot & measRobot,
+                                              so::Vector6 & inputAddtionalWrench)
+{
+  for(const std::string & fsName : forceSensorsAsInput_)
+  {
+    const mc_rbdyn::ForceSensor & forceSensor = measRobot.forceSensor(fsName);
+    sva::ForceVecd measuredWrench = forceSensor.worldWrenchWithoutGravity(inputRobot);
+
+    inputAddtionalWrench.segment(0, 3) += measuredWrench.force();
+    inputAddtionalWrench.segment(3, 3) += measuredWrench.moment();
+  }
+}
+
+std::pair<Matrix3, Vector3> MCKineticsObserverFG::computeInertiaAndAngMomentum(const mc_rbdyn::Robot & inputRobot)
+{
+  Matrix3 inertiaMatrix = inertiaWaist_.inertia() + mass_ * so::kine::skewSymmetric2(fbCentroidKine_.position());
+  Vector3 angularMomentum =
+      rbd::computeCentroidalMomentum(inputRobot.mb(), inputRobot.mbc(), inputRobot.com()).moment();
+
+  return {inertiaMatrix, angularMomentum};
+}
+
+bool MCKineticsObserverFG::run(const mc_control::MCController & ctl)
+{
+  auto & logger = (const_cast<mc_control::MCController &>(ctl)).logger();
+
+  const auto & robot = ctl.robot(robot_);
+  const auto & realRobot = ctl.realRobot(robot_);
+  auto & inputRobot = my_robots_->robot("inputRobot");
+
+  // Copy the real configuration except for the floating base
+  const auto & realQ = realRobot.mbc().q;
+  const auto & realAlpha = realRobot.mbc().alpha;
+  const auto & realAlphaD = realRobot.mbc().alphaD;
+
+  std::copy(std::next(realQ.begin()), realQ.end(), std::next(inputRobot.mbc().q.begin()));
+  std::copy(std::next(realAlpha.begin()), realAlpha.end(), std::next(inputRobot.mbc().alpha.begin()));
+  std::copy(std::next(realAlphaD.begin()), realAlphaD.end(), std::next(inputRobot.mbc().alphaD.begin()));
+
+  inputRobot.forwardKinematics();
+  inputRobot.forwardVelocity();
+  inputRobot.forwardAcceleration();
+
+  // The input robot copies the real robot to update the encoder values.
+  // Then its floating base is brung back to the origin of the world frame and given zero velocities and accelerations
+  // in order to ease the computations.
+  inputRobot.posW(zeroPose_);
+  inputRobot.velW(zeroMotion_);
+  inputRobot.accW(zeroMotion_);
+
+  /** Center of mass (assumes FK, FV and FA are already done)
+      Must be initialized now as used for the conversion from user to centroid frame !!! **/
+  fbCentroidKine_.position = inputRobot.com();
+  fbCentroidKine_.orientation.setZeroRotation();
+  fbCentroidKine_.linVel = inputRobot.comVelocity();
+  fbCentroidKine_.angVel.set().setZero();
+  fbCentroidKine_.linAcc = inputRobot.comAcceleration();
+  fbCentroidKine_.angAcc.set().setZero();
+
+  centroidFbKine_ = fbCentroidKine_.getInverse();
+
   // update of the contacts
   updateContacts(ctl, logger);
 
@@ -295,12 +388,12 @@ bool MCKineticsObserverFG::run(const mc_control::MCController & ctl)
 
   // Given, the Kinematics of the floating base inside its own frame (zero kinematics) which is our user
   // frame, the Kinetics Observer will return the kinematics of the floating base in the real world frame.
-  stateObservation::kine::LocalKinematics worldCentroidLocKine;
 
-  worldCentroidLocKine.fromVector(observer_.getCurrentStateVector().segment(0, 19),
-                                  stateObservation::kine::LocalKinematics::Flags::all);
+  worldCentroidLocKine_.fromVector(observer_.getCurrentStateVector().segment(0, 19),
+                                   stateObservation::kine::LocalKinematics::Flags::all);
+  worldCentroidKine_ = worldCentroidLocKine_;
 
-  worldFbKine_ = stateObservation::kine::Kinematics(worldCentroidLocKine) * fbCentroidKine_.getInverse();
+  worldFbKine_ = worldCentroidKine_ * centroidFbKine_;
 
   koBackupFbKinematics_.push_back(worldFbKine_);
 
@@ -315,40 +408,6 @@ bool MCKineticsObserverFG::run(const mc_control::MCController & ctl)
 
   a_fb_0_.angular() = worldFbKine_.angAcc();
   a_fb_0_.linear() = worldFbKine_.linAcc();
-
-  // if(withDebugLogs_)
-  // {
-  //   /* Update of the logged variables */
-  //   correctedMeasurements_ = observer_.getEKF().getSimulatedMeasurement(observer_.getEKF().getCurrentTime());
-  //   for(auto & contact : maintainedContacts_)
-  //   {
-  //     contact->viscoElasticWrenchAfterCorrection_ = observer_.getCurrentViscoElasticWrench(contact->id());
-  //   }
-
-  //   globalCentroidKinematics_ = observer_.getGlobalCentroidKinematics();
-
-  //   contactsPosAverageStateCov_.setZero();
-  //   for(unsigned i = 0; i < maxContacts_; i++)
-  //   {
-  //     if(observer_.getContactIsSetByNum(i))
-  //     {
-  //       contactsPosAverageStateCov_ += 1 / pow(double(observer_.getNumberOfSetContacts()), 2)
-  //                                      * (observer_.getStateCovarianceMat().block(
-  //                                          observer_.contactIndexTangent(i), observer_.contactIndexTangent(i), 3, 3));
-
-  //       for(unsigned j = 0; j < maxContacts_; j++)
-  //       {
-  //         if(i != j && observer_.getContactIsSetByNum(j))
-  //         {
-  //           contactsPosAverageStateCov_ +=
-  //               1 / pow(double(observer_.getNumberOfSetContacts()), 2)
-  //               * (observer_.getStateCovarianceMat().block(observer_.contactIndexTangent(i),
-  //                                                          observer_.contactIndexTangent(j), 3, 3));
-  //         }
-  //       }
-  //     }
-  //   }
-  // }
 
   /* Update of the visual representation (only a visual feature) of the observed robot */
   my_robots_->robot().mbc().q = ctl.realRobot().mbc().q;
@@ -451,8 +510,16 @@ void MCKineticsObserverFG::updateIMUs(const mc_rbdyn::Robot & measRobot, const m
     so::kine::Kinematics worldImuKine = worldBodyKine * bodyImuKine;
     listIMUs_.at(i).fbImuKine = worldImuKine;
 
-    observer_.setIMU(imu.linearAcceleration(), imu.angularVelocity(), acceleroSensorCovariance_, gyroSensorCovariance_,
-                     worldImuKine, i);
+    so::kine::Kinematics centroidImuKinematics = centroidFbKine_ * listIMUs_.at(i).fbImuKine;
+    ko_fg::Kinematics centroidImuKine;
+    centroidImuKine.pose_ =
+        gtsam::Pose3(Rot3(centroidImuKinematics.orientation.toMatrix3()), centroidImuKinematics.position());
+    centroidImuKine.linVel_ = centroidImuKinematics.linVel();
+    centroidImuKine.angVel_ = centroidImuKinematics.angVel();
+    centroidImuKine.linAcc_ = centroidImuKinematics.linAcc();
+    centroidImuKine.angAcc_ = centroidImuKinematics.angAcc();
+
+    observer_.updateIMU(k_, i, imu.linearAcceleration(), imu.angularVelocity(), centroidImuKine);
   }
 }
 
@@ -482,7 +549,7 @@ const so::kine::Kinematics MCKineticsObserverFG::getContactWorldKinematics(const
 
   so::kine::Kinematics worldSensorKine = worldBodyKine * bodyContactSensorKine;
 
-  if(contactsManager_.getContactsDetection() == KoContactsManager::ContactsDetection::Sensors)
+  if(contactsManager_.getContactsDetection() == measurements::ContactsDetection::Sensors)
   {
     // If the contact is detecting using thresholds, we will then consider the sensor frame as
     // the contact surface frame directly.
@@ -573,30 +640,37 @@ void MCKineticsObserverFG::setNewContact(const mc_control::MCController & ctl,
                                                         // state is used to provide the new contacts references.
   {
     so::kine::Kinematics worldContactKine = worldFbKine_ * contact.fbContactKine_;
-    observer_.addContact(worldContactKine, initCovariance, contactProcessCovariance_, contact.id(), linStiffness_,
-                         linDamping_, angStiffness_, angDamping_, contact.contactWrenchVector_.segment<3>(0),
-                         contact.contactWrenchVector_.segment<3>(3), odometryType_ == measurements::OdometryType::Flat);
+    gtsam::Pose3 worldContactPose(Rot3(worldContactKine.orientation.toMatrix3()), worldContactKine.position());
+
+    observer_.addContact(contact.id(), worldContactPose, worldContactKine.linVel(), worldContactKine.angVel(),
+                         contact.contactWrenchVector_, contactInitNoises_, k_);
   }
   else // we don't perform odometry, the reference pose of the contact is its pose in the control robot
   {
     so::kine::Kinematics worldContactKineRef = getContactWorldKinematics(contact, robot, forceSensor);
-    observer_.addContact(worldContactKineRef, initCovariance, contactProcessCovariance_, contact.id(), linStiffness_,
-                         linDamping_, angStiffness_, angDamping_);
+    gtsam::Pose3 worldContactPose(Rot3(worldContactKineRef.orientation.toMatrix3()), worldContactKineRef.position());
+    observer_.addContact(contact.id(), worldContactPose, contact.contactWrenchVector_, contactInitNoises_, k_);
   }
 
-  // checks if the sensor is used in the correction of the Kinetics Observer or not
-  if(contact.sensorEnabled_)
-  {
-    // we update the measurements of the sensor and the input kinematics of the contact in the user /
-    // floating base's frame
-    observer_.updateContactWithWrenchSensor(contact.contactWrenchVector_, contactSensorCovariance_,
-                                            contact.fbContactKine_, contact.id());
-  }
-  else
-  {
-    // we update the input kinematics of the contact in the user / floating base's frame
-    observer_.updateContactWithNoSensor(contact.fbContactKine_, contact.id());
-  }
+  contact.centroidContactKine_ = worldCentroidKine_.getInverse() * contact.fbContactKine_;
+  observer_.updateContact(
+      contact.id(), contact.contactWrenchVector_.segment(0, 3), contact.contactWrenchVector_.segment(3, 3),
+      gtsam::Pose3(Rot3(contact.centroidContactKine_.orientation.toMatrix3()), contact.centroidContactKine_.position()),
+      contact.centroidContactKine_.linVel(), contact.centroidContactKine_.angVel(), k_);
+
+  // // checks if the sensor is used in the correction of the Kinetics Observer or not
+  // if(contact.sensorEnabled_)
+  // {
+  //   // we update the measurements of the sensor and the input kinematics of the contact in the user /
+  //   // floating base's frame
+  //   observer_.updateContactWithWrenchSensor(contact.contactWrenchVector_, contactSensorCovariance_,
+  //                                           contact.fbContactKine_, contact.id());
+  // }
+  // else
+  // {
+  //   // we update the input kinematics of the contact in the user / floating base's frame
+  //   observer_.updateContactWithNoSensor(contact.fbContactKine_, contact.id());
+  // }
 
   if(withDebugLogs_)
   {
@@ -624,14 +698,14 @@ void MCKineticsObserverFG::updateContact(const mc_control::MCController & ctl, K
   // As used on input robot, returns the kinematics of the contact in the frame of the floating base. Also expresses the
   // measured wrench in the frame of the contact.
   contact.fbContactKine_ = getContactWorldKinematics(contact, inputRobot, forceSensor, &measuredWrench);
+  contact.centroidContactKine_ = centroidFbKine_ * contact.fbContactKine_;
 
-  if(contact.sensorEnabled_) // the force sensor attached to the contact is used in the correction by the
-                             // Kinetics Observer.
-  {
-    observer_.updateContactWithWrenchSensor(contact.contactWrenchVector_, contactSensorCovariance_,
-                                            contact.fbContactKine_, contact.id());
-  }
-  else { observer_.updateContactWithNoSensor(contact.fbContactKine_, contact.id()); }
+  gtsam::Pose3 centroidContactPose(Rot3(contact.centroidContactKine_.orientation.toMatrix3()),
+                                   contact.centroidContactKine_.position());
+
+  observer_.updateContact(contact.id(), contact.contactWrenchVector_.segment(0, 3),
+                          contact.contactWrenchVector_.segment(3, 3), centroidContactPose,
+                          contact.centroidContactKine_.linVel(), contact.centroidContactKine_.angVel(), k_);
 }
 
 void MCKineticsObserverFG::updateContacts(const mc_control::MCController & ctl, mc_rtc::Logger & logger)
@@ -680,8 +754,11 @@ void MCKineticsObserverFG::updateContacts(const mc_control::MCController & ctl, 
 
   // action to execute when a contact is added to the manager during the run, which happens when the contact detection
   // is using the solver.
-  auto onAddedContact = [this, &ctl, &logger](KoContactWithSensor & addedContact)
-  { addContactToGui(ctl, addedContact, logger); };
+  auto onAddedContact = [this](KoContactWithSensor & addedContact)
+  {
+    // addContactToGui(ctl, addedContact, logger);
+    observer_.addContactToList(addedContact.id(), contactFlexibilities_, contactProcessNoises_, contactMeasNoises_);
+  };
 
   contactsManager_.updateContacts(ctl, robot_, onNewContact, onMaintainedContact, onRemovedContact, onAddedContact);
 }
@@ -718,15 +795,15 @@ void MCKineticsObserverFG::addToLogger(const mc_control::MCController & ctl,
 
   /* Plots of the updated state */
   conversions::kinematics::addToLogger(logger, globalCentroidKinematics_, category_ + "_MEKF_estimatedState");
-  for(auto & imu : listIMUs_)
-  {
-    logger.addLogEntry(category_ + "_MEKF_estimatedState_gyroBias_" + imu.name(),
-                       [this, &imu]() -> Eigen::Vector3d
-                       {
-                         return observer_.getCurrentStateVector().segment(observer_.gyroBiasIndex(imu.id()),
-                                                                          observer_.sizeGyroBias);
-                       });
-  }
+  // for(auto & imu : listIMUs_)
+  // {
+  //   logger.addLogEntry(category_ + "_MEKF_estimatedState_gyroBias_" + imu.name(),
+  //                      [this, &imu]() -> Eigen::Vector3d
+  //                      {
+  //                        return observer_.getCurrentStateVector().segment(observer_.gyroBiasIndex(imu.id()),
+  //                                                                         observer_.sizeGyroBias);
+  //                      });
+  // }
   logger.addLogEntry(category_ + "_MEKF_estimatedState_extForceCentr",
                      [this]() -> Eigen::Vector3d { return observer_.getCurrentState().extForce; });
 
@@ -1625,4 +1702,4 @@ void MCKineticsObserverFG::removeContactMeasurementsLogEntries(mc_rtc::Logger & 
 
 } // namespace mc_state_observation
 
-EXPORT_OBSERVER_MODULE("MCKineticsObserverFGFG", mc_state_observation::MCKineticsObserverFG)
+EXPORT_OBSERVER_MODULE("MCKineticsObserverFG", mc_state_observation::MCKineticsObserverFG)

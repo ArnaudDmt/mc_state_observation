@@ -413,8 +413,6 @@ public:
     }
   };
 
-  using ContactsManagerConfiguration = ContactsManager::Configuration;
-
   inline LeggedOdometryManager(double dt_) { ctl_dt_ = dt_; }
   /**
    * @brief  Returns a list of pointers to the contacts maintained during the current iteration.
@@ -437,7 +435,7 @@ public:
   /// @param contactsConf Configuration of the contacts manager
   void init(const mc_control::MCController & ctl,
             const Configuration & odomConfig,
-            const ContactsManagerConfiguration & contactsConf);
+            const measurements::ContactsManagerConfiguration & contactsConf);
 
   void reset();
 

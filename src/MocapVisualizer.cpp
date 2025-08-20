@@ -4,6 +4,7 @@
 #include <mc_observers/ObserverMacros.h>
 #include <mc_rtc/io_utils.h>
 #include <mc_rtc/logging.h>
+#include "mc_state_observation/measurements/ContactsManager.h"
 #include <mc_state_observation/MocapVisualizer.h>
 #include <mc_state_observation/conversions/kinematics.h>
 #include <mc_state_observation/gui_helpers.h>
@@ -33,50 +34,28 @@ void MocapVisualizer::configure(const mc_control::MCController & ctl, const mc_r
     using ContactsManager = measurements::ContactsManager<MocapContact>;
 
     std::string contactsDetectionString = static_cast<std::string>(config("contactsDetection"));
-    ContactsManager::ContactsDetection contactsDetectionMethod =
+    measurements::ContactsDetection contactsDetectionMethod =
         contactsManager_.stringToContactsDetection(contactsDetectionString, name());
 
-    if(contactsDetectionMethod == ContactsManager::ContactsDetection::Surfaces)
+    measurements::ContactsManagerConfiguration contactsConfig(contactsDetectionMethod, name());
+
+    contactsConfig.verbose(true);
+    if(config.has("schmittTriggerLowerPropThreshold") && config.has("schmittTriggerUpperPropThreshold"))
+    {
+      double schmittTriggerLowerPropThreshold = config("schmittTriggerLowerPropThreshold");
+      double schmittTriggerUpperPropThreshold = config("schmittTriggerUpperPropThreshold");
+      contactsConfig.schmittTriggerPropThresholds(schmittTriggerLowerPropThreshold, schmittTriggerUpperPropThreshold);
+    }
+
+    if(contactsDetectionMethod == measurements::ContactsDetection::Surfaces)
     {
       std::vector<std::string> surfacesForContactDetection =
           config("surfacesForContactDetection", std::vector<std::string>());
 
-      measurements::ContactsManagerSurfacesConfiguration contactsConfig(name(), surfacesForContactDetection);
+      contactsConfig.surfacesForContactDetection(surfacesForContactDetection);
+    }
 
-      contactsConfig.verbose(true);
-      if(config.has("schmittTriggerLowerPropThreshold") && config.has("schmittTriggerUpperPropThreshold"))
-      {
-        double schmittTriggerLowerPropThreshold = config("schmittTriggerLowerPropThreshold");
-        double schmittTriggerUpperPropThreshold = config("schmittTriggerUpperPropThreshold");
-        contactsConfig.schmittTriggerPropThresholds(schmittTriggerLowerPropThreshold, schmittTriggerUpperPropThreshold);
-      }
-
-      contactsManager_.init(ctl, robot_, contactsConfig);
-    }
-    if(contactsDetectionMethod == ContactsManager::ContactsDetection::Sensors)
-    {
-      measurements::ContactsManagerSensorsConfiguration contactsConfig(name());
-      contactsConfig.verbose(true);
-      if(config.has("schmittTriggerLowerPropThreshold") && config.has("schmittTriggerUpperPropThreshold"))
-      {
-        double schmittTriggerLowerPropThreshold = config("schmittTriggerLowerPropThreshold");
-        double schmittTriggerUpperPropThreshold = config("schmittTriggerUpperPropThreshold");
-        contactsConfig.schmittTriggerPropThresholds(schmittTriggerLowerPropThreshold, schmittTriggerUpperPropThreshold);
-      }
-      contactsManager_.init(ctl, robot_, contactsConfig);
-    }
-    if(contactsDetectionMethod == ContactsManager::ContactsDetection::Solver)
-    {
-      measurements::ContactsManagerSolverConfiguration contactsConfig(name());
-      contactsConfig.verbose(true);
-      if(config.has("schmittTriggerLowerPropThreshold") && config.has("schmittTriggerUpperPropThreshold"))
-      {
-        double schmittTriggerLowerPropThreshold = config("schmittTriggerLowerPropThreshold");
-        double schmittTriggerUpperPropThreshold = config("schmittTriggerUpperPropThreshold");
-        contactsConfig.schmittTriggerPropThresholds(schmittTriggerLowerPropThreshold, schmittTriggerUpperPropThreshold);
-      }
-      contactsManager_.init(ctl, robot_, contactsConfig);
-    }
+    contactsManager_.init(ctl, robot_, contactsConfig);
   }
 }
 
@@ -88,9 +67,8 @@ void MocapVisualizer::reset(const mc_control::MCController & ctl)
 
     my_robots_ = mc_rbdyn::Robots::make();
     my_robots_->robotCopy(robot, robot.name());
-    ctl.gui()->addElement(
-        {"Robots"},
-        mc_rtc::gui::Robot("MocapVisualizer", [this]() -> const mc_rbdyn::Robot & { return my_robots_->robot(); }));
+    ctl.gui()->addElement({"Robots"}, mc_rtc::gui::Robot("MocapVisualizer", [this]() -> const mc_rbdyn::Robot &
+                                                         { return my_robots_->robot(); }));
 
     extractTransformFromMocap();
   }
@@ -132,7 +110,7 @@ const stateObservation::kine::Kinematics & MocapVisualizer::getContactKinematics
 {
   const auto & mocapRobot = my_robots_->robot();
 
-  if(contactsManager_.getContactsDetection() == measurements::ContactsManager<MocapContact>::ContactsDetection::Sensors)
+  if(contactsManager_.getContactsDetection() == measurements::ContactsDetection::Sensors)
   {
     // If the contact is detecting using thresholds, we will then consider the sensor frame as
     // the contact surface frame directly.
@@ -197,34 +175,28 @@ void MocapVisualizer::addToLogger(const mc_control::MCController &,
 {
   if(!firstRun_)
   {
-    logger.addLogEntry(category + "_mocap_worldBody_ori",
-                       [this]() -> const Eigen::Quaterniond
+    logger.addLogEntry(category + "_mocap_worldBody_ori", [this]() -> const Eigen::Quaterniond
                        { return mocap_worldBodyKine_.at(currentIter_ - 1).orientation.toQuaternion().inverse(); });
     logger.addLogEntry(category + "_mocap_worldBody_pos",
                        [this]() { return mocap_worldBodyKine_.at(currentIter_ - 1).position(); });
 
-    logger.addLogEntry(category + "_worldFb_ori",
-                       [this]() -> const Eigen::Quaterniond
+    logger.addLogEntry(category + "_worldFb_ori", [this]() -> const Eigen::Quaterniond
                        { return worldFbKine_.orientation.toQuaternion().inverse(); });
     logger.addLogEntry(category + "_worldFb_pos", [this]() { return worldFbKine_.position(); });
 
-    logger.addLogEntry(category + "_mocap_BodyTransformation_ori",
-                       [this]() -> const Eigen::Quaterniond
+    logger.addLogEntry(category + "_mocap_BodyTransformation_ori", [this]() -> const Eigen::Quaterniond
                        { return mocapTransforms_.at(currentIter_ - 1).orientation.toQuaternion().inverse(); });
     logger.addLogEntry(category + "_mocap_BodyTransformation_pos",
                        [this]() { return mocapTransforms_.at(currentIter_ - 1).position(); });
     logger.addLogEntry(category + "_mocap_fbPose_posW", [this]() -> const sva::PTransformd & { return X_0_fb_; });
-    logger.addLogEntry(category + "_mocap_fbPose_yaw",
-                       [this]() -> double
+    logger.addLogEntry(category + "_mocap_fbPose_yaw", [this]() -> double
                        { return -stateObservation::kine::rotationMatrixToYawAxisAgnostic(X_0_fb_.rotation()); });
 
-    logger.addLogEntry(category + "_mocap_bodyFbPose_ori",
-                       [this]() -> const Eigen::Quaterniond
+    logger.addLogEntry(category + "_mocap_bodyFbPose_ori", [this]() -> const Eigen::Quaterniond
                        { return bodyFbKine_.orientation.toQuaternion().inverse(); });
     logger.addLogEntry(category + "_mocap_bodyFbPose_pos",
                        [this]() -> const Eigen::Vector3d & { return bodyFbKine_.position(); });
-    logger.addLogEntry(category + "_mocap_datasOverlapping",
-                       [this]() -> std::string
+    logger.addLogEntry(category + "_mocap_datasOverlapping", [this]() -> std::string
                        { return overlappingDatas_ == 1 ? "Datas overlap" : "Datas not overlapping"; });
   }
 }

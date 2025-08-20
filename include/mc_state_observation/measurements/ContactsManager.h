@@ -21,19 +21,6 @@ template<typename ContactT>
 struct ContactsManager
 {
 public:
-  // allowed contact detection methods
-  enum ContactsDetection
-  {
-    Solver,
-    Surfaces,
-    Sensors,
-    Undefined
-  };
-
-  using Configuration = std::variant<ContactsManagerSolverConfiguration,
-                                     ContactsManagerSurfacesConfiguration,
-                                     ContactsManagerSensorsConfiguration>;
-
   static_assert(std::is_base_of_v<ContactWithSensor, ContactT>,
                 "The template class for the contacts with sensors must inherit from the ContactWithSensor class");
 
@@ -123,7 +110,7 @@ public:
   template<typename OnAddedContact = std::nullptr_t>
   void init(const mc_control::MCController & ctl,
             const std::string & robotName,
-            Configuration conf,
+            ContactsManagerConfiguration conf,
             OnAddedContact onAddedContact = nullptr);
 
   /// @brief Updates the list of contacts to inform whether they are newly
@@ -189,44 +176,6 @@ public:
    * @param category Category in which to log the contacts manager
    */
   void addToLogger(mc_rtc::Logger &, const std::string & category);
-
-private:
-  /// @brief Initializer for a contacts detection based on contact surfaces
-  /// @param ctl The controller
-  /// @param robotName Name of the robot
-  /// @param conf Configuration of the contacts manager
-  /// @param onAddedContact Function to call when a contact is added to the
-  /// manager
-  template<typename OnAddedContact = std::nullptr_t>
-  inline void init_manager(const mc_control::MCController & ctl,
-                           const std::string & robotName,
-                           const ContactsManagerSurfacesConfiguration & conf,
-                           OnAddedContact onAddedContact = nullptr);
-  /// @brief Initializer for a contacts detection based on force sensors
-  /// @param ctl The controller
-  /// @param robotName Name of the robot
-  /// @param conf Configuration of the contacts manager
-  /// @param onAddedContact Function to call when a contact is added to the
-  /// manager
-  template<typename OnAddedContact = std::nullptr_t>
-  inline void init_manager(const mc_control::MCController & ctl,
-                           const std::string & robotName,
-                           const ContactsManagerSensorsConfiguration & conf,
-                           OnAddedContact onAddedContact = nullptr);
-  /// @brief Initializer for a contacts detection based on the solver's
-  /// contacts
-  /// @param ctl The controller
-  /// @param robotName Name of the robot
-  /// @param conf Configuration of the contacts manager
-  /// @param onAddedContact Function to call when a contact is added to the
-  /// manager. Unused here as contacts are added to the manager during the
-  /// run with this detection method, but added anyway to match the syntax
-  /// of the other init_manager variants.
-  template<typename OnAddedContact = std::nullptr_t>
-  inline void init_manager(const mc_control::MCController & ctl,
-                           const std::string & robotName,
-                           const ContactsManagerSolverConfiguration & conf,
-                           OnAddedContact onAddedContact = nullptr);
 
 protected:
   // map of contacts used by the manager. unordered map containing all the contacts, currently set or not.

@@ -22,7 +22,7 @@ namespace so = stateObservation;
 namespace mc_state_observation
 {
 MCKineticsObserverFG::MCKineticsObserverFG(const std::string & type, double dt)
-: mc_observers::Observer(type, dt), observer_(1), contactsConf_()
+: mc_observers::Observer(type, dt), observer_(0.05), contactsConf_()
 {
   observer_.setSamplingTime(dt);
 }
@@ -181,6 +181,11 @@ void MCKineticsObserverFG::reset(const mc_control::MCController & ctl)
 
   X_0_fb_ = realRobot.posW().translation();
 
+  zeroPose_.translation().setZero();
+  zeroPose_.rotation().setIdentity();
+  zeroMotion_.linear().setZero();
+  zeroMotion_.angular().setZero();
+
   initObserver(ctl);
   k_ = 0;
 
@@ -201,8 +206,7 @@ void MCKineticsObserverFG::initObserver(const mc_control::MCController & ctl)
 {
   const auto & realRobot = ctl.realRobot(robot_);
 
-  worldFbKine_ = conversions::kinematics::fromSva(realRobot.posW(),
-                                                  so::kine::Kinematics::Flags::vel | so::kine::Kinematics::Flags::acc);
+  worldFbKine_ = conversions::kinematics::fromSva(realRobot.posW(), realRobot.velW(), realRobot.accW());
 
   auto & inputRobot = my_robots_->robot("inputRobot");
 
@@ -266,41 +270,46 @@ void MCKineticsObserverFG::initObserver(const mc_control::MCController & ctl)
   std::vector<double> processNoises;
   std::unordered_map<size_t, std::array<double, 4>> imuNoises;
 
-  initNoises.push_back(1e-2); // pos
-  initNoises.push_back(1e-2); // ori
-  initNoises.push_back(1e-2); // linVel
-  initNoises.push_back(1e-2); // angVel
-  initNoises.push_back(1e-2); // linAcc
-  initNoises.push_back(1e-2); // angAcc
+  initNoises.push_back(1e-4); // pos
+  initNoises.push_back(1e-4); // ori
+  initNoises.push_back(1e-4); // linVel
+  initNoises.push_back(1e-4); // angVel
+  initNoises.push_back(1e-8); // linAcc
+  initNoises.push_back(1e-8); // angAcc
   initNoises.push_back(1e-0); // extForce
   initNoises.push_back(1e-0); // extTorque
 
-  processNoises.push_back(1e-4); // pos
-  processNoises.push_back(1e-4); // ori
-  processNoises.push_back(1e-4); // linVel
-  processNoises.push_back(1e-4); // angVel
+  processNoises.push_back(1e-8); // pos
+  processNoises.push_back(1e-8); // ori
+  processNoises.push_back(1e-8); // linVel
+  processNoises.push_back(1e-8); // angVel
   processNoises.push_back(1e-4); // linAcc
   processNoises.push_back(1e-4); // angAcc
   processNoises.push_back(1e-3); // extForce
   processNoises.push_back(1e-3); // extTorque
 
-  imuNoises.insert({0, {1e-2, 1e-5, 1e-6, 1e-6}});
+  std::array<double, 4> imuNoise;
+  imuNoise[0] = 1e-2; // gyroBias init
+  imuNoise[1] = 1e-5; // gyroBias process
+  imuNoise[2] = 5e-3; // gyro meas
+  imuNoise[3] = 5e-2; // accelero meas
+  imuNoises.insert({0, imuNoise});
 
-  contactInitNoises_.at(0) = 1e-2;
-  contactInitNoises_.at(1) = 1e-2;
-  contactInitNoises_.at(2) = 1e1;
-  contactInitNoises_.at(3) = 1e1;
+  contactInitNoises_.at(0) = 1e-6; // rest pos
+  contactInitNoises_.at(1) = 1e-6; // rest ori
+  contactInitNoises_.at(2) = 1e1; // force
+  contactInitNoises_.at(3) = 1e1; // torque
 
-  contactProcessNoises_.at(0) = 1e-5;
-  contactProcessNoises_.at(1) = 1e-5;
-  contactProcessNoises_.at(2) = 1e2;
-  contactProcessNoises_.at(3) = 1e2;
+  contactProcessNoises_.at(0) = 1e-8; // rest pos
+  contactProcessNoises_.at(1) = 1e-8; // rest ori
+  contactProcessNoises_.at(2) = 1e1; // force
+  contactProcessNoises_.at(3) = 1e0; // torque
 
-  contactMeasNoises_.at(0) = 1e1;
-  contactMeasNoises_.at(1) = 1e1;
+  contactMeasNoises_.at(0) = 1; // force
+  contactMeasNoises_.at(1) = 3e-2; // torque
 
   auto [inertiaMatrix, angularMomentium] = computeInertiaAndAngMomentum(realRobot);
-  observer_.init(1, mass_, inertiaMatrix, angularMomentium, initState, initNoises, processNoises, imuNoises, {});
+  observer_.init(mass_, inertiaMatrix, angularMomentium, initState, initNoises, processNoises, imuNoises, {});
 }
 
 void MCKineticsObserverFG::addSensorsAsInputs(const mc_rbdyn::Robot & inputRobot,
@@ -648,29 +657,16 @@ void MCKineticsObserverFG::setNewContact(const mc_control::MCController & ctl,
   else // we don't perform odometry, the reference pose of the contact is its pose in the control robot
   {
     so::kine::Kinematics worldContactKineRef = getContactWorldKinematics(contact, robot, forceSensor);
+
     gtsam::Pose3 worldContactPose(Rot3(worldContactKineRef.orientation.toMatrix3()), worldContactKineRef.position());
     observer_.addContact(contact.id(), worldContactPose, contact.contactWrenchVector_, contactInitNoises_, k_);
   }
 
-  contact.centroidContactKine_ = worldCentroidKine_.getInverse() * contact.fbContactKine_;
+  contact.centroidContactKine_ = centroidFbKine_ * contact.fbContactKine_;
   observer_.updateContact(
       contact.id(), contact.contactWrenchVector_.segment(0, 3), contact.contactWrenchVector_.segment(3, 3),
       gtsam::Pose3(Rot3(contact.centroidContactKine_.orientation.toMatrix3()), contact.centroidContactKine_.position()),
-      contact.centroidContactKine_.linVel(), contact.centroidContactKine_.angVel(), k_);
-
-  // // checks if the sensor is used in the correction of the Kinetics Observer or not
-  // if(contact.sensorEnabled_)
-  // {
-  //   // we update the measurements of the sensor and the input kinematics of the contact in the user /
-  //   // floating base's frame
-  //   observer_.updateContactWithWrenchSensor(contact.contactWrenchVector_, contactSensorCovariance_,
-  //                                           contact.fbContactKine_, contact.id());
-  // }
-  // else
-  // {
-  //   // we update the input kinematics of the contact in the user / floating base's frame
-  //   observer_.updateContactWithNoSensor(contact.fbContactKine_, contact.id());
-  // }
+      contact.centroidContactKine_.linVel(), contact.centroidContactKine_.angVel());
 
   if(withDebugLogs_)
   {
@@ -705,7 +701,7 @@ void MCKineticsObserverFG::updateContact(const mc_control::MCController & ctl, K
 
   observer_.updateContact(contact.id(), contact.contactWrenchVector_.segment(0, 3),
                           contact.contactWrenchVector_.segment(3, 3), centroidContactPose,
-                          contact.centroidContactKine_.linVel(), contact.centroidContactKine_.angVel(), k_);
+                          contact.centroidContactKine_.linVel(), contact.centroidContactKine_.angVel());
 }
 
 void MCKineticsObserverFG::updateContacts(const mc_control::MCController & ctl, mc_rtc::Logger & logger)

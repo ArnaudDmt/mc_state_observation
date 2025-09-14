@@ -522,7 +522,7 @@ void MCKineticsObserverFG::updateIMUs(const mc_rbdyn::Robot & measRobot, const m
     so::kine::Kinematics centroidImuKinematics = centroidFbKine_ * listIMUs_.at(i).fbImuKine;
     ko_fg::Kinematics centroidImuKine;
     centroidImuKine.pose_ =
-        gtsam::Pose3(Rot3(centroidImuKinematics.orientation.toMatrix3()), centroidImuKinematics.position());
+        gtsam::Pose3(gtsam::Rot3(centroidImuKinematics.orientation.toMatrix3()), centroidImuKinematics.position());
     centroidImuKine.linVel_ = centroidImuKinematics.linVel();
     centroidImuKine.angVel_ = centroidImuKinematics.angVel();
     centroidImuKine.linAcc_ = centroidImuKinematics.linAcc();
@@ -649,7 +649,7 @@ void MCKineticsObserverFG::setNewContact(const mc_control::MCController & ctl,
                                                         // state is used to provide the new contacts references.
   {
     so::kine::Kinematics worldContactKine = worldFbKine_ * contact.fbContactKine_;
-    gtsam::Pose3 worldContactPose(Rot3(worldContactKine.orientation.toMatrix3()), worldContactKine.position());
+    Pose3_RI worldContactPose(gtsam::Rot3(worldContactKine.orientation.toMatrix3()), worldContactKine.position());
 
     observer_.addContact(contact.id(), worldContactPose, worldContactKine.linVel(), worldContactKine.angVel(),
                          contact.contactWrenchVector_, contactInitNoises_, k_);
@@ -658,15 +658,16 @@ void MCKineticsObserverFG::setNewContact(const mc_control::MCController & ctl,
   {
     so::kine::Kinematics worldContactKineRef = getContactWorldKinematics(contact, robot, forceSensor);
 
-    gtsam::Pose3 worldContactPose(Rot3(worldContactKineRef.orientation.toMatrix3()), worldContactKineRef.position());
+    Pose3_RI worldContactPose(gtsam::Rot3(worldContactKineRef.orientation.toMatrix3()), worldContactKineRef.position());
     observer_.addContact(contact.id(), worldContactPose, contact.contactWrenchVector_, contactInitNoises_, k_);
   }
 
   contact.centroidContactKine_ = centroidFbKine_ * contact.fbContactKine_;
-  observer_.updateContact(
-      contact.id(), contact.contactWrenchVector_.segment(0, 3), contact.contactWrenchVector_.segment(3, 3),
-      gtsam::Pose3(Rot3(contact.centroidContactKine_.orientation.toMatrix3()), contact.centroidContactKine_.position()),
-      contact.centroidContactKine_.linVel(), contact.centroidContactKine_.angVel());
+  observer_.updateContact(contact.id(), contact.contactWrenchVector_.segment(0, 3),
+                          contact.contactWrenchVector_.segment(3, 3),
+                          gtsam::Pose3(gtsam::Rot3(contact.centroidContactKine_.orientation.toMatrix3()),
+                                       contact.centroidContactKine_.position()),
+                          contact.centroidContactKine_.linVel(), contact.centroidContactKine_.angVel());
 
   if(withDebugLogs_)
   {
@@ -696,7 +697,7 @@ void MCKineticsObserverFG::updateContact(const mc_control::MCController & ctl, K
   contact.fbContactKine_ = getContactWorldKinematics(contact, inputRobot, forceSensor, &measuredWrench);
   contact.centroidContactKine_ = centroidFbKine_ * contact.fbContactKine_;
 
-  gtsam::Pose3 centroidContactPose(Rot3(contact.centroidContactKine_.orientation.toMatrix3()),
+  gtsam::Pose3 centroidContactPose(gtsam::Rot3(contact.centroidContactKine_.orientation.toMatrix3()),
                                    contact.centroidContactKine_.position());
 
   observer_.updateContact(contact.id(), contact.contactWrenchVector_.segment(0, 3),

@@ -27,6 +27,7 @@ void MCWaiko::configure(const mc_control::MCController & ctl, const mc_rtc::Conf
   config("updateRobot", updateRobot_);
   config("updateSensor", updateSensor_);
   config("withDebugLogs", withDebugLogs_);
+  config("withOriMeasFromContactPos", withOriMeasFromContactPos_);
 
   auto contactsConfig = config("contacts");
 
@@ -123,27 +124,21 @@ void MCWaiko::reset(const mc_control::MCController & ctl)
   my_robots_->robotCopy(robot, robot.name());
   my_robots_->robotCopy(realRobot, "inputRobot");
 
-  // the updated robot has the same floating base's pose than the control robot, but its encoders are updated. We use
-  // it to get more accurate local Kinematics.
   ctl.gui()->addElement(
       {"Robots"}, mc_rtc::gui::Robot(name(), [this]() -> const mc_rbdyn::Robot & { return my_robots_->robot(); }));
 
   const auto & imu = robot.bodySensor(imuSensor_);
 
-  // reset of the floating base kinematics
   poseW_ = realRobot.posW();
   velW_ = realRobot.velW();
 
-  // initialization of the estimator
   so::kine::Kinematics initParentImuKine = conversions::kinematics::fromSva(
       imu.X_b_s(), so::kine::Kinematics::Flags::pose | so::kine::Kinematics::Flags::vel);
 
-  // kinematics of the IMU's parent body in the world for the odometry robot
   so::kine::Kinematics initWorldParentKine =
       conversions::kinematics::fromSva(realRobot.bodyPosW(imu.parentBody()), so::kine::Kinematics::Flags::pose);
 
-  // pose of the IMU in the world frame for the odometry robot
-  so ::kine::Kinematics initWorldImuKine = initWorldParentKine * initParentImuKine;
+  so::kine::Kinematics initWorldImuKine = initWorldParentKine * initParentImuKine;
   const Eigen::Matrix3d cOri = (imu.X_b_s() * realRobot.bodyPosW(imu.parentBody())).rotation();
   so::Vector3 initX2 = initWorldImuKine.orientation.toMatrix3().transpose() * so::Vector3::UnitZ();
 
@@ -160,6 +155,136 @@ void MCWaiko::reset(const mc_control::MCController & ctl)
   estimator_.setGamma(gamma_);
   estimator_.setRho(rho_);
   estimator_.setMu(mu_);
+}
+
+so::Matrix3 MCWaiko::supportFrameFromContactsSVD_(const so::Vector3 & zRef, const so::Vector3 * xRef) const
+{
+  const auto & contacts = odometryManager_.maintainedContacts();
+  const int nContacts = static_cast<int>(contacts.size());
+
+  Eigen::Vector3d mean = Eigen::Vector3d::Zero();
+  for(int i = 0; i < nContacts; ++i) { mean += contacts[i]->bodyContactKine_.position(); }
+  mean /= static_cast<double>(nContacts);
+
+  Eigen::MatrixXd X(3, nContacts);
+  for(int i = 0; i < nContacts; ++i) { X.col(i) = contacts[i]->bodyContactKine_.position() - mean; }
+
+  Eigen::JacobiSVD<Eigen::MatrixXd> svd(X, Eigen::ComputeFullU);
+  Eigen::Matrix3d U = svd.matrixU();
+
+  Eigen::Vector3d u1 = U.col(0).normalized();
+  Eigen::Vector3d u3 = U.col(2).normalized();
+
+  if(u3.dot(zRef) < 0.0) { u3 = -u3; }
+
+  u1 -= u3 * u1.dot(u3);
+  if(u1.norm() < 1e-9)
+  {
+    u1 = U.col(1).normalized();
+    u1 -= u3 * u1.dot(u3);
+  }
+  u1.normalize();
+
+  if(xRef != nullptr && u1.dot(*xRef) < 0.0) { u1 = -u1; }
+
+  Eigen::Vector3d u2 = u3.cross(u1).normalized();
+  u1 = u2.cross(u3).normalized();
+
+  so::Matrix3 R;
+  R.col(0) = u1;
+  R.col(1) = u2;
+  R.col(2) = u3;
+  return R;
+}
+
+so::Matrix3 MCWaiko::yawFrameFromTwoContacts_(const so::Vector3 & zRef, const so::Vector3 * xRef) const
+{
+  const std::vector<stateObservation::odometry::LoContact *> & contacts = odometryManager_.maintainedContacts();
+
+  Eigen::Vector3d x = contacts[1]->bodyContactKine_.position() - contacts[0]->bodyContactKine_.position();
+  x -= zRef * x.dot(zRef);
+
+  if(x.norm() < 1e-9)
+  {
+    if(xRef != nullptr) { x = *xRef; }
+    else { x = Eigen::Vector3d::UnitX(); }
+  }
+
+  x.normalize();
+
+  if(xRef != nullptr && x.dot(*xRef) < 0.0) { x = -x; }
+
+  Eigen::Vector3d z = zRef.normalized();
+  Eigen::Vector3d y = z.cross(x).normalized();
+  x = y.cross(z).normalized();
+
+  so::Matrix3 R;
+  R.col(0) = x;
+  R.col(1) = y;
+  R.col(2) = z;
+  return R;
+}
+
+double MCWaiko::yawFromRotation_(const so::Matrix3 & R) const
+{
+  return std::atan2(R(1, 0), R(0, 0));
+}
+
+void MCWaiko::updateContactOrientationMeasurement_(bool contactsChanged, double k)
+{
+  const size_t nContacts = odometryManager_.maintainedContacts().size();
+
+  if(nContacts <= 1)
+  {
+    frozenWorldSupportOriIsSet_ = false;
+    frozenWorldYawIsSet_ = false;
+    return;
+  }
+
+  const so::Matrix3 R_w_i = estimatedWorldImuKine_.orientation.toMatrix3();
+
+  if(nContacts >= 3)
+  {
+    if(contactsChanged || !frozenWorldSupportOriIsSet_)
+    {
+      const so::Matrix3 R_i_s0 = supportFrameFromContactsSVD_(so::Vector3::UnitZ(), nullptr);
+      frozenWorldSupportOri_ = R_w_i * R_i_s0;
+      frozenWorldSupportOriIsSet_ = true;
+      frozenWorldYawIsSet_ = false;
+    }
+
+    const so::Vector3 zRefImu = R_w_i.transpose() * frozenWorldSupportOri_.col(2);
+    const so::Vector3 xRefImu = R_w_i.transpose() * frozenWorldSupportOri_.col(0);
+    const so::Matrix3 R_i_s = supportFrameFromContactsSVD_(zRefImu, &xRefImu);
+
+    measuredOri_ = frozenWorldSupportOri_ * R_i_s.transpose();
+    estimator_.addOriInput(measuredOri_, k);
+    return;
+  }
+
+  if(contactsChanged || !frozenWorldYawIsSet_)
+  {
+    const so::Vector3 zRefImu = R_w_i.transpose() * so::Vector3::UnitZ();
+    const so::Matrix3 R_i_s0 = yawFrameFromTwoContacts_(zRefImu, nullptr);
+    const so::Matrix3 R_w_s0 = R_w_i * R_i_s0;
+
+    frozenWorldYaw_ = std::atan2(R_w_s0(1, 0), R_w_s0(0, 0));
+    frozenWorldYawIsSet_ = true;
+    frozenWorldSupportOriIsSet_ = false;
+  }
+
+  const so::Vector3 zRefImu = R_w_i.transpose() * so::Vector3::UnitZ();
+  const so::Vector3 worldX(std::cos(frozenWorldYaw_), std::sin(frozenWorldYaw_), 0.0);
+  const so::Vector3 xRefImu = R_w_i.transpose() * worldX;
+  const so::Matrix3 R_i_s = yawFrameFromTwoContacts_(zRefImu, &xRefImu);
+
+  so::Matrix3 R_w_s = so::Matrix3::Identity();
+  R_w_s.col(0) = so::Vector3(std::cos(frozenWorldYaw_), std::sin(frozenWorldYaw_), 0.0);
+  R_w_s.col(1) = so::Vector3(-std::sin(frozenWorldYaw_), std::cos(frozenWorldYaw_), 0.0);
+  R_w_s.col(2) = so::Vector3::UnitZ();
+
+  measuredOri_ = R_w_s * R_i_s.transpose();
+  measuredYawFromContacts_ = yawFromRotation_(measuredOri_);
 }
 
 bool MCWaiko::run(const mc_control::MCController & ctl)
@@ -207,6 +332,8 @@ bool MCWaiko::run(const mc_control::MCController & ctl)
   auto onNewContactOdom =
       [&ctl, &inputRobot, &measRobot, &logger, this](stateObservation::odometry::LoContact & newContact)
   {
+    mc_rtc::log::info("[{}]: New contact: {}", name(), newContact.surfaceName());
+
     const std::string & surfaceName = newContact.surfaceName();
     const sva::PTransformd & surfaceXbs = inputRobot.surface(surfaceName).X_b_s();
     so::kine::Kinematics parentSurfaceKine = conversions::kinematics::fromSva(
@@ -228,26 +355,29 @@ bool MCWaiko::run(const mc_control::MCController & ctl)
     if(withDebugLogs_)
     {
       conversions::kinematics::addToLogger(logger, newContact.worldRefKine_,
-                                           "Waiko_contacts_" + newContact.surfaceName() + "_refPose");
+                                           name() + "_contacts_" + newContact.surfaceName() + "_refPose");
       conversions::kinematics::addToLogger(logger, newContact.worldBodyKineFromRef_,
-                                           "Waiko_contacts_" + newContact.surfaceName() + "_worldImuKineFromRef");
+                                           name() + "_contacts_" + newContact.surfaceName() + "_worldImuKineFromRef");
       conversions::kinematics::addToLogger(logger, newContact.currentWorldKine_,
-                                           "Waiko_contacts_" + newContact.surfaceName() + "_currentWorldContactKine");
+                                           name() + "_contacts_" + newContact.surfaceName()
+                                               + "_currentWorldContactKine");
       conversions::kinematics::addToLogger(logger, newContact.bodyContactKine_,
-                                           "Waiko_contacts_" + newContact.surfaceName() + "_bodyContactKine_");
+                                           name() + "_contacts_" + newContact.surfaceName() + "_bodyContactKine_");
       conversions::kinematics::addToLogger(logger, newContact.worldRefKineBeforeCorrection_,
-                                           "Waiko_contacts_" + newContact.surfaceName() + "_refPoseBeforeCorrection");
+                                           name() + "_contacts_" + newContact.surfaceName()
+                                               + "_refPoseBeforeCorrection");
       conversions::kinematics::addToLogger(logger, newContact.newIncomingWorldRefKine_,
-                                           "Waiko_contacts_" + newContact.surfaceName() + "_newIncomingWorldRefKine");
+                                           name() + "_contacts_" + newContact.surfaceName()
+                                               + "_newIncomingWorldRefKine");
 
-      logger.addLogEntry("Waiko_contacts_" + newContact.surfaceName() + "_isSet", &newContact,
+      logger.addLogEntry(name() + "_contacts_" + newContact.surfaceName() + "_isSet", &newContact,
                          [&newContact]() -> std::string { return newContact.isSet() ? "Set" : "notSet"; });
 
-      logger.addLogEntry("Waiko_contacts_" + newContact.surfaceName() + "_lambda", &newContact,
+      logger.addLogEntry(name() + "_contacts_" + newContact.surfaceName() + "_lambda", &newContact,
                          [&newContact]() -> double { return newContact.lambda(); });
-      logger.addLogEntry("Waiko_contacts_" + newContact.surfaceName() + "_lifeTime", &newContact,
+      logger.addLogEntry(name() + "_contacts_" + newContact.surfaceName() + "_lifeTime", &newContact,
                          [&newContact]() -> double { return newContact.lifeTime(); });
-      logger.addLogEntry("Waiko_contacts_" + newContact.surfaceName() + "_correctionWeightingCoeff", &newContact,
+      logger.addLogEntry(name() + "_contacts_" + newContact.surfaceName() + "_correctionWeightingCoeff", &newContact,
                          [&newContact]() -> double { return newContact.correctionWeightingCoeff(); });
     }
   };
@@ -275,8 +405,10 @@ bool MCWaiko::run(const mc_control::MCController & ctl)
     maintainedContact.lambda(forceRatio);
   };
 
-  auto onRemovedContactOdom = [&logger](stateObservation::odometry::LoContact & removedContact)
+  auto onRemovedContactOdom = [this, &logger](stateObservation::odometry::LoContact & removedContact)
   {
+    mc_rtc::log::info("[{}]: Contact removed: {}", name(), removedContact.surfaceName());
+
     conversions::kinematics::removeFromLogger(logger, removedContact.worldRefKine_);
     conversions::kinematics::removeFromLogger(logger, removedContact.worldRefKineBeforeCorrection_);
     conversions::kinematics::removeFromLogger(logger, removedContact.worldBodyKineFromRef_);
@@ -293,7 +425,8 @@ bool MCWaiko::run(const mc_control::MCController & ctl)
                                     .onMaintainedContact(onMaintainedContactOdom)
                                     .onRemovedContact(onRemovedContactOdom);
 
-  odometryManager_.initLoop(contactList, contactUpdateFunctions, &velW_.linear(), &velW_.angular());
+  bool contactsChanged =
+      odometryManager_.initLoop(contactList, contactUpdateFunctions, &velW_.linear(), &velW_.angular());
 
   stateObservation::kine::Kinematics imuImuKine_ = stateObservation::kine::Kinematics::zeroKinematics(
       stateObservation::kine::Kinematics::Flags::pose | stateObservation::kine::Kinematics::Flags::vel);
@@ -306,8 +439,6 @@ bool MCWaiko::run(const mc_control::MCController & ctl)
   const auto & imu = ctl.robot(robot_).bodySensor(imuSensor_);
 
   auto k = estimator_.getCurrentTime();
-
-  // measuredOri_ = so::Matrix3(ctl.realRobot(robot_).posW().rotation().transpose());
 
   // The anchor frame can be obtained using 2 ways:
   // - 1: contacts are detected and can be used
@@ -339,13 +470,18 @@ bool MCWaiko::run(const mc_control::MCController & ctl)
 
   if(odometryManager_.maintainedContacts().size() > 0)
   {
-    worldImuLocKineFromAnchor_ = odometryManager_.getWorldBodyLocalKineFromAnchor(true, true);
+    worldImuLocKineFromAnchor_ = odometryManager_.getWorldBodyLocalKineFromAnchor();
+    if(worldImuLocKineFromAnchor_.orientation.isSet())
+    {
+      estimator_.addPoseInput(worldImuLocKineFromAnchor_.orientation.toMatrix3(), worldImuLocKineFromAnchor_.position(),
+                              k);
+      // estimator_.addPosInput(worldImuLocKineFromAnchor_.position(), k);
+    }
+    else { estimator_.addPosInput(worldImuLocKineFromAnchor_.position(), k); }
+
     worldImuKineFromAnchor_ = worldImuLocKineFromAnchor_;
 
-    estimator_.addContactInput(
-        so::WaikoHumanoid::InputWaiko::ContactInput(worldImuLocKineFromAnchor_.orientation.toMatrix3(),
-                                                    worldImuLocKineFromAnchor_.position()),
-        k);
+    if(withOriMeasFromContactPos_) { updateContactOrientationMeasurement_(contactsChanged, k); }
   }
 
   // estimation of the state with the complementary filters
@@ -508,10 +644,8 @@ void MCWaiko::addToLogger(const mc_control::MCController & ctl, mc_rtc::Logger &
 
   if(withDebugLogs_)
   {
-
     logger.addLogEntry(category + "_debug_measuredOri_",
-                       [this]() -> Eigen::Quaterniond { return measuredOri_.toQuaternion().inverse(); });
-
+                       [this]() -> Eigen::Quaterniond { return Eigen::Quaterniond(measuredOri_).inverse(); });
     // logger.addLogEntry(category + "_debug_corrections_oriCorrection_",
     //                    [this]() -> const so::Vector3 & { return estimator_.getOriCorrection(); });
     logger.addLogEntry(category + "_debug_corrections_oriCorrFromOriMeas_",
@@ -519,7 +653,7 @@ void MCWaiko::addToLogger(const mc_control::MCController & ctl, mc_rtc::Logger &
     logger.addLogEntry(category + "_debug_corrections_posCorrFromContactPos_",
                        [this]() -> const so::Vector3 & { return estimator_.getPosCorrectionFromContactPos(); });
     logger.addLogEntry(category + "_debug_corrections_oriCorrFromContactPos_",
-                       [this]() -> const so::Vector3 & { return estimator_.geOriCorrectionFromContactPos(); });
+                       [this]() -> const so::Vector3 & { return estimator_.getOriCorrectionFromContactPos(); });
 
     logger.addLogEntry(category + "_realRobotState_x1",
                        [this, &ctl]() -> so::Vector3

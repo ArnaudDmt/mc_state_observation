@@ -7,6 +7,7 @@
 #include <mc_state_observation/measurements/ContactsDetector.hpp>
 
 #include <state-observation/observer/waiko-humanoid.hpp>
+#include <state-observation/tools/definitions.hpp>
 #include <state-observation/tools/odometry/legged-odometry-manager.hpp>
 
 namespace mc_state_observation
@@ -73,6 +74,17 @@ public:
 
   inline const stateObservation::odometry::LeggedOdometryManager & odometryManager() { return odometryManager_; }
 
+  stateObservation::Matrix3 supportFrameFromContactsSVD_(const std::vector<stateObservation::Vector3> & contacts,
+                                                         const stateObservation::Vector3 & zRef,
+                                                         const stateObservation::Vector3 * xRef) const;
+
+  stateObservation::Matrix3 yawFrameFromTwoContacts_(const std::vector<stateObservation::Vector3> & contacts,
+                                                     const stateObservation::Vector3 & zRef,
+                                                     const stateObservation::Vector3 * xRef) const;
+
+  double yawFromRotation_(const stateObservation::Matrix3 & R) const;
+  void updateContactOrientationMeasurement_(bool contactsChanged, double k);
+
 protected:
   /*! \brief update the robot pose in the world only for visualization purpose
    *
@@ -111,6 +123,20 @@ protected:
    * @param logger
    */
   void removeDelayedOriMeasLogs(mc_rtc::Logger &);
+
+private:
+  stateObservation::Matrix3 supportFrameFromContactsSVD_(const stateObservation::Vector3 & zRef,
+                                                         const stateObservation::Vector3 * xRef) const;
+  stateObservation::Matrix3 yawFrameFromTwoContacts_(const stateObservation::Vector3 & zRef,
+                                                     const stateObservation::Vector3 * xRef) const;
+
+private:
+  stateObservation::Matrix3 frozenWorldSupportOri_ = stateObservation::Matrix3::Identity();
+  bool frozenWorldSupportOriIsSet_ = false;
+  double frozenWorldYaw_ = 0.0;
+  bool frozenWorldYawIsSet_ = false;
+  double measuredYawFromContacts_ = 0.0;
+  bool withOriMeasFromContactPos_ = false;
 
 public:
   // estimated kinematics of the IMU in the world
@@ -213,7 +239,7 @@ protected:
   // "measured" local linear velocity of the IMU
   stateObservation::Vector3 yv_;
 
-  stateObservation::kine::Orientation measuredOri_ = stateObservation::kine::Orientation::zeroRotation();
+  stateObservation::Matrix3 measuredOri_ = stateObservation::Matrix3::Identity();
   stateObservation::Vector measurements_;
 
   stateObservation::kine::Kinematics worldImuKineFromAnchor_;

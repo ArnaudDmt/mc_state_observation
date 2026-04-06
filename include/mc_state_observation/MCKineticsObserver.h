@@ -7,9 +7,14 @@
 #include <mc_state_observation/MCValinor.h>
 #include <mc_state_observation/measurements/ContactsDetector.h>
 #include <mc_state_observation/measurements/ContactsDetector.hpp>
+
 #include <state-observation/dynamics-estimators/kinetics-observer.hpp>
 #include <state-observation/tools/measurements-manager/IMU.hpp>
 #include <string_view>
+
+#include <mc_rtc/ros.h>
+#include <std_msgs/msg/float64.hpp>
+#include <rclcpp/rclcpp.hpp>
 
 namespace mc_state_observation
 {
@@ -492,6 +497,9 @@ private:
   stateObservation::Vector correctedMeasurements_;
   // For logs only. Kinematics of the centroid frame within the world frame
   stateObservation::kine::Kinematics globalCentroidKinematics_;
+
+  mc_rtc::NodeHandlePtr nh_ = nullptr;
+  rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr xPosPub_;
 };
 
 } // namespace mc_state_observation

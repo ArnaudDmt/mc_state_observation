@@ -5,9 +5,8 @@
 
 #include "mc_state_observation/measurements/ContactsDetector.h"
 #include <mc_state_observation/MCKineticsObserver.h>
-#include <mc_state_observation/gui_helpers.h>
-
 #include <mc_state_observation/conversions/kinematics.h>
+#include <mc_state_observation/gui_helpers.h>
 
 namespace so = stateObservation;
 namespace mc_state_observation
@@ -311,11 +310,13 @@ void MCKineticsObserver::reset(const mc_control::MCController & ctl)
 {
   valinor_.reset(ctl);
 
+  nh_ = mc_rtc::ROSBridge::get_node_handle();
+  if(nh_) { xPosPub_ = nh_->create_publisher<std_msgs::msg::Float64>("mcko_x_0_fb_x", 1); }
+
   const auto & robot = ctl.robot(robot_);
   const auto & realRobot = ctl.realRobot(robot_);
   mass(ctl.realRobot(robot_).mass());
 
-  /* Initialization of variables */
   X_0_fb_ = sva::PTransformd::Identity();
   v_fb_0_ = sva::MotionVecd::Zero();
   a_fb_0_ = sva::MotionVecd::Zero();
@@ -689,6 +690,13 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 
   /* Update of the observed robot */
   update(my_robots_->robot());
+
+  if(xPosPub_)
+  {
+    std_msgs::msg::Float64 msg;
+    msg.data = X_0_fb_.translation().x();
+    xPosPub_->publish(msg);
+  }
 
   return true;
 } // namespace mc_state_observation

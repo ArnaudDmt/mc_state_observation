@@ -37,7 +37,7 @@ macro(add_kineticsobserver)
   # implementation does
   target_link_libraries(
     MCKineticsObserver
-    PUBLIC mc_rtc::mc_control state-observation::state-observation
+    PUBLIC mc_rtc::mc_control state-observation::state-observation mc_rtc::mc_rtc_ros
            mc_state_observation MCValinor)
 endmacro()
 

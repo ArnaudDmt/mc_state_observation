@@ -311,7 +311,7 @@ void MCKineticsObserver::reset(const mc_control::MCController & ctl)
   valinor_.reset(ctl);
 
   nh_ = mc_rtc::ROSBridge::get_node_handle();
-  if(nh_) { xPosPub_ = nh_->create_publisher<std_msgs::msg::Float64>("mcko_x_0_fb_x", 1); }
+  if(nh_) { xPosPub_ = nh_->create_publisher<std_msgs::msg::Float64>("KO_pos", 1); }
 
   const auto & robot = ctl.robot(robot_);
   const auto & realRobot = ctl.realRobot(robot_);

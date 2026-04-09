@@ -311,7 +311,7 @@ void MCKineticsObserver::reset(const mc_control::MCController & ctl)
   valinor_.reset(ctl);
 
   nh_ = mc_rtc::ROSBridge::get_node_handle();
-  if(nh_) { xPosPub_ = nh_->create_publisher<std_msgs::msg::Float64>("KO_pos", 1); }
+  if(nh_) { xPosPub_ = nh_->create_publisher<geometry_msgs::msg::Pose>("KO_pose", 1); }
 
   const auto & robot = ctl.robot(robot_);
   const auto & realRobot = ctl.realRobot(robot_);
@@ -693,8 +693,16 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 
   if(xPosPub_)
   {
-    std_msgs::msg::Float64 msg;
-    msg.data = X_0_fb_.translation().x();
+    geometry_msgs::msg::Pose msg;
+    msg.position.x = mcko_K_0_fb.position().x();
+    msg.position.y = mcko_K_0_fb.position().y();
+    msg.position.z = mcko_K_0_fb.position().z();
+
+    msg.orientation.x = mcko_K_0_fb.orientation.toQuaternion().x();
+    msg.orientation.y = mcko_K_0_fb.orientation.toQuaternion().y();
+    msg.orientation.z = mcko_K_0_fb.orientation.toQuaternion().z();
+    msg.orientation.w = mcko_K_0_fb.orientation.toQuaternion().w();
+
     xPosPub_->publish(msg);
   }
 

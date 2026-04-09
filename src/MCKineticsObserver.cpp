@@ -311,7 +311,7 @@ void MCKineticsObserver::reset(const mc_control::MCController & ctl)
   valinor_.reset(ctl);
 
   nh_ = mc_rtc::ROSBridge::get_node_handle();
-  if(nh_) { xPosPub_ = nh_->create_publisher<geometry_msgs::msg::Pose>("KO_pose", 1); }
+  if(nh_) { xPosPub_ = nh_->create_publisher<geometry_msgs::msg::PoseStamped>("KO_pose", 1); }
 
   const auto & robot = ctl.robot(robot_);
   const auto & realRobot = ctl.realRobot(robot_);
@@ -693,15 +693,19 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 
   if(xPosPub_)
   {
-    geometry_msgs::msg::Pose msg;
-    msg.position.x = mcko_K_0_fb.position().x();
-    msg.position.y = mcko_K_0_fb.position().y();
-    msg.position.z = mcko_K_0_fb.position().z();
+    geometry_msgs::msg::PoseStamped msg;
 
-    msg.orientation.x = mcko_K_0_fb.orientation.toQuaternion().x();
-    msg.orientation.y = mcko_K_0_fb.orientation.toQuaternion().y();
-    msg.orientation.z = mcko_K_0_fb.orientation.toQuaternion().z();
-    msg.orientation.w = mcko_K_0_fb.orientation.toQuaternion().w();
+    msg.header.stamp = nh_->now();
+    msg.header.frame_id = "Floating base";
+
+    msg.pose.position.x = mcko_K_0_fb.position().x();
+    msg.pose.position.y = mcko_K_0_fb.position().y();
+    msg.pose.position.z = mcko_K_0_fb.position().z();
+
+    msg.pose.orientation.x = mcko_K_0_fb.orientation.toQuaternion().x();
+    msg.pose.orientation.y = mcko_K_0_fb.orientation.toQuaternion().y();
+    msg.pose.orientation.z = mcko_K_0_fb.orientation.toQuaternion().z();
+    msg.pose.orientation.w = mcko_K_0_fb.orientation.toQuaternion().w();
 
     xPosPub_->publish(msg);
   }

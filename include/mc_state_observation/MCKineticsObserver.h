@@ -13,7 +13,7 @@
 #include <string_view>
 
 #include <mc_rtc/ros.h>
-#include <geometry_msgs/msg/pose.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
 #include <rclcpp/rclcpp.hpp>
 
 namespace mc_state_observation
@@ -499,7 +499,7 @@ private:
   stateObservation::kine::Kinematics globalCentroidKinematics_;
 
   mc_rtc::NodeHandlePtr nh_ = nullptr;
-  rclcpp::Publisher<geometry_msgs::msg::Pose>::SharedPtr xPosPub_;
+  rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr xPosPub_;
 };
 
 } // namespace mc_state_observation

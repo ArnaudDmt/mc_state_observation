@@ -2,12 +2,16 @@
 
 #pragma once
 
-#include <boost/circular_buffer.hpp>
+#include <mc_state_observation/measurements/ContactsDetector.hpp>
+#include <state-observation/dynamics-estimators/kinetics-observer.hpp>
+#include <state-observation/tools/measurements-manager/ContactsManager.hpp>
+#include <state-observation/tools/measurements-manager/IMU.hpp>
+#include <state-observation/tools/odometry/legged-odometry-manager.hpp>
 
 #include <kinetics_observer_fg.hpp>
-#include <mc_state_observation/measurements/ContactsManager.h>
-#include <mc_state_observation/measurements/measurements.h>
+
 #include <state-observation/tools/rigid-body-kinematics.hpp>
+#include <string_view>
 
 namespace mc_state_observation
 {
@@ -18,33 +22,42 @@ namespace mc_state_observation
  *The inputs are obtained from a robot called the inputRobot. Its configuration is the one of real robot, but
  *its floating base's frame is superimposed with the world frame. This allows to ease computations performed in the
  *local frame of the robot.
- *The Kinetics Observer is associated to the Tilt Observer as a backup. If an anomaly is detected, the Kinetics Observer
- *will recover the last ellapsed second (or less) using the displacement made by the Tilt Observer.
  **/
 
 /// @brief Class containing the information of a contact.
 /// @details This class is an enhancement of the ContactWithSensor class with the kinematics of the contact in the
 /// floating base and the kinematics of the frame of the sensor in the frame of the contact surface
-struct KoContactWithSensor : public measurements::ContactWithSensor
+struct KoContactWithSensor : public stateObservation::measurements::Contact
 {
-  using measurements::ContactWithSensor::ContactWithSensor;
+  using stateObservation::measurements::Contact::Contact;
 
-  inline void resetContact() noexcept { ContactWithSensor::resetContact(); }
+  inline const std::string & fsName() const noexcept { return fsName_; }
+
+  inline void fsName(const std::string_view & fsName) { fsName_ = fsName; }
+
+  inline void resetContact() noexcept { Contact::resetContact(); }
 
 public:
   // kinematics of the contact frame in the floating base's frame
   stateObservation::kine::Kinematics fbContactKine_;
   // kinematics of the sensor frame in the frame of the contact surface
   stateObservation::kine::Kinematics contactSensorKine_;
+  // kinematics of the contact  frame in the centroid frame
+  stateObservation::kine::Kinematics centroidContactKine_;
   // measured contact wrench, expressed in the frame of the contact.
   Eigen::Matrix<double, 6, 1> contactWrenchVector_;
-  // contact wrench expressed in the centroid frame. Used for logs.
-  Eigen::Matrix<double, 6, 1> wrenchInCentroid_ = Eigen::Matrix<double, 6, 1>::Zero();
   // for debug only
   stateObservation::Vector6 viscoElasticWrenchAfterCorrection_;
+  std::string fsName_;
 
   // the sensor measurement has to be used by the observer
   bool sensorEnabled_ = true;
+};
+
+struct KoContactsManager : public stateObservation::measurements::ContactsManager<KoContactWithSensor>
+{
+  // map that relates a force sensor to the associated surface
+  std::unordered_map<std::string, std::string> fs_Surface_Map;
 };
 
 struct MCKineticsObserverFG : public mc_observers::Observer
@@ -61,8 +74,6 @@ struct MCKineticsObserverFG : public mc_observers::Observer
   void update(mc_control::MCController & ctl) override;
 
 protected:
-  /// @brief sets all the covariances required by the Kinetics Observer
-  void setObserverCovariances();
   /// @brief Update the pose and velocities of the robot in the world frame. Used only to update the ones of the robot
   /// used for the visualization of the estimation made by the Kinetics Observer.
   /// @param robot The robot to update.
@@ -70,27 +81,11 @@ protected:
 
   /// @brief Sums up the wrenches measured by the unused force sensors expressed in the centroid frame to give them as
   /// an input to the Kinetics Observer
-  /// @param inputRobot A robot whose configuration is the one of real robot, but whose pose, velocities and
-  /// accelerations are set to zero in the control frame. Allows to ease computations performed in the local frame of
-  /// the robot.
   /// @param measRobot The control robot. Used to retrieve the measurements.
-  stateObservation::Vector6 inputAdditionalWrench(const mc_rbdyn::Robot & inputRobot,
+  stateObservation::Vector6 inputAdditionalWrench(const mc_control::MCController & ctl,
                                                   const mc_rbdyn::Robot & measRobot);
 
-  /// @brief Adds the measurement of the desired sensors to the external force given as an input to the Kinetics
-  /// Observer
-  /// @details The force sensors must be given with the list forceSensorsAsInput_
-  /// @param inputRobot A robot whose configuration is the one of real robot, but whose pose, velocities and
-  /// accelerations are set to zero in the control frame. Allows to ease computations performed in the local frame of
-  /// the robot.
-  /// @param measRobot The control robot. Used to retrieve the measurements.
-  /// @param inputAddtionalWrench the external wrench given as input
-  void addSensorsAsInputs(const mc_rbdyn::Robot & inputRobot,
-                          const mc_rbdyn::Robot & measRobot,
-                          stateObservation::Vector6 & inputAddtionalWrench);
-
-  /// @brief Update the IMUs, including the measurements, measurement covariances and kinematics in the floating
-  /// base's frame (user frame)
+  /// @brief Update the IMUs, including the measurements and kinematics in the centroid frame
   /// @param measRobot The control robot
   /// @param inputRobot A robot whose configuration is the one of real robot, but whose pose, velocities and
   /// accelerations are set to zero in the control frame. Allows to ease computations performed in the local frame of
@@ -172,14 +167,27 @@ protected:
                                      const sva::ForceVecd & measuredWrench,
                                      const stateObservation::kine::Kinematics * contactSensorKine = nullptr);
 
+  /// @brief Computes the rest pose of the contact in the world.
+  /// @details At contact detection, a wrench is already applied, which means the contact frame obtained by forward
+  /// kinematics is not the rest pose. We thus remove it using the viscoelastic model and the measured wrench.
+  /// @param ctl Controller
+  /// @param contact Contact
+  /// @param worldContactKine Contact frame kinematics, which are affected by the deformation of flexiblities.
+  /// @param worldRestPose Rest pose of the contact, updated in the function
+  /// @return The contact rest pose.
+  stateObservation::kine::Kinematics getOdometryWorldContactRest(
+      const mc_control::MCController & ctl,
+      KoContactWithSensor & contact,
+      const stateObservation::kine::Kinematics & worldContactKine);
+
   /// @brief Creates a new contact
   /// @param ctl Controller
   /// @param contact Contact to update
-  /// @param initCovariance The initial covariance associated with the contact.
+  /// @param initNoises The initial noises associated with the contact.
   /// @param logger Logger
   void setNewContact(const mc_control::MCController & ctl,
                      KoContactWithSensor & contact,
-                     const stateObservation::Matrix12 & initCovariance,
+                     const std::array<double, 4> & initNoises,
                      mc_rtc::Logger & logger);
 
   /// @brief Updates an already set contact
@@ -189,52 +197,7 @@ protected:
   void updateContact(const mc_control::MCController & ctl, KoContactWithSensor & contact);
 
 public:
-  /** Get robot mass.
-   *
-   */
-  inline double mass() const { return mass_; }
-
-  /** Set robot mass.
-   *
-   * \param mass Robot mass.
-   *
-   */
-  void mass(double mass);
-
-  /** Set stiffness of the robot-environment flexibility.
-   *
-   * \param stiffness Flexibility stiffness.
-   *
-   */
-  void flexStiffness(const sva::MotionVecd & stiffness);
-
-  /** Set damping of the robot-environment flexibility.
-   *
-   * \param damping Flexibility damping.
-   *
-   */
-  void flexDamping(const sva::MotionVecd & damping);
-
-  /** Update measurement-noise covariance matrix.
-   *
-   */
-  void updateNoiseCovariance();
-
-  /** Get accelerometer measurement noise covariance.
-   *
-   */
-  inline double accelNoiseCovariance() const { return acceleroSensorCovariance_(0, 0); }
-
-  /** Change accelerometer measurement noise covariance.
-   *
-   * \param covariance New covariance.
-   *
-   */
-  inline void accelNoiseCovariance(double covariance)
-  {
-    acceleroSensorCovariance_ = stateObservation::Matrix3::Identity() * covariance;
-    updateNoiseCovariance();
-  }
+  inline const sva::ForceVecd & getUnbiasedEstimatedDisturbanceWrench() { return unbiasedDisturbanceWrench_; }
 
   /** Set debug flag.
    *
@@ -242,43 +205,6 @@ public:
    *
    */
   inline void debug(bool flag) { debug_ = flag; }
-
-  /** Get force-sensor measurement noise covariance.
-   *
-   */
-  inline double forceSensorNoiseCovariance() const { return contactSensorCovariance_(0, 0); }
-
-  /** Change force-sensor measurement noise covariance.
-   *
-   * \param covariance New covariance.
-   *
-   */
-  inline void forceSensorNoiseCovariance(double covariance)
-  {
-    contactSensorCovariance_.block<3, 3>(0, 0) = stateObservation::Matrix3::Identity() * covariance;
-    updateNoiseCovariance();
-  }
-
-  /** Get gyrometer measurement noise covariance.
-   *
-   */
-  inline double gyroNoiseCovariance() const { return gyroSensorCovariance_(0, 0); }
-
-  /** Change gyrometer measurement noise covariance.
-   *
-   * \param covariance New covariance.
-   *
-   */
-  inline void gyroNoiseCovariance(double covariance)
-  {
-    gyroSensorCovariance_ = stateObservation::Matrix3::Identity() * covariance;
-    updateNoiseCovariance();
-  }
-
-  /** Get last measurement vector sent to observer.
-   *
-   */
-  inline const Eigen::VectorXd measurements() const { return observer_.getEKF().getLastMeasurement(); }
 
   /** Floating-base transform estimate.
    *
@@ -300,6 +226,9 @@ private:
   // instance of the Kinetics Observer
   ko_fg::KineticsObserverFG observer_;
 
+  // contacts maintained during the current iteration
+  std::unordered_map<unsigned, KoContactWithSensor *> maintainedContacts_;
+
   // category to plot the estimator in
   std::string category_;
   // name of the robot
@@ -308,8 +237,6 @@ private:
   std::shared_ptr<mc_rbdyn::Robots> my_robots_;
   // std::string imuSensor_ = "";
   std::vector<std::string> imuNames_; ///< list of IMUs
-  // contacts maintained during the current iteration
-  std::vector<KoContactWithSensor *> maintainedContacts_;
 
   /* Estimation parameters */
   bool debug_ = false;
@@ -320,6 +247,12 @@ private:
   // state vector resulting from the Kinetics Observer esimation
   Eigen::VectorXd res_;
   stateObservation::kine::Kinematics worldFbKine_;
+  stateObservation::kine::Kinematics centroidFbKine_;
+  stateObservation::kine::Kinematics worldCentroidKine_;
+  stateObservation::kine::LocalKinematics worldCentroidLocKine_;
+  // kinematics of the centroid frame in the floating base
+  stateObservation::kine::Kinematics fbCentroidKine_;
+
   // pose of the floating base within the world frame (real one, not the one of the control robot)
   sva::PTransformd X_0_fb_;
   // velocity of the floating base within the world frame (real one, not the one of the control robot)
@@ -330,125 +263,76 @@ private:
   /* Parameters of the robot */
   // mass of the robot
   double mass_; // [kg]
-  // linear stiffness of contacts
-  stateObservation::Matrix3 linStiffness_;
-  // linear damping of contacts
-  stateObservation::Matrix3 linDamping_;
-  // angular stiffness of contacts
-  stateObservation::Matrix3 angStiffness_;
-  // linear damping of contacts
-  stateObservation::Matrix3 angDamping_;
+
+  sva::ForceVecd disturbanceWrenchOffset_;
+  sva::ForceVecd unbiasedDisturbanceWrench_;
+  bool removeWrenchOffset_;
+  size_t wrenchOffsetIndex_;
 
   // indicates if the debug logs have to be added.
   bool withDebugLogs_ = false;
-  stateObservation::Matrix3 contactsPosAverageStateCov_;
 
   // indicates if we want to perform odometry, and if yes, flat or 6d odometry
-  measurements::OdometryType odometryType_;
+  stateObservation::odometry::OdometryType odometryType_;
   // odometry method used on last iteration. Used to check if it changed in order to apply the change to the Tilt
   // Observer if necessary.
-  measurements::OdometryType prevOdometryType_;
+  stateObservation::odometry::OdometryType prevOdometryType_;
   // indicates if we want to estimate the unmodeled wrench within the Kinetics Observer.
-  bool withUnmodeledWrench_ = true;
-  // indicates if we want to estimate the bias on the gyrometer measurement within the Kinetics Observer.
-  bool withGyroBias_ = true;
 
-  /* Kalman Filter's covariances */
+  using KoContactsDetector = measurements::ContactsDetector<KoContactWithSensor>;
+  KoContactsDetector contactsDetector_;
 
-  // initial covariance on the position estimate
-  stateObservation::Matrix3 statePositionInitCovariance_;
-  // initial covariance on the orientation estimate
-  stateObservation::Matrix3 stateOriInitCovariance_;
-  // initial covariance on the local linear velocity estimate
-  stateObservation::Matrix3 stateLinVelInitCovariance_;
-  // initial covariance on the local angular velocity estimate
-  stateObservation::Matrix3 stateAngVelInitCovariance_;
-  // initial covariance on the gyrometer bias estimate
-  stateObservation::Matrix3 gyroBiasInitCovariance_;
-  // initial covariance on the unmodeled wrench estimate
-  stateObservation::Matrix6 unmodeledWrenchInitCovariance_;
-  // initial covariance on the contact rest pose estimate, when no other contact is currently set
-  stateObservation::Matrix12 contactInitCovarianceFirstContacts_;
-  // initial covariance on the contact rest pose estimate, when other contacts are currently set
-  stateObservation::Matrix12 contactInitCovarianceNewContacts_;
-  // initial covariance on the contact rest pose estimate, when no other contact is currently set. Version when using
-  // flat odometry.
-  stateObservation::Matrix12 contactInitCovarianceFirstContacts_flat_;
-  // initial covariance on the contact rest pose estimate, when other contacts are currently set. Version when using
-  // flat odometry.
-  stateObservation::Matrix12 contactInitCovarianceNewContacts_flat_;
-
-  // covariance on the position's state transition
-  stateObservation::Matrix3 statePositionProcessCovariance_;
-  // covariance on the orientation's state transition
-  stateObservation::Matrix3 stateOriProcessCovariance_;
-  // covariance on the local linear velocity's state transition
-  stateObservation::Matrix3 stateLinVelProcessCovariance_;
-  // covariance on the angular velocity's state transition
-  stateObservation::Matrix3 stateAngVelProcessCovariance_;
-  // covariance on the gyrometer bias' state transition
-  stateObservation::Matrix3 gyroBiasProcessCovariance_;
-  // covariance on the unmodeled wrench's state transition
-  stateObservation::Matrix6 unmodeledWrenchProcessCovariance_;
-  // covariance on the contact rest pose's state transition
-  stateObservation::Matrix12 contactProcessCovariance_;
-
-  // covariance on the absolute position measurement
-  stateObservation::Matrix3 positionSensorCovariance_;
-  // covariance on the absolute orientation measurement
-  stateObservation::Matrix3 orientationSensorCoVariance_;
-  // covariance on the accelerometer measurement
-  stateObservation::Matrix3 acceleroSensorCovariance_;
-  // covariance on the gyrometer measurement
-  stateObservation::Matrix3 gyroSensorCovariance_;
-  // covariance on the contact's force sensors measurement
-  stateObservation::Matrix6 contactSensorCovariance_;
-  // covariance on the gyrometer measurement
-  stateObservation::Matrix3 absoluteOriSensorCovariance_;
-
-  /* Contacts manager variables */
-  using KoContactsManager = measurements::ContactsManager<KoContactWithSensor>;
   KoContactsManager contactsManager_;
-
-  // list of the force sensors that cannot be used with contacts but we want to use their measurements as inputs to the
-  // Kinetics Observer
-  std::vector<std::string> forceSensorsAsInput_ = std::vector<std::string>();
 
   /* IMU variables */
   // manager for the IMUs
-  measurements::ImuList listIMUs_;
+  std::vector<stateObservation::measurements::IMU> listIMUs_;
 
   /* Utilitary variables */
   // zero frame transformation
   sva::PTransformd zeroPose_;
   // zero velocity or acceleration
   sva::MotionVecd zeroMotion_;
-  // kinematics of the centroid frame in the floating base
-  stateObservation::kine::Kinematics fbCentroidKine_;
-  /**< grouped inertia */
-  sva::RBInertiad inertiaWaist_;
 
-  /* Variables for the backup */
-  // iteration on which the backup was required for the last time
-  int lastBackupIter_;
-  // number of iterations on which we perform the backup
-  int fbBackupCapacity_ = 0;
-  // time during which the Kinetics Observer is still getting updated by the Tilt Observer after the need of a backup,
-  // so the Kalman Filter has time to converge again
-  int invincibilityFrame_ = 0;
-  // iterations ellapsed within the invincibility frame
-  int invincibilityIter_;
+  stateObservation::Vector6 inputWrench_;
 
   size_t k_;
 
-  // Buffer containing the estimated pose of the floating base in the world over the whole backup interval.
-  boost::circular_buffer<stateObservation::kine::Kinematics> koBackupFbKinematics_;
+  /*
+  - pos
+  - ori
+  - linVel
+  - angvel
+  - linAcc
+  - angAcc
+  - disturbForce
+  - disturbMoment
+  */
+  std::array<double, 8> initNoises_;
+  std::array<double, 8> processNoises_;
+  std::unordered_map<size_t, std::array<double, 4>> imuNoises_;
 
-  /* Debug variables */
-  // For logs only. Prediction of the measurements from the newly corrected state
-  stateObservation::Vector correctedMeasurements_;
-  // For logs only. Kinematics of the centroid frame within the world frame
-  stateObservation::kine::Kinematics globalCentroidKinematics_;
+  /*
+  Contact flexibility tuning
+  - linear stiffness
+  - angular stiffness
+  - linear damping
+  - angular damping
+  */
+  std::array<stateObservation::Matrix3, 4> contactFlexibilities_;
+  std::array<double, 4> contactInitNoises_;
+  std::array<double, 4> contactInitNoises_first_;
+  std::array<double, 4> contactProcessNoises_;
+  std::array<double, 2> contactMeasNoises_;
+
+  // kinematics of the CoM within the floating base
+  stateObservation::kine::Kinematics fbCoMKine_;
+  // total force measured by the sensors that are not associated to a currently set contact and expressed in the
+  // floating base's frame. Used as an input for the Kinetics Observer.
+  stateObservation::Vector3 additionalUserResultingForce_ = stateObservation::Vector3::Zero();
+  // total torque measured by the sensors that are not associated to a currently set contact and expressed in the
+  // floating base's frame. Used as an input for the Kinetics Observer.
+  stateObservation::Vector3 additionalUserResultingMoment_ = stateObservation::Vector3::Zero();
 };
 
 } // namespace mc_state_observation

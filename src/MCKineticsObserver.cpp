@@ -34,7 +34,7 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   listIMUs_.clear();
   if(!imuNames_.empty())
   {
-    for(size_t i = 0; i < imuNames_.size(); ++i) { listIMUs_.push_back({static_cast<int>(i), imuNames_[i]}); }
+    for(size_t i = 0; i < imuNames_.size(); ++i) { listIMUs_.push_back({i, imuNames_[i]}); }
   }
   else
   {
@@ -132,10 +132,10 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
     observer_.setWithAdaptativeContactProcessCov(config("withAdaptativeContactProcessCov"));
   }
 
-  linStiffness_ = (config("linStiffness").operator so::Vector3()).matrix().asDiagonal();
-  angStiffness_ = (config("angStiffness").operator so::Vector3()).matrix().asDiagonal();
-  linDamping_ = (config("linDamping").operator so::Vector3()).matrix().asDiagonal();
-  angDamping_ = (config("angDamping").operator so::Vector3()).matrix().asDiagonal();
+  linStiffness_ = (contactsConfig("linStiffness").operator so::Vector3()).matrix().asDiagonal();
+  angStiffness_ = (contactsConfig("angStiffness").operator so::Vector3()).matrix().asDiagonal();
+  linDamping_ = (contactsConfig("linDamping").operator so::Vector3()).matrix().asDiagonal();
+  angDamping_ = (contactsConfig("angDamping").operator so::Vector3()).matrix().asDiagonal();
 
   zeroPose_.translation().setZero();
   zeroPose_.rotation().setIdentity();
@@ -792,12 +792,12 @@ void MCKineticsObserver::updateIMUs(const mc_rbdyn::Robot & measRobot, const mc_
     so::kine::Kinematics bodyImuKine = conversions::kinematics::fromSva(
         bodyImuPose, so::kine::Kinematics::Flags::vel | so::kine::Kinematics::Flags::acc);
 
-    so::kine::Kinematics worldBodyKine = conversions::kinematics::fromSva(
+    so::kine::Kinematics fbBodyKine = conversions::kinematics::fromSva(
         inputRobot.mbc().bodyPosW[inputRobot.bodyIndexByName(imu.parentBody())],
         inputRobot.mbc().bodyVelW[inputRobot.bodyIndexByName(imu.parentBody())],
         inputRobot.mbc().bodyAccB[inputRobot.bodyIndexByName(imu.parentBody())], true, false);
 
-    so::kine::Kinematics worldImuKine = worldBodyKine * bodyImuKine;
+    so::kine::Kinematics worldImuKine = fbBodyKine * bodyImuKine;
 
     observer_.setIMU(imu.linearAcceleration(), imu.angularVelocity(), acceleroSensorCovariance_, gyroSensorCovariance_,
                      worldImuKine, so::Index(i));
@@ -1766,9 +1766,8 @@ void MCKineticsObserver::addContactLogEntries(const mc_control::MCController & c
   logger.addLogEntry(category_ + "_MEKF_estimatedState_contact_" + contact.surfaceName() + "_torques", &contact,
                      [this, &contact]() -> Eigen::Vector3d
                      {
-                       return globalCentroidKinematics_.orientation.toMatrix3()
-                              * observer_.getCurrentStateVector().segment(observer_.contactTorqueIndex(contact.id()),
-                                                                          observer_.sizeTorque);
+                       return observer_.getCurrentStateVector().segment(observer_.contactTorqueIndex(contact.id()),
+                                                                        observer_.sizeTorque);
                      });
   logger.addLogEntry(category_ + "_MEKF_stateCovariances_contact_" + contact.surfaceName() + "_position_", &contact,
                      [this, &contact]() -> Eigen::Vector3d

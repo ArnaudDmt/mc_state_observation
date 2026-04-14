@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.24)
 
 set(PROJECT_NAME mc_state_observation)
 set(PROJECT_DESCRIPTION "Implementation of state-observation for mc_rtc")

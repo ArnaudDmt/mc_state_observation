@@ -227,79 +227,12 @@ public:
    */
   void mass(double mass);
 
-  /** Set stiffness of the robot-environment flexibility.
-   *
-   * \param stiffness Flexibility stiffness.
-   *
-   */
-  void flexStiffness(const sva::MotionVecd & stiffness);
-
-  /** Set damping of the robot-environment flexibility.
-   *
-   * \param damping Flexibility damping.
-   *
-   */
-  void flexDamping(const sva::MotionVecd & damping);
-
-  /** Update measurement-noise covariance matrix.
-   *
-   */
-  void updateNoiseCovariance();
-
-  /** Get accelerometer measurement noise covariance.
-   *
-   */
-  inline double accelNoiseCovariance() const { return acceleroSensorCovariance_(0, 0); }
-
-  /** Change accelerometer measurement noise covariance.
-   *
-   * \param covariance New covariance.
-   *
-   */
-  inline void accelNoiseCovariance(double covariance)
-  {
-    acceleroSensorCovariance_ = stateObservation::Matrix3::Identity() * covariance;
-    updateNoiseCovariance();
-  }
-
   /** Set debug flag.
    *
    * \param flag New debug flag.
    *
    */
   inline void debug(bool flag) { debug_ = flag; }
-
-  /** Get force-sensor measurement noise covariance.
-   *
-   */
-  inline double forceSensorNoiseCovariance() const { return contactSensorCovariance_(0, 0); }
-
-  /** Change force-sensor measurement noise covariance.
-   *
-   * \param covariance New covariance.
-   *
-   */
-  inline void forceSensorNoiseCovariance(double covariance)
-  {
-    contactSensorCovariance_.block<3, 3>(0, 0) = stateObservation::Matrix3::Identity() * covariance;
-    updateNoiseCovariance();
-  }
-
-  /** Get gyrometer measurement noise covariance.
-   *
-   */
-  inline double gyroNoiseCovariance() const { return gyroSensorCovariance_(0, 0); }
-
-  /** Change gyrometer measurement noise covariance.
-   *
-   * \param covariance New covariance.
-   *
-   */
-  inline void gyroNoiseCovariance(double covariance)
-  {
-    gyroSensorCovariance_ = stateObservation::Matrix3::Identity() * covariance;
-    updateNoiseCovariance();
-  }
 
   /** Get last measurement vector sent to observer.
    *

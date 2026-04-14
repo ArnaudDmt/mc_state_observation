@@ -882,21 +882,21 @@ void MCKineticsObserverFG::addToLogger(const mc_control::MCController & ctl,
   /* Plots of the updated state */
   conversions::kinematics::addToLogger(logger, est_worldCentroidKine, category_ + "est_worldCentroidKine");
   logger.addLogEntry(category_ + "_MEKF_estimatedState_position",
-                     [this]() -> Eigen::Vector3d { return observer_.getCurrentState().pose().translation(); });
+                     [this]() -> Eigen::Vector3d { return observer_.getCurrentState().kine_.pose().translation(); });
   logger.addLogEntry(category_ + "_MEKF_estimatedState_ori",
                      [this]() -> Eigen::Quaterniond
                      {
-                       so::kine::Orientation ori(observer_.getCurrentState().pose().rotation());
+                       so::kine::Orientation ori(observer_.getCurrentState().kine_.pose().rotation());
                        return ori.inverse().toQuaternion();
                      });
   logger.addLogEntry(category_ + "_MEKF_estimatedState_linVel",
-                     [this]() -> Eigen::Vector3d { return observer_.getCurrentState().linVel(); });
+                     [this]() -> Eigen::Vector3d { return observer_.getCurrentState().kine_.linVel(); });
   logger.addLogEntry(category_ + "_MEKF_estimatedState_angVel",
-                     [this]() -> Eigen::Vector3d { return observer_.getCurrentState().angVel(); });
+                     [this]() -> Eigen::Vector3d { return observer_.getCurrentState().kine_.angVel(); });
   logger.addLogEntry(category_ + "_MEKF_estimatedState_linAcc",
-                     [this]() -> Eigen::Vector3d { return observer_.getCurrentState().linAcc(); });
+                     [this]() -> Eigen::Vector3d { return observer_.getCurrentState().kine_.linAcc(); });
   logger.addLogEntry(category_ + "_MEKF_estimatedState_angAcc",
-                     [this]() -> Eigen::Vector3d { return observer_.getCurrentState().angAcc(); });
+                     [this]() -> Eigen::Vector3d { return observer_.getCurrentState().kine_.angAcc(); });
 
   for(auto & imu : listIMUs_)
   {

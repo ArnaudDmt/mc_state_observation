@@ -6,8 +6,9 @@ ekfSensorNoiseVariances:
   positionSensorVariance: [0.0,0.0,0.0]
   orientationSensorVariance: [0.0,0.0,0.0]
 
-# Flexibilities of contacts
-linStiffness: [3e5, 3e5, 3e5]
-angStiffness: [1000, 1000, 1000]
-linDamping: [150, 150, 150]
-angDamping: [17, 17, 17]
+contacts:
+  # Flexibilities of contacts
+  linStiffness: [3e5, 3e5, 3e5]
+  angStiffness: [1000, 1000, 1000]
+  linDamping: [150, 150, 150]
+  angDamping: [17, 17, 17]

@@ -196,6 +196,22 @@ protected:
   /// @param logger Logger
   void updateContact(const mc_control::MCController & ctl, KoContactWithSensor & contact);
 
+  inline stateObservation::kine::Kinematics fgLocKineToSoKine(const ko_fg::LocKinematics & locK)
+  {
+    stateObservation::KineticsObserver::Kinematics kine;
+
+    if(locK.hasPose()) { kine.position = locK.pose().rotation() * locK.position(); }
+
+    if(locK.linVel.isSet()) { kine.linVel = locK.pose().rotation() * locK.linVel(); }
+
+    if(locK.linAcc.isSet()) { kine.linAcc = locK.pose().rotation() * locK.linAcc(); }
+
+    if(locK.angVel.isSet()) { kine.angVel = locK.pose().rotation() * locK.angVel(); }
+
+    if(locK.angAcc.isSet()) { kine.angAcc = locK.pose().rotation() * locK.angAcc(); }
+    return kine;
+  }
+
 public:
   inline const sva::ForceVecd & getUnbiasedEstimatedDisturbanceWrench() { return unbiasedDisturbanceWrench_; }
 
@@ -246,10 +262,8 @@ private:
 
   // state vector resulting from the Kinetics Observer esimation
   Eigen::VectorXd res_;
-  stateObservation::kine::Kinematics worldFbKine_;
   stateObservation::kine::Kinematics centroidFbKine_;
   stateObservation::kine::Kinematics worldCentroidKine_;
-  stateObservation::kine::LocalKinematics worldCentroidLocKine_;
   // kinematics of the centroid frame in the floating base
   stateObservation::kine::Kinematics fbCentroidKine_;
 
@@ -325,8 +339,9 @@ private:
   std::array<double, 4> contactProcessNoises_;
   std::array<double, 2> contactMeasNoises_;
 
-  // kinematics of the CoM within the floating base
-  stateObservation::kine::Kinematics fbCoMKine_;
+  // estimated kinematics of the centroid frame in the world frame
+  stateObservation::kine::Kinematics est_worldCentroidKine;
+
   // total force measured by the sensors that are not associated to a currently set contact and expressed in the
   // floating base's frame. Used as an input for the Kinetics Observer.
   stateObservation::Vector3 additionalUserResultingForce_ = stateObservation::Vector3::Zero();

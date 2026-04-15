@@ -17,7 +17,7 @@ void MCDisturbanceObserver::configure(const mc_control::MCController & ctl, cons
   const auto & robot = ctl.robot(robot_);
 
   imuName_ = config("imu", robot.bodySensor().name());
-  nominalMass_ = config("nominalMass", ctl.realRobot(robot_).mass());
+  nominalMass_ = ctl.realRobot(robot_).mass();
   cutoffFrequency_ = config("cutoffFrequency", 100.0);
 
   listIMUs_.clear();
@@ -108,36 +108,36 @@ void MCDisturbanceObserver::update(mc_control::MCController &) {}
 
 void MCDisturbanceObserver::updateContacts(const mc_control::MCController & ctl)
 {
+  auto & logger = (const_cast<mc_control::MCController &>(ctl)).logger();
+
+  auto onNewContact = [this, &ctl, &logger](DoContactWithSensor & newContact)
+  {
+    logger.addLogEntry(category_ + "_debug_contactState_isSet_" + newContact.surfaceName(), &newContact,
+                       [&newContact]() -> std::string { return newContact.isSet() ? "Set" : "notSet"; });
+  };
+
+  auto onMaintainedContact = [this, &ctl](DoContactWithSensor & maintainedContact) {};
+
+  auto onRemovedContact = [this, &logger](DoContactWithSensor & removedContact)
+  { logger.removeLogEntry(category_ + "_debug_contactState_isSet_" + removedContact.surfaceName()); };
+
+  auto onAddedContact = [this, &ctl](DoContactWithSensor & addedContact)
+  {
+    if(ctl.robot(robot_).frame(addedContact.surfaceName()).hasForceSensor() == false)
+    {
+      mc_rtc::log::warning(
+          "The surface given for the contact detection is not associated to a force sensor, it will be ignored.");
+      return;
+    }
+
+    if(addedContact.fsName().empty())
+    {
+      addedContact.fsName(ctl.robot(robot_).indirectSurfaceForceSensor(addedContact.surfaceName()).name());
+    }
+  };
+
   std::unordered_set<std::string> & contactList = contactsDetector_.updateContacts(ctl, robot_);
-
-  for(auto & [surfaceName, contact] : contactsManager_.contacts())
-  {
-    if(contactList.find(surfaceName) == contactList.end()) { contact.resetContact(); }
-  }
-
-  for(const auto & surfaceName : contactList)
-  {
-    auto * contact = contactsManager_.findContact(surfaceName);
-
-    if(!contact)
-    {
-      auto & newContact =
-          contactsManager_.contacts().emplace(surfaceName, DoContactWithSensor(surfaceName)).first->second;
-      newContact.fsName(ctl.robot(robot_).indirectSurfaceForceSensor(surfaceName).name());
-      newContact.sensorEnabled_ = true;
-      newContact.contactId(0);
-      newContact.setContact();
-    }
-    else
-    {
-      if(contact->fsName().empty())
-      {
-        contact->fsName(ctl.robot(robot_).indirectSurfaceForceSensor(surfaceName).name());
-      }
-      contact->sensorEnabled_ = true;
-      contact->setContact();
-    }
-  }
+  contactsManager_.updateContacts(contactList, onNewContact, onMaintainedContact, onRemovedContact, onAddedContact);
 }
 
 Eigen::Matrix3d MCDisturbanceObserver::worldRotationOfIMU(const mc_rbdyn::Robot & robot) const
@@ -158,18 +158,33 @@ void MCDisturbanceObserver::computeEstimatedForce(const mc_control::MCController
   const Eigen::Matrix3d R_0_is = worldRotationOfIMU(realRobot);
   const Eigen::Vector3d alphaWorld = R_0_is * imu.linearAcceleration();
 
-  Eigen::Vector3d summedContactForce = Eigen::Vector3d::Zero();
+  const Eigen::Matrix3d R_0_c = realRobot.posW().rotation().transpose();
+  const Eigen::Matrix3d R_c_0 = R_0_c.transpose();
+
+  const Eigen::Vector3d alphaCentroid = R_c_0 * alphaWorld;
+
+  Eigen::Vector3d summedContactForceCentroid = Eigen::Vector3d::Zero();
+
+  const std::string ignoredSurface = "LeftHandCloseContact";
+  std::string ignoredFsName = "";
+  if(ctl.robot(robot_).hasSurface(ignoredSurface))
+  {
+    ignoredFsName = ctl.robot(robot_).indirectSurfaceForceSensor(ignoredSurface).name();
+  }
 
   for(const auto & [surfaceName, contact] : contactsManager_.contacts())
   {
     if(!contact.isSet()) { continue; }
     if(!contact.sensorEnabled_) { continue; }
+    if(contact.fsName().empty()) { continue; }
+    if(!ignoredFsName.empty() && contact.fsName() == ignoredFsName) { continue; }
 
     const auto & fs = realRobot.forceSensor(contact.fsName());
-    summedContactForce += fs.worldWrenchWithoutGravity(realRobot).force();
+    const Eigen::Vector3d forceWorld = fs.worldWrenchWithoutGravity(realRobot).force();
+    summedContactForceCentroid += R_c_0 * forceWorld;
   }
 
-  estimatedExternalForceRaw_ = nominalMass_ * alphaWorld - summedContactForce;
+  estimatedExternalForceRaw_ = nominalMass_ * alphaCentroid - summedContactForceCentroid;
 }
 
 void MCDisturbanceObserver::applyFirstOrderLowPassFilter()
@@ -179,7 +194,7 @@ void MCDisturbanceObserver::applyFirstOrderLowPassFilter()
   previousEstimatedExternalForce_ = estimatedExternalForce_;
 }
 
-void MCDisturbanceObserver::addToLogger(const mc_control::MCController &,
+void MCDisturbanceObserver::addToLogger(const mc_control::MCController & ctl,
                                         mc_rtc::Logger & logger,
                                         const std::string & category)
 {
@@ -187,6 +202,24 @@ void MCDisturbanceObserver::addToLogger(const mc_control::MCController &,
 
   logger.addLogEntry(category_ + "_estimatedExternalForce", this, [this]() { return estimatedExternalForce_; });
   logger.addLogEntry(category_ + "_estimatedExternalForceRaw", this, [this]() { return estimatedExternalForceRaw_; });
+
+  const std::string ignoredSurface = "LeftHandCloseContact";
+  if(ctl.robot(robot_).hasSurface(ignoredSurface))
+  {
+    const std::string ignoredFsName = ctl.robot(robot_).indirectSurfaceForceSensor(ignoredSurface).name();
+
+    logger.addLogEntry(category_ + "_LeftHandCloseContactForceCentroid", this,
+                       [this, &ctl, ignoredFsName]()
+                       {
+                         const auto & realRobot = ctl.realRobot(robot_);
+                         const auto & fs = realRobot.forceSensor(ignoredFsName);
+
+                         const Eigen::Matrix3d R_0_c = realRobot.posW().rotation().transpose();
+                         const Eigen::Matrix3d R_c_0 = R_0_c.transpose();
+
+                         return stateObservation::Vector3(R_c_0 * fs.worldWrenchWithoutGravity(realRobot).force());
+                       });
+  }
 }
 
 void MCDisturbanceObserver::removeFromLogger(mc_rtc::Logger & logger, const std::string & category)

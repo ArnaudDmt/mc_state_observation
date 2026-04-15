@@ -64,6 +64,7 @@ add_so_observer(AttitudeObserver)
 # add_so_observer(MCValinor)
 add_so_observer(MCWaiko)
 add_so_observer(TiltObserver)
+add_so_observer(MCDisturbanceObserver)
 # add_so_observer(MCVanytEstimator) add_so_observer(MCViking)
 add_so_observer(MocapVisualizer)
 

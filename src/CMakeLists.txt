@@ -52,18 +52,20 @@ macro(add_valinor)
 endmacro()
 
 macro(add_kineticsobserver_fg)
-  add_subdirectory(
-    ${CMAKE_SOURCE_DIR}/../KineticsObserver_factorGraphs
-    ${CMAKE_BINARY_DIR}/kinetics_observer_fg_build
-  )
+  find_package(kinetics_observer_fg REQUIRED CONFIG)
 
   add_observer(
     MCKineticsObserverFG "MCKineticsObserverFG.cpp"
-    "${CMAKE_SOURCE_DIR}/include/${PROJECT_NAME}/MCKineticsObserverFG.h")
+    "${CMAKE_SOURCE_DIR}/include/${PROJECT_NAME}/MCKineticsObserverFG.h"
+  )
 
   target_link_libraries(
     MCKineticsObserverFG
-    PUBLIC mc_rtc::mc_control state-observation::state-observation mc_state_observation kinetics_observer_fg)
+    PUBLIC mc_rtc::mc_control
+           state-observation::state-observation
+           mc_state_observation
+           kinetics_observer_fg::kinetics_observer_fg
+  )
 endmacro()
 
 macro(add_observer_with_filter observer_name)

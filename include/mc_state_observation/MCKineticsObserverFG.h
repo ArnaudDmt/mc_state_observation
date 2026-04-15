@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <cassert>
 #include <mc_state_observation/measurements/ContactsDetector.hpp>
 #include <state-observation/dynamics-estimators/kinetics-observer.hpp>
 #include <state-observation/tools/measurements-manager/ContactsManager.hpp>
@@ -200,15 +201,20 @@ protected:
   {
     stateObservation::KineticsObserver::Kinematics kine;
 
-    if(locK.hasPose()) { kine.position = locK.pose().rotation() * locK.position(); }
+    if(locK.hasPose())
+    {
+      kine.position = locK.pose().rotation() * locK.pose().translation();
+      kine.orientation = locK.pose().rotation().matrix();
+    }
+    else { assert(false && "Cannot convert from local kinematics to kinematics without an orientation."); }
 
-    if(locK.linVel.isSet()) { kine.linVel = locK.pose().rotation() * locK.linVel(); }
+    if(locK.hasLinVel()) { kine.linVel = locK.pose().rotation() * locK.linVel(); }
 
-    if(locK.linAcc.isSet()) { kine.linAcc = locK.pose().rotation() * locK.linAcc(); }
+    if(locK.hasLinAcc()) { kine.linAcc = locK.pose().rotation() * locK.linAcc(); }
 
-    if(locK.angVel.isSet()) { kine.angVel = locK.pose().rotation() * locK.angVel(); }
+    if(locK.hasAngVel()) { kine.angVel = locK.pose().rotation() * locK.angVel(); }
 
-    if(locK.angAcc.isSet()) { kine.angAcc = locK.pose().rotation() * locK.angAcc(); }
+    if(locK.hasAngAcc()) { kine.angAcc = locK.pose().rotation() * locK.angAcc(); }
     return kine;
   }
 
@@ -340,7 +346,9 @@ private:
   std::array<double, 2> contactMeasNoises_;
 
   // estimated kinematics of the centroid frame in the world frame
-  stateObservation::kine::Kinematics est_worldCentroidKine;
+  stateObservation::kine::Kinematics est_worldCentroidKine_;
+  // estimated kinematics of the floating base in the world frame
+  stateObservation::kine::Kinematics est_worldFbKine_;
 
   // total force measured by the sensors that are not associated to a currently set contact and expressed in the
   // floating base's frame. Used as an input for the Kinetics Observer.

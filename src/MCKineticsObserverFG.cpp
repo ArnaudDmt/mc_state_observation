@@ -2,7 +2,6 @@
 #include <mc_observers/ObserverMacros.h>
 #include <mc_rtc/logging.h>
 
-#include "kinetics_observer_fg.hpp"
 #include <array>
 #include <gtsam/geometry/Pose3.h>
 #include <mc_state_observation/MCKineticsObserverFG.h>
@@ -36,10 +35,7 @@ void MCKineticsObserverFG::configure(const mc_control::MCController & ctl, const
   {
     for(size_t i = 0; i < imuNames_.size(); ++i) { listIMUs_.push_back({i, imuNames_[i]}); }
   }
-  else
-  {
-    listIMUs_.push_back({0, ctl.robot(robot_).bodySensor().name()});
-  }
+  else { listIMUs_.push_back({0, ctl.robot(robot_).bodySensor().name()}); }
 
   config("debug", debug_);
   config("verbose", verbose_);
@@ -280,7 +276,7 @@ void MCKineticsObserverFG::reset(const mc_control::MCController & ctl)
   inputRobot.velW(zeroMotion_);
   inputRobot.accW(zeroMotion_);
 
-  est_worldFbKine = conversions::kinematics::fromSva(realRobot.posW(), realRobot.velW(), realRobot.accW());
+  est_worldFbKine_ = conversions::kinematics::fromSva(realRobot.posW(), realRobot.velW(), realRobot.accW());
 
   /** Center of mass (assumes FK, FV and FA are already done)
       Must be initialized now as used for the conversion from user to centroid frame !!! **/
@@ -293,8 +289,7 @@ void MCKineticsObserverFG::reset(const mc_control::MCController & ctl)
 
   centroidFbKine_ = fbCentroidKine_.getInverse();
 
-  worldCentroidKine_ = est_worldFbKine * fbCentroidKine_;
-  worldCentroidLocKine_ = worldCentroidKine_;
+  worldCentroidKine_ = est_worldFbKine_ * fbCentroidKine_;
 
   Vector initState;
   initState.resize(28);
@@ -308,12 +303,12 @@ void MCKineticsObserverFG::reset(const mc_control::MCController & ctl)
   auto initExtTorque = initState.segment<3>(22);
   auto initBias = initState.segment<3>(25);
 
-  initPos = worldCentroidLocKine_.position();
-  initQuat = worldCentroidLocKine_.orientation.toQuaternion().coeffs();
-  initLinVel = worldCentroidLocKine_.linVel();
-  initAngVel = worldCentroidLocKine_.angVel();
-  initLinAcc = worldCentroidLocKine_.linAcc();
-  initAngAcc = worldCentroidLocKine_.angAcc();
+  initPos = worldCentroidKine_.orientation.toMatrix3().transpose() * worldCentroidKine_.position();
+  initQuat = worldCentroidKine_.orientation.toQuaternion().coeffs();
+  initLinVel = worldCentroidKine_.orientation.toMatrix3().transpose() * worldCentroidKine_.linVel();
+  initAngVel = worldCentroidKine_.orientation.toMatrix3().transpose() * worldCentroidKine_.angVel();
+  initLinAcc = worldCentroidKine_.orientation.toMatrix3().transpose() * worldCentroidKine_.linAcc();
+  initAngAcc = worldCentroidKine_.orientation.toMatrix3().transpose() * worldCentroidKine_.angAcc();
   initExtForce.setZero();
   initExtTorque.setZero();
   initBias.setZero();
@@ -376,7 +371,7 @@ bool MCKineticsObserverFG::run(const mc_control::MCController & ctl)
   fbCentroidKine_.linAcc = inputRobot.comAcceleration();
   fbCentroidKine_.angAcc.set().setZero();
 
-  centroidFbKine_ = fbCentroidKine_.inverse();
+  centroidFbKine_ = fbCentroidKine_.getInverse();
 
   // force measurements from sensor that are not associated to a currently set contact are given to the Kinetics
   // Observer as inputs.
@@ -424,23 +419,22 @@ bool MCKineticsObserverFG::run(const mc_control::MCController & ctl)
   }
 
   // Estimated kinematics of the centroid frame in the world frame.
-  est_worldCentroidKine = fgLocKineToSoKine(observer_.getCurrentState().kine_);
-
-  est_worldFbKine = est_worldCentroidKine * centroidFbKine_;
+  est_worldCentroidKine_ = fgLocKineToSoKine(observer_.getCurrentState().kine_);
+  est_worldFbKine_ = est_worldCentroidKine_ * centroidFbKine_;
 
   // Estimated kinematics of the floating base in the world frame
 
-  X_0_fb_.rotation() = est_worldFbKine.orientation.toMatrix3().transpose();
-  X_0_fb_.translation() = est_worldFbKine.position();
+  X_0_fb_.rotation() = est_worldFbKine_.orientation.toMatrix3().transpose();
+  X_0_fb_.translation() = est_worldFbKine_.position();
 
   /* Bring velocity of the IMU to the origin of the joint : we want the
    * velocity of joint 0, so stop one before the first joint */
 
-  v_fb_0_.angular() = est_worldFbKine.angVel();
-  v_fb_0_.linear() = est_worldFbKine.linVel();
+  v_fb_0_.angular() = est_worldFbKine_.angVel();
+  v_fb_0_.linear() = est_worldFbKine_.linVel();
 
-  a_fb_0_.angular() = est_worldFbKine.angAcc();
-  a_fb_0_.linear() = est_worldFbKine.linAcc();
+  a_fb_0_.angular() = est_worldFbKine_.angAcc();
+  a_fb_0_.linear() = est_worldFbKine_.linAcc();
 
   if(withDebugLogs_)
   {
@@ -534,12 +528,12 @@ void MCKineticsObserverFG::updateIMUs(const mc_rbdyn::Robot & measRobot, const m
 
     so::kine::Kinematics centroidImuKinematics = centroidFbKine_ * fbImuKine;
     ko_fg::Kinematics centroidImuKine;
-    centroidImuKine.pose_ =
-        gtsam::Pose3(gtsam::Rot3(centroidImuKinematics.orientation.toMatrix3()), centroidImuKinematics.position());
-    centroidImuKine.linVel_ = centroidImuKinematics.linVel();
-    centroidImuKine.angVel_ = centroidImuKinematics.angVel();
-    centroidImuKine.linAcc_ = centroidImuKinematics.linAcc();
-    centroidImuKine.angAcc_ = centroidImuKinematics.angAcc();
+    centroidImuKine.pose(
+        gtsam::Pose3(gtsam::Rot3(centroidImuKinematics.orientation.toMatrix3()), centroidImuKinematics.position()));
+    centroidImuKine.linVel(centroidImuKinematics.linVel());
+    centroidImuKine.angVel(centroidImuKinematics.angVel());
+    centroidImuKine.linAcc(centroidImuKinematics.linAcc());
+    centroidImuKine.angAcc(centroidImuKinematics.angAcc());
 
     observer_.updateIMU(k_, i, imu.linearAcceleration(), imu.angularVelocity(), centroidImuKine);
   }
@@ -670,10 +664,7 @@ so::kine::Kinematics MCKineticsObserverFG::getOdometryWorldContactRest(const mc_
   double diffNorm = flexRotDiff.norm() / 2;
 
   if(diffNorm > 1.0) { diffNorm = 1.0; }
-  else if(diffNorm < -1.0)
-  {
-    diffNorm = -1.0;
-  }
+  else if(diffNorm < -1.0) { diffNorm = -1.0; }
 
   double flexRotAngle = std::asin(diffNorm);
 
@@ -735,7 +726,7 @@ void MCKineticsObserverFG::setNewContact(const mc_control::MCController & ctl,
   if(odometryType_ != so::odometry::OdometryType::None) // the Kinetics Observer performs odometry. The estimated
                                                         // state is used to provide the new contacts references.
   {
-    so::kine::Kinematics worldContactKine = est_worldFbKine * contact.fbContactKine_;
+    so::kine::Kinematics worldContactKine = est_worldFbKine_ * contact.fbContactKine_;
     Pose3_RI worldContactPose(gtsam::Rot3(worldContactKine.orientation.toMatrix3()), worldContactKine.position());
 
     observer_.addContact(contact.id(), worldContactPose, worldContactKine.linVel(), worldContactKine.angVel(),
@@ -822,10 +813,7 @@ void MCKineticsObserverFG::updateContacts(const mc_control::MCController & ctl, 
   {
     initNoise = &contactInitNoises_;
   }
-  else
-  {
-    initNoise = &contactInitNoises_;
-  }
+  else { initNoise = &contactInitNoises_; }
 
   auto onNewContact = [this, &ctl, &logger, &initNoise](KoContactWithSensor & newContact)
   { setNewContact(ctl, newContact, *initNoise, logger); };
@@ -880,13 +868,13 @@ void MCKineticsObserverFG::addToLogger(const mc_control::MCController & ctl,
                      [this]() -> double { return -so::kine::rotationMatrixToYawAxisAgnostic(X_0_fb_.rotation()); });
 
   /* Plots of the updated state */
-  conversions::kinematics::addToLogger(logger, est_worldCentroidKine, category_ + "est_worldCentroidKine");
+  conversions::kinematics::addToLogger(logger, est_worldCentroidKine_, category_ + "est_worldCentroidKine");
   logger.addLogEntry(category_ + "_MEKF_estimatedState_position",
                      [this]() -> Eigen::Vector3d { return observer_.getCurrentState().kine_.pose().translation(); });
   logger.addLogEntry(category_ + "_MEKF_estimatedState_ori",
                      [this]() -> Eigen::Quaterniond
                      {
-                       so::kine::Orientation ori(observer_.getCurrentState().kine_.pose().rotation());
+                       so::kine::Orientation ori(observer_.getCurrentState().kine_.pose().rotation().matrix());
                        return ori.inverse().toQuaternion();
                      });
   logger.addLogEntry(category_ + "_MEKF_estimatedState_linVel",
@@ -900,8 +888,7 @@ void MCKineticsObserverFG::addToLogger(const mc_control::MCController & ctl,
 
   for(auto & imu : listIMUs_)
   {
-    logger.addLogEntry(category_ + "_MEKF_estimatedState_gyroBias_" + imu.name(),
-                       [this, &imu]() -> Eigen::Vector3d
+    logger.addLogEntry(category_ + "_MEKF_estimatedState_gyroBias_" + imu.name(), [this, &imu]() -> Eigen::Vector3d
                        { return observer_.getImus().at(imu.id()).currentBiasEstimate_; });
   }
   logger.addLogEntry(category_ + "_MEKF_estimatedState_extForceCentr",
@@ -994,7 +981,8 @@ void MCKineticsObserverFG::addToLogger(const mc_control::MCController & ctl,
       logger.addLogEntry(category_ + "_debug_worldInputRobotKine_position",
                          [this]() -> Eigen::Vector3d { return my_robots_->robot("inputRobot").posW().translation(); });
       logger.addLogEntry(category_ + "_debug_worldInputRobotKine_orientation",
-                         [this]() -> Eigen::Quaternion<double> {
+                         [this]() -> Eigen::Quaternion<double>
+                         {
                            return so::kine::Orientation(so::Matrix3(my_robots_->robot("inputRobot").posW().rotation()))
                                .inverse()
                                .toQuaternion();
@@ -1137,8 +1125,7 @@ void MCKineticsObserverFG::addContactLogEntries(const mc_control::MCController &
                      { return observer_.getContact(contact.id()).currentState_.moment_; });
 
   logger.addLogEntry(category_ + "_debug_contactKine_" + contact.surfaceName() + "_inputCentroidContactKine_position",
-                     &contact,
-                     [this, &contact]() -> Eigen::Vector3d
+                     &contact, [this, &contact]() -> Eigen::Vector3d
                      { return observer_.getContact(contact.id()).centroidContactPose_.translation(); });
 
   logger.addLogEntry(
@@ -1148,13 +1135,13 @@ void MCKineticsObserverFG::addContactLogEntries(const mc_control::MCController &
         so::kine::Orientation ori(observer_.getContact(contact.id()).centroidContactPose_.rotation().matrix());
         return ori.inverse().toQuaternion();
       });
-  logger.addLogEntry(
-      category_ + "_debug_contactKine_" + contact.surfaceName() + "_inputCentroidContactKine_linVel", &contact,
-      [this, &contact]() -> Eigen::Vector3d { return observer_.getContact(contact.id()).centroidContactLinVel_; });
+  logger.addLogEntry(category_ + "_debug_contactKine_" + contact.surfaceName() + "_inputCentroidContactKine_linVel",
+                     &contact, [this, &contact]() -> Eigen::Vector3d
+                     { return observer_.getContact(contact.id()).centroidContactLinVel_; });
 
-  logger.addLogEntry(
-      category_ + "_debug_contactKine_" + contact.surfaceName() + "_inputCentroidContactKine_angVel", &contact,
-      [this, &contact]() -> Eigen::Vector3d { return observer_.getContact(contact.id()).centroidContactAngVel_; });
+  logger.addLogEntry(category_ + "_debug_contactKine_" + contact.surfaceName() + "_inputCentroidContactKine_angVel",
+                     &contact, [this, &contact]() -> Eigen::Vector3d
+                     { return observer_.getContact(contact.id()).centroidContactAngVel_; });
   logger.addLogEntry(
       category_ + "_debug_contactKine_" + contact.surfaceName() + "_realRobot_position", &contact,
       [this, &contact, &ctl]() -> Eigen::Vector3d

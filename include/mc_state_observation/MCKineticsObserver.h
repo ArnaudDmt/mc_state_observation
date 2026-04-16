@@ -406,6 +406,9 @@ private:
   // floating base's frame. Used as an input for the Kinetics Observer.
   stateObservation::Vector3 additionalUserResultingMoment_ = stateObservation::Vector3::Zero();
 
+  stateObservation::Vector3 leftHandForce_ = stateObservation::Vector3::Zero();
+  stateObservation::Vector3 leftHandMoment_ = stateObservation::Vector3::Zero();
+
   /* Variables for the backup */
   // iteration on which the backup was required for the last time
   int lastBackupIter_;

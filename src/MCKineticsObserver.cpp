@@ -797,6 +797,19 @@ void MCKineticsObserver::inputAdditionalWrench(const mc_control::MCController & 
       contact.wrenchInCentroid_.segment<3>(3) = torqueCentroid;
     }
   }
+
+  // plot for left hand
+  const auto & fs = ctl.robot().forceSensor(ignoredFsName);
+  sva::ForceVecd measuredWrench = fs.wrenchWithoutGravity(ctl.realRobot(robot_));
+
+  so::kine::Kinematics fbSensorKine =
+      conversions::kinematics::fromSva(fs.X_0_s(inputRobot), so::kine::Kinematics::Flags::pose);
+
+  so::Vector3 measuredForceFb = fbSensorKine.orientation * measuredWrench.force();
+  so::Vector3 measuredMomentFb =
+      fbSensorKine.orientation * measuredWrench.moment() + fbSensorKine.position().cross(measuredForceFb);
+
+  observer_.convertWrenchFromUserToCentroid(measuredForceFb, measuredMomentFb, leftHandForce_, leftHandMoment_);
 }
 
 void MCKineticsObserver::updateIMUs(const mc_rbdyn::Robot & measRobot, const mc_rbdyn::Robot & inputRobot)
@@ -1144,42 +1157,8 @@ void MCKineticsObserver::addToLogger(const mc_control::MCController & ctl,
   const std::string ignoredSurface = "LeftHandCloseContact";
   if(ctl.robot(robot_).hasSurface(ignoredSurface))
   {
-    const std::string ignoredFsName = ctl.robot(robot_).indirectSurfaceForceSensor(ignoredSurface).name();
-
-    logger.addLogEntry(category + "_LeftHandCloseContactForceCentroid", this,
-                       [this, &ctl, ignoredFsName]()
-                       {
-                         const auto & realRobot = ctl.realRobot(robot_);
-                         const auto & fs = realRobot.forceSensor(ignoredFsName);
-
-                         so::Vector3 forceCentroid = so::Vector3::Zero();
-                         so::Vector3 torqueCentroid = so::Vector3::Zero();
-
-                         observer_.convertWrenchFromUserToCentroid(fs.worldWrenchWithoutGravity(realRobot).force(),
-                                                                   fs.worldWrenchWithoutGravity(realRobot).moment(),
-                                                                   forceCentroid, torqueCentroid);
-
-                         return forceCentroid;
-                       });
-
-    logger.addLogEntry(category + "_LeftHandCloseContactWrenchCentroid", this,
-                       [this, &ctl, ignoredFsName]()
-                       {
-                         const auto & realRobot = ctl.realRobot(robot_);
-                         const auto & fs = realRobot.forceSensor(ignoredFsName);
-
-                         so::Vector3 forceCentroid = so::Vector3::Zero();
-                         so::Vector3 torqueCentroid = so::Vector3::Zero();
-
-                         observer_.convertWrenchFromUserToCentroid(fs.worldWrenchWithoutGravity(realRobot).force(),
-                                                                   fs.worldWrenchWithoutGravity(realRobot).moment(),
-                                                                   forceCentroid, torqueCentroid);
-
-                         Eigen::Matrix<double, 6, 1> wrench = Eigen::Matrix<double, 6, 1>::Zero();
-                         wrench.segment<3>(0) = forceCentroid;
-                         wrench.segment<3>(3) = torqueCentroid;
-                         return wrench;
-                       });
+    logger.addLogEntry(category + "_LeftHandCloseContactForceCentroid", this, [this]() { return leftHandForce_; });
+    logger.addLogEntry(category + "_LeftHandCloseContactMomentCentroid", this, [this]() { return leftHandMoment_; });
   }
 
   category_ = category;

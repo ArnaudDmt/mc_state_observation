@@ -372,16 +372,16 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
   std::copy(std::next(realAlpha.begin()), realAlpha.end(), std::next(inputRobot.mbc().alpha.begin()));
   std::copy(std::next(realAlphaD.begin()), realAlphaD.end(), std::next(inputRobot.mbc().alphaD.begin()));
 
-  inputRobot.forwardKinematics();
-  inputRobot.forwardVelocity();
-  inputRobot.forwardAcceleration();
-
   // The input robot copies the real robot to update the encoder values.
   // Then its floating base is brung back to the origin of the world frame and given zero velocities and accelerations
   // in order to ease the computations.
   inputRobot.posW(zeroPose_);
   inputRobot.velW(zeroMotion_);
   inputRobot.accW(zeroMotion_);
+
+  inputRobot.forwardKinematics();
+  inputRobot.forwardVelocity();
+  inputRobot.forwardAcceleration();
 
   /** Center of mass (assumes FK, FV and FA are already done)
       Must be initialized now as used for the conversion from user to centroid frame !!! **/
@@ -391,10 +391,6 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 
   observer_.setCenterOfMass(fbCoMKine_.position(), fbCoMKine_.linVel(), fbCoMKine_.linAcc());
 
-  // force measurements from sensor that are not associated to a currently set contact are given to the Kinetics
-  // Observer as inputs.
-  inputAdditionalWrench(ctl, inputRobot, robot);
-
   observer_.setCoMAngularMomentum(
       rbd::computeCentroidalMomentum(inputRobot.mb(), inputRobot.mbc(), fbCoMKine_.position()).moment(),
       rbd::computeCentroidalMomentumDot(inputRobot.mb(), inputRobot.mbc(), fbCoMKine_.position(), fbCoMKine_.linVel())
@@ -402,11 +398,15 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 
   observer_.setCoMInertiaMatrix(computeCentroidalInertia(inputRobot.mb(), inputRobot.mbc(), fbCoMKine_.position));
 
-  // update of the contacts
-  updateContacts(ctl, logger);
-
   /** Accelerometers **/
   updateIMUs(robot, inputRobot);
+
+  // force measurements from sensor that are not associated to a currently set contact are given to the Kinetics
+  // Observer as inputs.
+  inputAdditionalWrench(ctl, inputRobot, robot);
+
+  // update of the contacts
+  updateContacts(ctl, logger);
 
   res_ = observer_.update();
 
@@ -754,15 +754,16 @@ void MCKineticsObserver::inputAdditionalWrench(const mc_control::MCController & 
 
     if(useSensor)
     {
-      const sva::ForceVecd measuredWrenchWorld = forceSensor.worldWrenchWithoutGravity(ctl.realRobot(robot_));
+      sva::ForceVecd measuredWrench = forceSensor.wrenchWithoutGravity(ctl.realRobot(robot_));
 
-      const sva::PTransformd X_0_fb = inputRobot.posW();
-      const sva::PTransformd X_fb_0 = X_0_fb.inv();
+      so::kine::Kinematics fbSensorKine =
+          conversions::kinematics::fromSva(forceSensor.X_0_s(inputRobot), so::kine::Kinematics::Flags::pose);
 
-      const sva::ForceVecd measuredWrenchFb = X_fb_0.dualMul(measuredWrenchWorld);
+      so::Vector3 measuredForceFb = fbSensorKine.orientation * measuredWrench.force();
 
-      additionalUserResultingForce_ += measuredWrenchFb.force();
-      additionalUserResultingMoment_ += measuredWrenchFb.moment();
+      additionalUserResultingForce_ += measuredForceFb;
+      additionalUserResultingMoment_ +=
+          fbSensorKine.orientation * measuredWrench.moment() + fbSensorKine.position().cross(measuredForceFb);
     }
   }
 
@@ -774,12 +775,23 @@ void MCKineticsObserver::inputAdditionalWrench(const mc_control::MCController & 
     for(auto & contactWithSensor : contactsManager_.contacts())
     {
       KoContactWithSensor & contact = contactWithSensor.second;
-      const mc_rbdyn::ForceSensor & fs = inputRobot.forceSensor(contact.fsName_);
+      const mc_rbdyn::ForceSensor & fs = measRobot.forceSensor(contact.fsName_);
       so::Vector3 forceCentroid = so::Vector3::Zero();
       so::Vector3 torqueCentroid = so::Vector3::Zero();
-      observer_.convertWrenchFromUserToCentroid(fs.worldWrenchWithoutGravity(ctl.realRobot(robot_)).force(),
-                                                fs.worldWrenchWithoutGravity(ctl.realRobot(robot_)).moment(),
-                                                forceCentroid, torqueCentroid);
+
+      sva::ForceVecd measuredWrench = fs.wrenchWithoutGravity(ctl.realRobot(robot_));
+
+      so::kine::Kinematics fbSensorKine =
+          conversions::kinematics::fromSva(fs.X_0_s(inputRobot), so::kine::Kinematics::Flags::pose);
+
+      so::Vector3 measuredForceFb = fbSensorKine.orientation * measuredWrench.force();
+      so::Vector3 measuredMomentFb =
+          fbSensorKine.orientation * measuredWrench.moment() + fbSensorKine.position().cross(measuredForceFb);
+
+      additionalUserResultingForce_ += measuredForceFb;
+      additionalUserResultingMoment_ += measuredMomentFb;
+
+      observer_.convertWrenchFromUserToCentroid(measuredForceFb, measuredMomentFb, forceCentroid, torqueCentroid);
 
       contact.wrenchInCentroid_.segment<3>(0) = forceCentroid;
       contact.wrenchInCentroid_.segment<3>(3) = torqueCentroid;

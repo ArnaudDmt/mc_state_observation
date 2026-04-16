@@ -754,9 +754,15 @@ void MCKineticsObserver::inputAdditionalWrench(const mc_control::MCController & 
 
     if(useSensor)
     {
-      sva::ForceVecd measuredWrench = forceSensor.worldWrenchWithoutGravity(ctl.realRobot(robot_));
-      additionalUserResultingForce_ += measuredWrench.force();
-      additionalUserResultingMoment_ += measuredWrench.moment();
+      const sva::ForceVecd measuredWrenchWorld = forceSensor.worldWrenchWithoutGravity(ctl.realRobot(robot_));
+
+      const sva::PTransformd X_0_fb = inputRobot.posW();
+      const sva::PTransformd X_fb_0 = X_0_fb.inv();
+
+      const sva::ForceVecd measuredWrenchFb = X_fb_0.dualMul(measuredWrenchWorld);
+
+      additionalUserResultingForce_ += measuredWrenchFb.force();
+      additionalUserResultingMoment_ += measuredWrenchFb.moment();
     }
   }
 

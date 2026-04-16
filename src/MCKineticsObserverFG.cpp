@@ -868,7 +868,7 @@ void MCKineticsObserverFG::addToLogger(const mc_control::MCController & ctl,
                      [this]() -> double { return -so::kine::rotationMatrixToYawAxisAgnostic(X_0_fb_.rotation()); });
 
   /* Plots of the updated state */
-  conversions::kinematics::addToLogger(logger, est_worldCentroidKine_, category_ + "est_worldCentroidKine");
+  conversions::kinematics::addToLogger(logger, est_worldCentroidKine_, category_ + "_est_worldCentroidKine");
   logger.addLogEntry(category_ + "_MEKF_estimatedState_position",
                      [this]() -> Eigen::Vector3d { return observer_.getCurrentState().kine_.pose().translation(); });
   logger.addLogEntry(category_ + "_MEKF_estimatedState_ori",

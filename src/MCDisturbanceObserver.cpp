@@ -200,6 +200,7 @@ void MCDisturbanceObserver::addToLogger(const mc_control::MCController & ctl,
 {
   category_ = category;
 
+  logger.addLogEntry(category_ + "_nominalMass", this, [this]() { return nominalMass_; });
   logger.addLogEntry(category_ + "_estimatedExternalForce", this, [this]() { return estimatedExternalForce_; });
   logger.addLogEntry(category_ + "_estimatedExternalForceRaw", this, [this]() { return estimatedExternalForceRaw_; });
 

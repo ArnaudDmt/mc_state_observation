@@ -238,14 +238,7 @@ public:
    */
   inline const sva::MotionVecd & velW() const { return v_fb_0_; }
 
-private:
-  /* Settings of the Kinetics Observers */
-  // maximum amount of contacts that we want to use with the Kinetics Observer.
-  unsigned maxContacts_;
-  // maximum amount of IMUs that we want to use with the Kinetics Observer.
-  unsigned maxIMUs_;
-
-  // instance of the Kinetics Observer
+private: // instance of the Kinetics Observer
   ko_fg::KineticsObserverFG observer_;
 
   // contacts maintained during the current iteration

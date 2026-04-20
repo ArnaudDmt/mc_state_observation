@@ -16,7 +16,7 @@ namespace so = stateObservation;
 namespace mc_state_observation
 {
 MCKineticsObserverFG::MCKineticsObserverFG(const std::string & type, double dt)
-: mc_observers::Observer(type, dt), maxContacts_(3), maxIMUs_(1), observer_(0.05, false), removeWrenchOffset_(false)
+: mc_observers::Observer(type, dt), observer_(0.05), removeWrenchOffset_(false)
 {
   observer_.setSamplingTime(dt);
 }
@@ -132,6 +132,8 @@ void MCKineticsObserverFG::configure(const mc_control::MCController & ctl, const
   contactInitNoises_.at(3) = stateInitNoises("momentNoise"); // moment
 
   contactInitNoises_first_ = contactInitNoises_;
+  contactInitNoises_first_.at(0) = 0.0;
+  contactInitNoises_first_.at(1) = 0.0;
 
   /* State process noises */
   auto stateProcessNoises = config("stateProcessNoises");
@@ -165,70 +167,6 @@ void MCKineticsObserverFG::configure(const mc_control::MCController & ctl, const
 
   contactMeasNoises_.at(0) = sensorNoises("forceNoise"); // force
   contactMeasNoises_.at(1) = sensorNoises("forceNoise"); // torque
-
-  /*
-  Configuration of the Kinetics Observer's parameters
-  so::Vector3 linStiffness = contactsConfig("linStiffness", so::Vector3(3e5, 3e5, 3e5));
-  contactFlexibilities_.at(0) = linStiffness.matrix().asDiagonal();
-  so::Vector3 angStiffness = contactsConfig("angStiffness", so::Vector3(1000, 1000, 1000));
-  contactFlexibilities_.at(1) = angStiffness.matrix().asDiagonal();
-  so::Vector3 linDamping = contactsConfig("linDamping", so::Vector3(150, 150, 150));
-  contactFlexibilities_.at(2) = linDamping.matrix().asDiagonal();
-  so::Vector3 angDamping = contactsConfig("angDamping", so::Vector3(17, 17, 17));
-  contactFlexibilities_.at(3) = angDamping.matrix().asDiagonal();
-
-  Initial state noises
-  auto stateInitNoises = config("stateInitNoises");
-
-  initNoises_.at(0) = stateInitNoises("posNoise", 1e-2); // pos
-  initNoises_.at(1) = stateInitNoises("oriNoise", 1e-2); // ori
-  initNoises_.at(2) = stateInitNoises("linVelNoise", 1e-2); // linVel
-  initNoises_.at(3) = stateInitNoises("angVelNoise", 1e-2); // angVel
-  initNoises_.at(4) = stateInitNoises("linAccNoise", 1e-2); // linAcc
-  initNoises_.at(5) = stateInitNoises("angAccNoise", 1e-2); // angAcc
-  initNoises_.at(6) = stateInitNoises("disturbForceNoise", 0); // distForce
-  initNoises_.at(7) = stateInitNoises("disturbMomentNoise", 0); // distMoment
-
-  contactInitNoises_.at(0) = stateInitNoises("restPosNoise", 1e-2); // rest pos
-  contactInitNoises_.at(1) = stateInitNoises("restOriNoise", 1e-2); // rest ori
-  contactInitNoises_.at(2) = stateInitNoises("forceNoise", 1e-2); // force
-  contactInitNoises_.at(3) = stateInitNoises("momentNoise", 1e-2); // moment
-
-  contactInitNoises_first_ = contactInitNoises_;
-
-  State process noises
-  auto stateProcessNoises = config("stateProcessNoises");
-
-  processNoises_.at(0) = stateProcessNoises("posNoise", 1e-8); // pos
-  processNoises_.at(1) = stateProcessNoises("oriNoise", 1e-8); // ori
-  processNoises_.at(2) = stateProcessNoises("linVelNoise", 1e-8); // linVel
-  processNoises_.at(3) = stateProcessNoises("angVelNoise", 1e-8); // angVel
-  processNoises_.at(4) = stateProcessNoises("linAccNoise", 1e-4); // linAcc
-  processNoises_.at(5) = stateProcessNoises("angAccNoise", 1e-4); // angAcc
-  processNoises_.at(6) = stateProcessNoises("disturbForceNoise", 1e-3); // distForce
-  processNoises_.at(7) = stateProcessNoises("disturbMomentNoise", 1e-3); // distMoment
-
-  contactProcessNoises_.at(0) = stateProcessNoises("restPosNoise", 1e-12); // rest pos
-  contactProcessNoises_.at(1) = stateProcessNoises("restOriNoise", 1e-12); // rest ori
-  contactProcessNoises_.at(2) = stateProcessNoises("forceNoise", 1e1); // force
-  contactProcessNoises_.at(3) = stateProcessNoises("momentNoise", 5); // moment
-
-  Sensor noises
-  auto sensorNoises = config("sensorNoises");
-  for(size_t i = 0; i < listIMUs_.size(); ++i)
-  {
-    std::array<double, 4> imuNoise;
-    imuNoise[0] = stateInitNoises("gyroBiasNoise", 1e-3); // gyroBias init
-    imuNoise[1] = stateProcessNoises("gyroBiasNoise", 1e-10); // gyroBias process
-    imuNoise[2] = sensorNoises("gyroNoise", 5e-4); // gyro meas
-    imuNoise[3] = sensorNoises("acceleroNoise", 5e-2); // accelero meas
-
-    imuNoises_.insert({i, imuNoise});
-  }
-
-  contactMeasNoises_.at(0) = sensorNoises("forceNoise", 1); // force
-  contactMeasNoises_.at(1) = sensorNoises("forceNoise", 3e-2); // torque
-  */
 }
 
 void MCKineticsObserverFG::reset(const mc_control::MCController & ctl)

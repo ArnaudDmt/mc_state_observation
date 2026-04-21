@@ -422,6 +422,8 @@ private:
   // iterations ellapsed within the invincibility frame
   int invincibilityIter_;
 
+  bool withGui_ = false;
+
   // Buffer containing the estimated pose of the floating base in the world over the whole backup interval.
   boost::circular_buffer<stateObservation::kine::Kinematics> koBackupFbKinematics_;
 

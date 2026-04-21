@@ -42,6 +42,7 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
 
   config("debug", debug_);
   config("verbose", verbose_);
+  config("withGui", withGui_);
 
   // we set the desired type of odometry
   auto leggedOdomConfig = config("leggedOdometry");
@@ -274,8 +275,11 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
 
   std::vector<std::string> nanBehaviourCategory;
   nanBehaviourCategory.insert(nanBehaviourCategory.end(), {"ObserverPipelines", ctl.observerPipeline().name(), name()});
-  ctl.gui()->addElement({nanBehaviourCategory},
-                        mc_rtc::gui::Button("SimulateNanBehaviour", [this]() { observer_.nanDetected_ = true; }));
+  if(withGui_)
+  {
+    ctl.gui()->addElement({nanBehaviourCategory},
+                          mc_rtc::gui::Button("SimulateNanBehaviour", [this]() { observer_.nanDetected_ = true; }));
+  }
 }
 
 void MCKineticsObserver::setObserverCovariances()
@@ -1663,79 +1667,81 @@ void MCKineticsObserver::addToGUI(const mc_control::MCController & ctl,
 {
   using namespace mc_rtc::gui;
 
-  auto & logger = (const_cast<mc_control::MCController &>(ctl)).logger();
-
-  // clang-format off
-  std::vector<std::string> covsCategory = category;
-  covsCategory.insert(covsCategory.end(), {"Covariances"});
-
-  std::vector<std::string> initCovsCategory = covsCategory;
-  initCovsCategory.insert(initCovsCategory.end(), {"Init"});
-  std::vector<std::string> processCovsCategory = covsCategory;
-  processCovsCategory.insert(processCovsCategory.end(), {"Process"});
-  std::vector<std::string> sensorCovsCategory = covsCategory;
-  sensorCovsCategory.insert(sensorCovsCategory.end(), {"Sensors"});
- 
-  std::vector<std::string> removeOffsetCategory = category; 
-  removeOffsetCategory.insert(removeOffsetCategory.end(), {"RemoveDisturbanceWrenchOffset"});
-   
-  gui.addPlot(  "Unbiased external wrench",
-    mc_rtc::gui::plot::X( "t",    [&logger]() { return logger.t(); }),
-    mc_rtc::gui::plot::Y("Force x", [this]() { return getUnbiasedEstimatedDisturbanceWrench().force()(0); }, Color::Red),
-    mc_rtc::gui::plot::Y("Force y", [this]() { return getUnbiasedEstimatedDisturbanceWrench().force()(1); }, Color::Blue),
-    mc_rtc::gui::plot::Y("Force z", [this]() { return getUnbiasedEstimatedDisturbanceWrench().force()(2); }, Color::Green),
-    mc_rtc::gui::plot::Y("Moment x", [this]() { return getUnbiasedEstimatedDisturbanceWrench().moment()(0); }, Color::Magenta),
-    mc_rtc::gui::plot::Y("Moment y", [this]() { return getUnbiasedEstimatedDisturbanceWrench().moment()(1); }, Color::Cyan),
-    mc_rtc::gui::plot::Y("Moment z", [this]() { return getUnbiasedEstimatedDisturbanceWrench().moment()(2); }, Color::Black)
-  );
-
-
-
-  gui.addElement({category},
-                        mc_rtc::gui::Button("Remove disturbance wrench offset", [this]() { 
-                          // when clicking the button, the observer initializes the offset with the current disturbance wrench estimation
-                          mc_rtc::log::info("Start removing disturbance wrench offset ");
-
-                          wrenchOffsetIndex_ = 0;
-                          removeWrenchOffset_ = true; disturbanceWrenchOffset_.force() = res_.segment(observer_.unmodeledWrenchIndex(), 3);
-    disturbanceWrenchOffset_.moment() = res_.segment(observer_.unmodeledTorqueIndex(), 3);}));
-
-  gui.addElement(initCovsCategory,
-            mc_state_observation::gui::make_input_element("Contact pos x", contactInitCovarianceNewContacts_(0,0)),
-            mc_state_observation::gui::make_input_element("Contact pos y", contactInitCovarianceNewContacts_(1,1)),
-            mc_state_observation::gui::make_input_element("Contact pos z", contactInitCovarianceNewContacts_(2,2)),
-            mc_state_observation::gui::make_input_element("Contact ori x", contactInitCovarianceNewContacts_(0,0)),
-            mc_state_observation::gui::make_input_element("Contact ori y", contactInitCovarianceNewContacts_(1,1)),
-            mc_state_observation::gui::make_input_element("Contact ori z", contactInitCovarianceNewContacts_(2,2)));
-
-  gui.addElement(sensorCovsCategory,
-            mc_state_observation::gui::make_input_element("Gyro x", gyroSensorCovariance_(0,0)),
-            mc_state_observation::gui::make_input_element("Gyro y", gyroSensorCovariance_(1,1)),
-            mc_state_observation::gui::make_input_element("Gyro z", gyroSensorCovariance_(2,2)),
-            mc_state_observation::gui::make_input_element("Accelero x", acceleroSensorCovariance_(0,0)),
-            mc_state_observation::gui::make_input_element("Accelero y", acceleroSensorCovariance_(1,1)),
-            mc_state_observation::gui::make_input_element("Accelero z", acceleroSensorCovariance_(2,2)),
-            mc_state_observation::gui::make_input_element("Force x", contactSensorCovariance_(0,0)),
-            mc_state_observation::gui::make_input_element("Force y", contactSensorCovariance_(1,1)),
-            mc_state_observation::gui::make_input_element("Force z", contactSensorCovariance_(2,2)),
-            mc_state_observation::gui::make_input_element("Torque x", contactSensorCovariance_(3,3)),
-            mc_state_observation::gui::make_input_element("Torque y", contactSensorCovariance_(4,4)),
-            mc_state_observation::gui::make_input_element("Torque z", contactSensorCovariance_(5,5)));
-
-  if(odometryType_ != so::odometry::OdometryType::None)
+  if(withGui_)
   {
-    std::vector<std::string> odomCategory = category;
-    odomCategory.insert(odomCategory.end(), {"Odometry"});
-    gui.addElement({odomCategory}, mc_rtc::gui::ComboInput(
-                                                                  "Choose from list",  {so::odometry::odometryTypeToString(so::odometry::OdometryType::Odometry6d), so::odometry::odometryTypeToString(so::odometry::OdometryType::Flat)},
-                                                                  [this]() -> std::string {
-                                                                    return so::odometry::odometryTypeToString(odometryType_);
-                                                                  },
-                                                                  [this](const std::string & typeOfOdometry) {
-                                                                    setOdometryType(typeOfOdometry);
-                                                                  }));
-  }
-  // clang-format on
+    auto & logger = (const_cast<mc_control::MCController &>(ctl)).logger();
+
+    // clang-format off
+    std::vector<std::string> covsCategory = category;
+    covsCategory.insert(covsCategory.end(), {"Covariances"});
+
+    std::vector<std::string> initCovsCategory = covsCategory;
+    initCovsCategory.insert(initCovsCategory.end(), {"Init"});
+    std::vector<std::string> processCovsCategory = covsCategory;
+    processCovsCategory.insert(processCovsCategory.end(), {"Process"});
+    std::vector<std::string> sensorCovsCategory = covsCategory;
+    sensorCovsCategory.insert(sensorCovsCategory.end(), {"Sensors"});
+  
+    std::vector<std::string> removeOffsetCategory = category; 
+    removeOffsetCategory.insert(removeOffsetCategory.end(), {"RemoveDisturbanceWrenchOffset"});
+    
+    gui.addPlot(  "Unbiased external wrench",
+      mc_rtc::gui::plot::X( "t",    [&logger]() { return logger.t(); }),
+      mc_rtc::gui::plot::Y("Force x", [this]() { return getUnbiasedEstimatedDisturbanceWrench().force()(0); }, Color::Red),
+      mc_rtc::gui::plot::Y("Force y", [this]() { return getUnbiasedEstimatedDisturbanceWrench().force()(1); }, Color::Blue),
+      mc_rtc::gui::plot::Y("Force z", [this]() { return getUnbiasedEstimatedDisturbanceWrench().force()(2); }, Color::Green),
+      mc_rtc::gui::plot::Y("Moment x", [this]() { return getUnbiasedEstimatedDisturbanceWrench().moment()(0); }, Color::Magenta),
+      mc_rtc::gui::plot::Y("Moment y", [this]() { return getUnbiasedEstimatedDisturbanceWrench().moment()(1); }, Color::Cyan),
+      mc_rtc::gui::plot::Y("Moment z", [this]() { return getUnbiasedEstimatedDisturbanceWrench().moment()(2); }, Color::Black)
+    );
+
+
+
+    gui.addElement({category},
+                          mc_rtc::gui::Button("Remove disturbance wrench offset", [this]() { 
+                            // when clicking the button, the observer initializes the offset with the current disturbance wrench estimation
+                            mc_rtc::log::info("Start removing disturbance wrench offset ");
+
+                            wrenchOffsetIndex_ = 0;
+                            removeWrenchOffset_ = true; disturbanceWrenchOffset_.force() = res_.segment(observer_.unmodeledWrenchIndex(), 3);
+      disturbanceWrenchOffset_.moment() = res_.segment(observer_.unmodeledTorqueIndex(), 3);}));
+
+    gui.addElement(initCovsCategory,
+              mc_state_observation::gui::make_input_element("Contact pos x", contactInitCovarianceNewContacts_(0,0)),
+              mc_state_observation::gui::make_input_element("Contact pos y", contactInitCovarianceNewContacts_(1,1)),
+              mc_state_observation::gui::make_input_element("Contact pos z", contactInitCovarianceNewContacts_(2,2)),
+              mc_state_observation::gui::make_input_element("Contact ori x", contactInitCovarianceNewContacts_(0,0)),
+              mc_state_observation::gui::make_input_element("Contact ori y", contactInitCovarianceNewContacts_(1,1)),
+              mc_state_observation::gui::make_input_element("Contact ori z", contactInitCovarianceNewContacts_(2,2)));
+
+    gui.addElement(sensorCovsCategory,
+              mc_state_observation::gui::make_input_element("Gyro x", gyroSensorCovariance_(0,0)),
+              mc_state_observation::gui::make_input_element("Gyro y", gyroSensorCovariance_(1,1)),
+              mc_state_observation::gui::make_input_element("Gyro z", gyroSensorCovariance_(2,2)),
+              mc_state_observation::gui::make_input_element("Accelero x", acceleroSensorCovariance_(0,0)),
+              mc_state_observation::gui::make_input_element("Accelero y", acceleroSensorCovariance_(1,1)),
+              mc_state_observation::gui::make_input_element("Accelero z", acceleroSensorCovariance_(2,2)),
+              mc_state_observation::gui::make_input_element("Force x", contactSensorCovariance_(0,0)),
+              mc_state_observation::gui::make_input_element("Force y", contactSensorCovariance_(1,1)),
+              mc_state_observation::gui::make_input_element("Force z", contactSensorCovariance_(2,2)),
+              mc_state_observation::gui::make_input_element("Torque x", contactSensorCovariance_(3,3)),
+              mc_state_observation::gui::make_input_element("Torque y", contactSensorCovariance_(4,4)),
+              mc_state_observation::gui::make_input_element("Torque z", contactSensorCovariance_(5,5)));
+
+    if(odometryType_ != so::odometry::OdometryType::None)
+    {
+      std::vector<std::string> odomCategory = category;
+      odomCategory.insert(odomCategory.end(), {"Odometry"});
+      gui.addElement({odomCategory}, mc_rtc::gui::ComboInput(
+                                                                    "Choose from list",  {so::odometry::odometryTypeToString(so::odometry::OdometryType::Odometry6d), so::odometry::odometryTypeToString(so::odometry::OdometryType::Flat)},
+                                                                    [this]() -> std::string {
+                                                                      return so::odometry::odometryTypeToString(odometryType_);
+                                                                    },
+                                                                    [this](const std::string & typeOfOdometry) {
+                                                                      setOdometryType(typeOfOdometry);
+                                                                    }));
+    } 
+  } 
 }
 
 void MCKineticsObserver::addContactToGui(const mc_control::MCController & ctl,

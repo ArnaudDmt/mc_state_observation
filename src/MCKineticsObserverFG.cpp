@@ -332,7 +332,6 @@ bool MCKineticsObserverFG::run(const mc_control::MCController & ctl)
   updateIMUs(robot, inputRobot);
 
   observer_.runIteration(k_);
-  observer_.printEstimate(k_);
 
   unbiasedDisturbanceWrench_.force() = observer_.getCurrentState().disturbForce_ - disturbanceWrenchOffset_.force();
   unbiasedDisturbanceWrench_.moment() = observer_.getCurrentState().disturbMoment_ - disturbanceWrenchOffset_.moment();

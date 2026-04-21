@@ -338,6 +338,9 @@ void MCKineticsObserver::reset(const mc_control::MCController & ctl)
   X_0_fb_ = realRobot.posW().translation();
 
   initObserverStateVector(ctl, realRobot);
+
+  disturbanceWrenchOffset_.force().setZero();
+  disturbanceWrenchOffset_.moment().setZero();
 }
 
 so::Matrix3 computeCentroidalInertia(const rbd::MultiBody & mb,

@@ -106,6 +106,8 @@ private:
   bool asBackup_ = false;
   // Buffer containing the estimated pose of the floating base in the world over the whole backup interval.
   boost::circular_buffer<stateObservation::kine::Kinematics> backupFbKinematics_;
+
+  bool withGui_ = false;
 };
 
 } // namespace mc_state_observation

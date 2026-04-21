@@ -119,8 +119,11 @@ void MCValinor::reset(const mc_control::MCController & ctl)
 
   // the updated robot has the same floating base's pose than the control robot, but its encoders are updated. We use
   // it to get more accurate local Kinematics.
-  ctl.gui()->addElement(
-      {"Robots"}, mc_rtc::gui::Robot(name(), [this]() -> const mc_rbdyn::Robot & { return my_robots_->robot(); }));
+  if(withGui_)
+  {
+    ctl.gui()->addElement(
+        {"Robots"}, mc_rtc::gui::Robot(name(), [this]() -> const mc_rbdyn::Robot & { return my_robots_->robot(); }));
+  }
 
   const auto & imu = robot.bodySensor(imuSensor_);
 
@@ -530,8 +533,7 @@ void MCValinor::addToLogger(const mc_control::MCController & ctl, mc_rtc::Logger
     logger.addLogEntry(category + "_constants_gains_beta", [this]() -> double { return estimator_.getBeta(); });
     logger.addLogEntry(category + "_constants_gains_gamma", [this]() -> double { return gamma_; });
 
-    logger.addLogEntry(category + "_debug_OdometryType",
-                       [this]() -> std::string
+    logger.addLogEntry(category + "_debug_OdometryType", [this]() -> std::string
                        { return stateObservation::odometry::odometryTypeToString(odometryManager_.odometryType_); });
 
     logger.addLogEntry(category + "_debug_yv", [this]() -> const so::Vector3 & { return yv_; });
@@ -682,8 +684,7 @@ void MCValinor::addToLogger(const mc_control::MCController & ctl, mc_rtc::Logger
                          return worldImuKine.linVel();
                        });
 
-    logger.addLogEntry(category + "_debug_contactDetected",
-                       [this]() -> std::string
+    logger.addLogEntry(category + "_debug_contactDetected", [this]() -> std::string
                        { return odometryManager_.contactsManager().contactsDetected() ? "contacts" : "no contacts"; });
 
     logger.addLogEntry(category + "_debug_ctlBodyVel",

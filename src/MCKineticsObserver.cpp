@@ -395,15 +395,15 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 
   observer_.setCoMInertiaMatrix(computeCentroidalInertia(inputRobot.mb(), inputRobot.mbc(), fbCoMKine_.position));
 
+  // update of the contacts
+  updateContacts(ctl, logger);
+
   /** Accelerometers **/
   updateIMUs(robot, inputRobot);
 
   // force measurements from sensor that are not associated to a currently set contact are given to the Kinetics
   // Observer as inputs.
   inputAdditionalWrench(ctl, inputRobot, robot);
-
-  // update of the contacts
-  updateContacts(ctl, logger);
 
   res_ = observer_.update();
 

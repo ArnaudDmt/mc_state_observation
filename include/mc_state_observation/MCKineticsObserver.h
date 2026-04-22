@@ -355,10 +355,6 @@ private:
   stateObservation::Matrix12 contactInitCovarianceNewContacts_;
   // initial covariance on the contact rest pose estimate, when no other contact is currently set. Version when using
   // flat odometry.
-  stateObservation::Matrix12 contactInitCovarianceFirstContacts_flat_;
-  // initial covariance on the contact rest pose estimate, when other contacts are currently set. Version when using
-  // flat odometry.
-  stateObservation::Matrix12 contactInitCovarianceNewContacts_flat_;
 
   // covariance on the position's state transition
   stateObservation::Matrix3 statePositionProcessCovariance_;

@@ -173,9 +173,12 @@ protected:
                                                                      const mc_rbdyn::ForceSensor & fs,
                                                                      const sva::ForceVecd * measuredWrench = nullptr);
 
+  const stateObservation::kine::Kinematics getContactWorldPose(const mc_rbdyn::Robot & currentRobot,
+                                                               const stateObservation::kine::Kinematics & fbContactPose);
+
   /// @brief Updates the measurements of the force sensor attached to a contact.
-  /// @details Expresses the measured wrench in the frame of the contact. The sensor is generally not directly attached
-  /// to the contact, so the transformation from the sensor to the contact might be necessary.
+  /// @details Expresses the measured wrench in the frame of the contact. The sensor is generally not directly
+  /// attached to the contact, so the transformation from the sensor to the contact might be necessary.
   /// @param contact Contact associated to the sensor
   /// @param measuredWrench measured wrench
   /// @param surfaceSensorKine transformation from the sensor to the contact.
@@ -422,6 +425,9 @@ private:
 
   // Buffer containing the estimated pose of the floating base in the world over the whole backup interval.
   boost::circular_buffer<stateObservation::kine::Kinematics> koBackupFbKinematics_;
+
+  // Kinematics of the floating base in the real world frame (our estimation goal)
+  stateObservation::kine::Kinematics mcko_K_0_fb_;
 
   /* Debug variables */
   // For logs only. Prediction of the measurements from the newly corrected state

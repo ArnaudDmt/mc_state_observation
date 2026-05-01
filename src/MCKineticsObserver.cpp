@@ -7,6 +7,7 @@
 #include <mc_state_observation/MCKineticsObserver.h>
 #include <mc_state_observation/conversions/kinematics.h>
 #include <mc_state_observation/gui_helpers.h>
+#include <state-observation/tools/rigid-body-kinematics.hpp>
 
 namespace so = stateObservation;
 namespace mc_state_observation
@@ -334,7 +335,8 @@ void MCKineticsObserver::reset(const mc_control::MCController & ctl)
                           mc_rtc::gui::Robot("Real", [&ctl]() -> const mc_rbdyn::Robot & { return ctl.realRobot(); }));
   }
 
-  X_0_fb_ = realRobot.posW().translation();
+  X_0_fb_ = realRobot.posW();
+  mcko_K_0_fb_ = conversions::kinematics::fromSva(X_0_fb_, so::kine::Kinematics::Flags::pose);
 
   initObserverStateVector(ctl, realRobot);
 
@@ -441,9 +443,6 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
     wrenchOffsetIndex_++;
   }
 
-  // Kinematics of the floating base in the real world frame (our estimation goal)
-  so::kine::Kinematics mcko_K_0_fb;
-
   if(observer_.nanDetected_) { estimationState_ = errorDetected; }
   else if(invincibilityIter_ > 0 && invincibilityIter_ < invincibilityFrame_) { estimationState_ = invincibilityFrame; }
   else { estimationState_ = noIssue; }
@@ -460,39 +459,39 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 
       // Given, the Kinematics of the floating base inside its own frame (zero kinematics) which is our user
       // frame, the Kinetics Observer will return the kinematics of the floating base in the real world frame.
-      mcko_K_0_fb = observer_.getGlobalKinematicsOf(fbFb);
+      mcko_K_0_fb_ = observer_.getGlobalKinematicsOf(fbFb);
 
-      koBackupFbKinematics_.push_back(mcko_K_0_fb);
+      koBackupFbKinematics_.push_back(mcko_K_0_fb_);
 
-      X_0_fb_.rotation() = mcko_K_0_fb.orientation.toMatrix3().transpose();
-      X_0_fb_.translation() = mcko_K_0_fb.position();
+      X_0_fb_.rotation() = mcko_K_0_fb_.orientation.toMatrix3().transpose();
+      X_0_fb_.translation() = mcko_K_0_fb_.position();
 
       /* Bring velocity of the IMU to the origin of the joint : we want the
        * velocity of joint 0, so stop one before the first joint */
 
-      v_fb_0_.angular() = mcko_K_0_fb.angVel();
-      v_fb_0_.linear() = mcko_K_0_fb.linVel();
+      v_fb_0_.angular() = mcko_K_0_fb_.angVel();
+      v_fb_0_.linear() = mcko_K_0_fb_.linVel();
 
-      a_fb_0_.angular() = mcko_K_0_fb.angAcc();
-      a_fb_0_.linear() = mcko_K_0_fb.linAcc();
+      a_fb_0_.angular() = mcko_K_0_fb_.angAcc();
+      a_fb_0_.linear() = mcko_K_0_fb_.linAcc();
       break;
     }
     case invincibilityFrame:
     {
       // we apply the last transformation estimated by the Tilt Observer to our previous pose to keep updating the
       // floating base with the Tilt Observer.
-      mcko_K_0_fb = valinor_.applyLastTransformation(koBackupFbKinematics_.back());
-      koBackupFbKinematics_.push_back(mcko_K_0_fb);
+      mcko_K_0_fb_ = valinor_.applyLastTransformation(koBackupFbKinematics_.back());
+      koBackupFbKinematics_.push_back(mcko_K_0_fb_);
 
-      X_0_fb_.rotation() = mcko_K_0_fb.orientation.toMatrix3().transpose();
-      X_0_fb_.translation() = mcko_K_0_fb.position();
+      X_0_fb_.rotation() = mcko_K_0_fb_.orientation.toMatrix3().transpose();
+      X_0_fb_.translation() = mcko_K_0_fb_.position();
 
       // the tilt observer doesn't estimate the acceleration so we get it by finite differences
-      a_fb_0_.angular() = (mcko_K_0_fb.angVel() - v_fb_0_.angular()) / ctl.timeStep;
-      a_fb_0_.linear() = (mcko_K_0_fb.linVel() - v_fb_0_.linear()) / ctl.timeStep;
+      a_fb_0_.angular() = (mcko_K_0_fb_.angVel() - v_fb_0_.angular()) / ctl.timeStep;
+      a_fb_0_.linear() = (mcko_K_0_fb_.linVel() - v_fb_0_.linear()) / ctl.timeStep;
 
-      v_fb_0_.angular() = mcko_K_0_fb.angVel();
-      v_fb_0_.linear() = mcko_K_0_fb.linVel();
+      v_fb_0_.angular() = mcko_K_0_fb_.angVel();
+      v_fb_0_.linear() = mcko_K_0_fb_.linVel();
 
       invincibilityIter_++;
       // While converging again after being reset, the estimation made by the Kinetics Observer is very inaccurate and
@@ -508,10 +507,10 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
         so::kine::Kinematics newWorldCentroidKine;
         newWorldCentroidKine.position = inputRobot.com();
         // the orientation of the centroid frame is the one of the floating base
-        newWorldCentroidKine.orientation = mcko_K_0_fb.orientation;
+        newWorldCentroidKine.orientation = mcko_K_0_fb_.orientation;
 
         newWorldCentroidKine.linVel = inputRobot.comVelocity();
-        newWorldCentroidKine.angVel = mcko_K_0_fb.angVel();
+        newWorldCentroidKine.angVel = mcko_K_0_fb_.angVel();
 
         observer_.setWorldCentroidStateKinematics(newWorldCentroidKine, false);
 
@@ -576,17 +575,17 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
       // buffers. This empty Kinematics is filled and returned by the "runBackup" function.
       koBackupFbKinematics_.push_back(so::kine::Kinematics::zeroKinematics(so::kine::Kinematics::Flags::pose));
 
-      mcko_K_0_fb = valinor_.backupFb(&koBackupFbKinematics_);
+      mcko_K_0_fb_ = valinor_.backupFb(&koBackupFbKinematics_);
 
-      X_0_fb_.rotation() = mcko_K_0_fb.orientation.toMatrix3().transpose();
-      X_0_fb_.translation() = mcko_K_0_fb.position();
+      X_0_fb_.rotation() = mcko_K_0_fb_.orientation.toMatrix3().transpose();
+      X_0_fb_.translation() = mcko_K_0_fb_.position();
 
       // the tilt observer doesn't estimate the acceleration so we get it by finite differences
-      a_fb_0_.angular() = (mcko_K_0_fb.angVel() - v_fb_0_.angular()) / ctl.timeStep;
-      a_fb_0_.linear() = (mcko_K_0_fb.linVel() - v_fb_0_.linear()) / ctl.timeStep;
+      a_fb_0_.angular() = (mcko_K_0_fb_.angVel() - v_fb_0_.angular()) / ctl.timeStep;
+      a_fb_0_.linear() = (mcko_K_0_fb_.linVel() - v_fb_0_.linear()) / ctl.timeStep;
 
-      v_fb_0_.angular() = mcko_K_0_fb.angVel();
-      v_fb_0_.linear() = mcko_K_0_fb.linVel();
+      v_fb_0_.angular() = mcko_K_0_fb_.angVel();
+      v_fb_0_.linear() = mcko_K_0_fb_.linVel();
 
       // we update update robot as it will be updated at the beginning of the next iteration anyway
       update(inputRobot);
@@ -595,8 +594,8 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
       newWorldCentroidKine.position = inputRobot.com();
       newWorldCentroidKine.linVel = inputRobot.comVelocity();
       // the orientation of the centroid frame is the one of the floating base
-      newWorldCentroidKine.orientation = mcko_K_0_fb.orientation;
-      newWorldCentroidKine.angVel = mcko_K_0_fb.angVel();
+      newWorldCentroidKine.orientation = mcko_K_0_fb_.orientation;
+      newWorldCentroidKine.angVel = mcko_K_0_fb_.angVel();
 
       observer_.setWorldCentroidStateKinematics(newWorldCentroidKine, true);
       observer_.setStateUnmodeledWrench(so::Vector6::Zero(), true);
@@ -698,14 +697,14 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
     msg.header.stamp = nh_->now();
     msg.header.frame_id = "Floating base";
 
-    msg.pose.position.x = mcko_K_0_fb.position().x();
-    msg.pose.position.y = mcko_K_0_fb.position().y();
-    msg.pose.position.z = mcko_K_0_fb.position().z();
+    msg.pose.position.x = mcko_K_0_fb_.position().x();
+    msg.pose.position.y = mcko_K_0_fb_.position().y();
+    msg.pose.position.z = mcko_K_0_fb_.position().z();
 
-    msg.pose.orientation.x = mcko_K_0_fb.orientation.toQuaternion().x();
-    msg.pose.orientation.y = mcko_K_0_fb.orientation.toQuaternion().y();
-    msg.pose.orientation.z = mcko_K_0_fb.orientation.toQuaternion().z();
-    msg.pose.orientation.w = mcko_K_0_fb.orientation.toQuaternion().w();
+    msg.pose.orientation.x = mcko_K_0_fb_.orientation.toQuaternion().x();
+    msg.pose.orientation.y = mcko_K_0_fb_.orientation.toQuaternion().y();
+    msg.pose.orientation.z = mcko_K_0_fb_.orientation.toQuaternion().z();
+    msg.pose.orientation.w = mcko_K_0_fb_.orientation.toQuaternion().w();
 
     xPosPub_->publish(msg);
   }
@@ -910,6 +909,25 @@ const so::kine::Kinematics MCKineticsObserver::getContactWorldKinematics(const K
   return worldContactKine;
 }
 
+const so::kine::Kinematics MCKineticsObserver::getContactWorldPose(const mc_rbdyn::Robot & currentRobot,
+                                                                   const so::kine::Kinematics & fbContactPose)
+{
+  /*
+  Can be used with inputRobot, a virtual robot corresponding to the real robot whose floating base's frame is
+  superimposed with the world frame. Getting kinematics associated to the inputRobot inside the world frame is the same
+  as getting the same kinematics of the real robot inside the frame of its floating base, which is needed for the inputs
+  of the Kinetics Observer. This allows to use the basic mc_rtc functions directly giving kinematics in the world frame
+  and not do the conversion: initial frame -> world + world -> floating base as the latter is zero.
+  */
+
+  so::kine::Kinematics worldFbPose =
+      conversions::kinematics::fromSva(currentRobot.posW(), so::kine::Kinematics::Flags::pose);
+
+  so::kine::Kinematics worldContactPose = worldFbPose * fbContactPose;
+
+  return worldContactPose;
+}
+
 void MCKineticsObserver::updateContactForceMeasurement(KoContactWithSensor & contact,
                                                        const sva::ForceVecd & measuredWrench,
                                                        const so::kine::Kinematics * contactSensorKine)
@@ -1028,15 +1046,21 @@ void MCKineticsObserver::setNewContact(const mc_control::MCController & ctl,
   }
   else // we don't perform odometry, the reference pose of the contact is its pose in the control robot
   {
-    // so::kine::Kinematics worldContactKine = getContactWorldKinematics(contact, robot, fs);
-    // observer_.addContact(worldContactKine, initCovariance, contactProcessCovariance_, contact.id(), linStiffness_,
-    //                      linDamping_, angStiffness_, angDamping_);
-    so::kine::Kinematics worldContactKine =
-        conversions::kinematics::fromSva(robot.surfacePose(contact.surfaceName()), so::kine::Kinematics::Flags::pose);
+    so::kine::Kinematics worldContactKine = getContactWorldPose(robot, contact.fbContactKine_);
+    so::kine::Kinematics worldContactKine_real = mcko_K_0_fb_ * contact.fbContactKine_;
+
+    worldContactKine.orientation = so::kine::mergeRoll1Pitch1WithYaw2AxisAgnostic(
+        worldContactKine_real.orientation.toMatrix3(), worldContactKine.orientation.toMatrix3());
 
     observer_.addContact(worldContactKine, initCovariance, contactProcessCovariance_, contact.id(), linStiffness_,
-                         linDamping_, angStiffness_, angDamping_, contact.contactWrenchVector_.segment<3>(0),
-                         contact.contactWrenchVector_.segment<3>(3), odometryType_ == so::odometry::OdometryType::Flat);
+                         linDamping_, angStiffness_, angDamping_);
+    // so::kine::Kinematics worldContactKine =
+    //     conversions::kinematics::fromSva(robot.surfacePose(contact.surfaceName()), so::kine::Kinematics::Flags::pose);
+
+    // observer_.addContact(worldContactKine, initCovariance, contactProcessCovariance_, contact.id(), linStiffness_,
+    //                      linDamping_, angStiffness_, angDamping_, contact.contactWrenchVector_.segment<3>(0),
+    //                      contact.contactWrenchVector_.segment<3>(3), odometryType_ ==
+    //                      so::odometry::OdometryType::Flat);
   }
 
   // checks if the sensor is used in the correction of the Kinetics Observer or not

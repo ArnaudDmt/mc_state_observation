@@ -125,6 +125,8 @@ void MCKineticsObserverFG::configure(const mc_control::MCController & ctl, const
   initNoises_.at(5) = stateInitNoises("angAccNoise"); // angAcc
   initNoises_.at(6) = stateInitNoises("disturbForceNoise"); // distForce
   initNoises_.at(7) = stateInitNoises("disturbMomentNoise"); // distMoment
+  initNoises_.at(8) = stateInitNoises("contactRestPosAverageNoise"); // distMoment
+  initNoises_.at(9) = stateInitNoises("contactRestYawAverageNoise"); // distMoment
 
   contactInitNoises_.at(0) = stateInitNoises("restPosNoise"); // rest pos
   contactInitNoises_.at(1) = stateInitNoises("restOriNoise"); // rest ori
@@ -748,7 +750,7 @@ void MCKineticsObserverFG::updateContacts(const mc_control::MCController & ctl, 
   if(observer_.getActiveContacts().empty()) // The initial noise on the pose of the contact depending on
                                             // whether another contact is already set or not
   {
-    initNoise = &contactInitNoises_;
+    initNoise = &contactInitNoises_first_;
   }
   else { initNoise = &contactInitNoises_; }
 
@@ -1062,23 +1064,26 @@ void MCKineticsObserverFG::addContactLogEntries(const mc_control::MCController &
                      { return observer_.getContact(contact.id()).currentState_.moment_; });
 
   logger.addLogEntry(category_ + "_debug_contactKine_" + contact.surfaceName() + "_inputCentroidContactKine_position",
-                     &contact, [this, &contact]() -> Eigen::Vector3d
-                     { return observer_.getContact(contact.id()).centroidContactPose_.translation(); });
+                     &contact,
+                     [this, &contact]() -> Eigen::Vector3d {
+                       return observer_.getContact(contact.id()).viscoElasticInput_.centroidContactPose_.translation();
+                     });
 
   logger.addLogEntry(
       category_ + "_debug_contactKine_" + contact.surfaceName() + "_inputCentroidContactKine_orientation", &contact,
       [this, &contact]() -> Eigen::Quaternion<double>
       {
-        so::kine::Orientation ori(observer_.getContact(contact.id()).centroidContactPose_.rotation().matrix());
+        so::kine::Orientation ori(
+            observer_.getContact(contact.id()).viscoElasticInput_.centroidContactPose_.rotation().matrix());
         return ori.inverse().toQuaternion();
       });
   logger.addLogEntry(category_ + "_debug_contactKine_" + contact.surfaceName() + "_inputCentroidContactKine_linVel",
                      &contact, [this, &contact]() -> Eigen::Vector3d
-                     { return observer_.getContact(contact.id()).centroidContactLinVel_; });
+                     { return observer_.getContact(contact.id()).viscoElasticInput_.centroidContactLinVel_; });
 
   logger.addLogEntry(category_ + "_debug_contactKine_" + contact.surfaceName() + "_inputCentroidContactKine_angVel",
                      &contact, [this, &contact]() -> Eigen::Vector3d
-                     { return observer_.getContact(contact.id()).centroidContactAngVel_; });
+                     { return observer_.getContact(contact.id()).viscoElasticInput_.centroidContactAngVel_; });
   logger.addLogEntry(
       category_ + "_debug_contactKine_" + contact.surfaceName() + "_realRobot_position", &contact,
       [this, &contact, &ctl]() -> Eigen::Vector3d

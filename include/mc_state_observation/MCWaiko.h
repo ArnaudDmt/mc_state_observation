@@ -145,6 +145,8 @@ protected:
   double mu_ = 2;
   // gain associated with the correction of the position by the contact position
   double rho_ = 2;
+  // gain associated with the correction of the yaw by the contact position
+  double psi_ = 0.3;
 
   /*!
    * parameter related to the convergence of the linear velocity
@@ -159,8 +161,8 @@ protected:
   double finalMu_ = 2;
   // gain associated with the correction of the position by the contact position
   double finalRho_ = 2;
-  // /// gain of the gyro bias correction by the velocity
-  // double gamma_ = 2;
+  // gain associated with the correction of the yaw by the contact position
+  double finalPsi_ = 0.3;
 
   // flag indicating the variables we want in the resulting Kinematics object
   stateObservation::kine::Kinematics::Flags::Byte flagPoseVels_ =
@@ -221,6 +223,7 @@ protected:
   stateObservation::kine::Kinematics worldAnchorKine_;
 
   bool withDebugLogs_ = false;
+  bool withOriCorrectFromContactOri_ = true;
 };
 
 } // namespace mc_state_observation

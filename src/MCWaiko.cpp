@@ -13,7 +13,7 @@ namespace so = stateObservation;
 using OdometryType = stateObservation::odometry::OdometryType;
 
 MCWaiko::MCWaiko(const std::string & type, double dt, bool asBackup)
-: mc_observers::Observer(type, dt), estimator_(alpha_, beta_, 1 / (2 * M_PI), rho_, mu_), odometryManager_()
+: mc_observers::Observer(type, dt), estimator_(alpha_, beta_, 1 / (2 * M_PI), rho_, mu_, psi_), odometryManager_()
 {
   asBackup_ = asBackup;
   odometryManager_.setSamplingTime(dt);
@@ -28,6 +28,11 @@ void MCWaiko::configure(const mc_control::MCController & ctl, const mc_rtc::Conf
   config("updateRobot", updateRobot_);
   config("updateSensor", updateSensor_);
   config("withDebugLogs", withDebugLogs_);
+  config("withOriCorrectFromContactOri", withOriCorrectFromContactOri_);
+  if(config.has("withOriCorrectFromContactPos"))
+  {
+    estimator_.setWithOriCorrectFromContactPos(config("withOriCorrectFromContactPos"));
+  }
 
   auto contactsConfig = config("contacts");
 
@@ -39,12 +44,14 @@ void MCWaiko::configure(const mc_control::MCController & ctl, const mc_rtc::Conf
     gamma_ = filterGainsConfig("initGamma", 4);
     mu_ = filterGainsConfig("initMu", 4);
     rho_ = filterGainsConfig("initRho", 4);
+    psi_ = filterGainsConfig("initPsi", 0.3);
 
     finalAlpha_ = filterGainsConfig("finalAlpha", 4);
     finalBeta_ = filterGainsConfig("finalBeta", 1);
     finalGamma_ = filterGainsConfig("finalGamma", 4);
     finalMu_ = filterGainsConfig("finalMu", 2);
     finalRho_ = filterGainsConfig("finalRho", 2);
+    finalPsi_ = filterGainsConfig("finalPsi", 0.3);
   }
 
   // filterGainsConfig("finalEta", eta_contacts_final_);
@@ -161,6 +168,7 @@ void MCWaiko::reset(const mc_control::MCController & ctl)
   estimator_.setGamma(gamma_);
   estimator_.setRho(rho_);
   estimator_.setMu(mu_);
+  estimator_.setPsi(psi_);
 }
 
 bool MCWaiko::run(const mc_control::MCController & ctl)
@@ -192,6 +200,7 @@ bool MCWaiko::run(const mc_control::MCController & ctl)
     gamma_ = finalGamma_;
     mu_ = finalMu_;
     rho_ = finalRho_;
+    psi_ = finalPsi_;
   }
 
   updateNecessaryFramesOdom(ctl, inputRobot);
@@ -341,14 +350,15 @@ bool MCWaiko::run(const mc_control::MCController & ctl)
   if(odometryManager_.maintainedContacts().size() > 0)
   {
     worldImuLocKineFromAnchor_ = odometryManager_.getWorldBodyLocalKineFromAnchor();
-    if(worldImuLocKineFromAnchor_.orientation.isSet())
+    for(auto & contact : odometryManager_.maintainedContacts())
     {
-      estimator_.addPoseInput(worldImuLocKineFromAnchor_.orientation.toMatrix3(), worldImuLocKineFromAnchor_.position(),
-                              k);
+      estimator_.addContactPosInput(contact->worldRefKine_.position(), contact->bodyContactKine_.position(),
+                                    contact->lambda(), k);
     }
-    else
+
+    if(worldImuLocKineFromAnchor_.orientation.isSet() && withOriCorrectFromContactOri_)
     {
-      estimator_.addPosInput(worldImuLocKineFromAnchor_.position(), k);
+      estimator_.addOriInput(worldImuLocKineFromAnchor_.orientation.toMatrix3(), k);
     }
 
     worldImuKineFromAnchor_ = worldImuLocKineFromAnchor_;
@@ -580,8 +590,7 @@ void MCWaiko::addToLogger(const mc_control::MCController & ctl, mc_rtc::Logger &
     logger.addLogEntry(category + "_constants_gains_gamma", [this]() -> double { return gamma_; });
     logger.addLogEntry(category + "_constants_gains_rho", [this]() -> double { return estimator_.getRho(); });
 
-    logger.addLogEntry(category + "_debug_OdometryType",
-                       [this]() -> std::string
+    logger.addLogEntry(category + "_debug_OdometryType", [this]() -> std::string
                        { return stateObservation::odometry::odometryTypeToString(odometryManager_.odometryType_); });
 
     logger.addLogEntry(category + "_debug_yv", [this]() -> const so::Vector3 & { return yv_; });
@@ -732,8 +741,7 @@ void MCWaiko::addToLogger(const mc_control::MCController & ctl, mc_rtc::Logger &
                          return worldImuKine.linVel();
                        });
 
-    logger.addLogEntry(category + "_debug_contactDetected",
-                       [this]() -> std::string
+    logger.addLogEntry(category + "_debug_contactDetected", [this]() -> std::string
                        { return odometryManager_.contactsManager().contactsDetected() ? "contacts" : "no contacts"; });
 
     logger.addLogEntry(category + "_debug_ctlBodyVel",

@@ -119,7 +119,7 @@ protected:
   /// @param logger
   void addContactLogEntries(const mc_control::MCController & ctl,
                             mc_rtc::Logger & logger,
-                            const KoContactWithSensor & contact);
+                            KoContactWithSensor & contact);
   /// @brief Remove the logs of the desired contact.
   /// @param contact Contact
   /// @param logger
@@ -168,13 +168,22 @@ protected:
   /// @param robot robot the contacts belong to
   /// @param fs force sensor
   /// @return stateObservation::kine::Kinematics &
-  const stateObservation::kine::Kinematics getContactWorldKinematics(const KoContactWithSensor & contact,
+  const stateObservation::kine::Kinematics getContactWorldKinematics(const mc_control::MCController & ctl,
+                                                                     KoContactWithSensor & contact,
                                                                      const mc_rbdyn::Robot & robot,
-                                                                     const mc_rbdyn::ForceSensor & fs,
-                                                                     const sva::ForceVecd * measuredWrench = nullptr);
+                                                                     bool withVel);
 
-  const stateObservation::kine::Kinematics getContactWorldPose(const mc_rbdyn::Robot & currentRobot,
-                                                               const stateObservation::kine::Kinematics & fbContactPose);
+  const stateObservation::kine::Kinematics getFsWorldKinematics(const mc_control::MCController & ctl,
+                                                                const mc_rbdyn::Robot & robot,
+                                                                const std::string & fsName);
+
+  const stateObservation::kine::Kinematics getContactFsKinematics(const mc_control::MCController & ctl,
+                                                                  KoContactWithSensor & contact,
+                                                                  const mc_rbdyn::Robot & currentRobot);
+
+  // const stateObservation::kine::Kinematics getContactWorldPose(const mc_rbdyn::Robot & currentRobot,
+  //                                                              const stateObservation::kine::Kinematics &
+  //                                                              fbContactPose);
 
   /// @brief Updates the measurements of the force sensor attached to a contact.
   /// @details Expresses the measured wrench in the frame of the contact. The sensor is generally not directly
@@ -214,6 +223,24 @@ protected:
   /// @param contact Contact to update
   /// @param logger Logger
   void updateContact(const mc_control::MCController & ctl, KoContactWithSensor & contact);
+
+  /// @brief Applies the current Kinetics Observer floating-base estimate.
+  void updateFloatingBaseFromObserver();
+
+  /// @brief Applies backup floating-base kinematics and estimates acceleration from the previous velocity.
+  void updateFloatingBaseKinematicsFromBackup(const stateObservation::kine::Kinematics & fbKinematics, double timeStep);
+
+  /// @brief Reinitializes the observer centroid state from the current backup floating-base kinematics.
+  void resetWorldCentroidState(mc_rbdyn::Robot & inputRobot, bool resetCovariance);
+
+  /// @brief Reinitializes the observer contacts after backup.
+  void resetContactsAfterBackup(const mc_control::MCController & ctl,
+                                const mc_rbdyn::Robot & robot,
+                                const mc_rbdyn::Robot & realRobot,
+                                const mc_rbdyn::Robot & forceSensorRobot,
+                                bool resetCovariance);
+
+  const char * estimationStateName() const;
 
 public:
   inline Eigen::VectorBlock<Eigen::VectorXd, 6> getEstimatedDisturbanceWrench()
@@ -409,6 +436,10 @@ private:
   // total torque measured by the sensors that are not associated to a currently set contact and expressed in the
   // floating base's frame. Used as an input for the Kinetics Observer.
   stateObservation::Vector3 additionalUserResultingMoment_ = stateObservation::Vector3::Zero();
+
+  stateObservation::Vector3 worldAnchorPos_;
+  stateObservation::Vector3 fbAnchorPos_;
+  stateObservation::kine::Kinematics worldFbKine_;
 
   /* Variables for the backup */
   // iteration on which the backup was required for the last time

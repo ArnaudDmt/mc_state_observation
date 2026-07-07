@@ -306,7 +306,30 @@ bool MCWaiko::run(const mc_control::MCController & ctl)
                                     .onMaintainedContact(onMaintainedContactOdom)
                                     .onRemovedContact(onRemovedContactOdom);
 
-  odometryManager_.initLoop(contactList, contactUpdateFunctions, nullptr, nullptr);
+  const bool contactsChanged = odometryManager_.initLoop(contactList, contactUpdateFunctions, nullptr, nullptr);
+
+  if(contactsChanged && (odometryManager_.maintainedContacts().size() + odometryManager_.newContacts().size()) > 0)
+  {
+    so::Vector3 newPositionAnchor = so::Vector3::Zero();
+    double anchorLambdaSum = 0.0;
+    for(auto & contact : odometryManager_.maintainedContacts())
+    {
+      const double lambda = contact->lambda();
+      newPositionAnchor += lambda * contact->worldRefKine_.position();
+      anchorLambdaSum += lambda;
+    }
+    for(auto & contact : odometryManager_.newContacts())
+    {
+      const double lambda = contact->lambda();
+      const so::kine::Kinematics worldContactKine = worldImuKine_ * contact->bodyContactKine_;
+      newPositionAnchor += lambda * worldContactKine.position();
+      anchorLambdaSum += lambda;
+    }
+    if(anchorLambdaSum > 1e-12)
+    {
+      estimator_.resetPositionAnchor(newPositionAnchor / anchorLambdaSum);
+    }
+  }
 
   // position and linear velocity of the anchor point in the frame of the IMU.
   imuAnchorKine_ = odometryManager_.getAnchorKineInBody(true);
@@ -367,13 +390,10 @@ bool MCWaiko::run(const mc_control::MCController & ctl)
   // estimation of the state with the complementary filters
   estimator_.getEstimatedState(k + 1);
 
-  so::kine::LocalKinematics estimatedWorldImuLocKine;
-  estimatedWorldImuLocKine.position = estimator_.getEstimatedLocPosition();
-  estimatedWorldImuLocKine.orientation = estimator_.getEstimatedOrientation();
-  estimatedWorldImuLocKine.linVel = estimator_.getEstimatedLocLinVel();
-  estimatedWorldImuLocKine.angVel = imu.angularVelocity();
-
-  estimatedWorldImuKine_ = estimatedWorldImuLocKine;
+  estimatedWorldImuKine_.position = estimator_.getEstimatedWorldPosition();
+  estimatedWorldImuKine_.orientation = estimator_.getEstimatedOrientation();
+  estimatedWorldImuKine_.linVel = estimatedWorldImuKine_.orientation.toMatrix3() * estimator_.getEstimatedLocLinVel();
+  estimatedWorldImuKine_.angVel = estimatedWorldImuKine_.orientation.toMatrix3() * imu.angularVelocity();
 
   odometryManager_.run(stateObservation::odometry::LeggedOdometryManager::KineParams(estimatedWorldImuKine_)
                            .attitudeMeasurement(estimatedWorldImuKine_.orientation.toMatrix3())
@@ -560,6 +580,16 @@ void MCWaiko::addToLogger(const mc_control::MCController & ctl, mc_rtc::Logger &
 
   logger.addLogEntry(category + "_estimatedState_p",
                      [this]() -> so::Vector3 { return estimatedWorldImuKine_.position(); });
+  logger.addLogEntry(category + "_estimatedState_positionAnchor",
+                     [this]() -> const so::Vector3 & { return estimator_.getPositionAnchor(); });
+  logger.addLogEntry(category + "_estimatedState_positionAnchorResetJump",
+                     [this]() -> double { return estimator_.getLastPositionAnchorResetJump(); });
+  logger.addLogEntry(category + "_estimatedState_positionAnchorResetLocalNormBefore",
+                     [this]() -> double { return estimator_.getLastPositionAnchorResetLocalNormBefore(); });
+  logger.addLogEntry(category + "_estimatedState_positionAnchorResetLocalNormAfter",
+                     [this]() -> double { return estimator_.getLastPositionAnchorResetLocalNormAfter(); });
+  logger.addLogEntry(category + "_estimatedState_positionAnchorResetCount",
+                     [this]() -> std::size_t { return estimator_.getPositionAnchorResetCount(); });
 
   logger.addLogEntry(category + "_estimatedState_x1",
                      [this]() -> so::Vector3 { return estimator_.getEstimatedLocLinVel(); });

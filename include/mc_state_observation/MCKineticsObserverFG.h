@@ -93,6 +93,8 @@ protected:
   /// the robot.
   void updateIMUs(const mc_rbdyn::Robot & measRobot, const mc_rbdyn::Robot & inputRobot);
 
+  void updateJointTorqueMeasurement(const mc_rbdyn::Robot & measRobot, mc_rbdyn::Robot & dynamicsRobot);
+
   /*! \brief Add observer from logger
    *
    * @param category Category in which to log this observer
@@ -197,7 +199,24 @@ protected:
   /// @param logger Logger
   void updateContact(const mc_control::MCController & ctl, KoContactWithSensor & contact);
 
-  inline stateObservation::kine::Kinematics fgLocKineToSoKine(const ko_fg::LocKinematics & locK)
+  stateObservation::kine::Kinematics centroidStateToFloatingBaseKinematics(const ko_fg::LocKinematics & centroidKine)
+      const;
+
+  void setFloatingBaseKinematics(mc_rbdyn::Robot & robot, const stateObservation::kine::Kinematics & fbKine) const;
+
+  Eigen::VectorXd measuredJointTorqueVector(const mc_rbdyn::Robot & robot) const;
+
+  Eigen::VectorXd modelJointTorqueVector(const mc_rbdyn::Robot & robot) const;
+
+  Eigen::VectorXd computeInverseDynamicsTorque(mc_rbdyn::Robot & robot,
+                                               const ko_fg::LocKinematics & centroidKine,
+                                               const std::unordered_map<unsigned, stateObservation::Vector6> &
+                                                   contactWrenches) const;
+
+  ko_fg::JointTorqueMeasurement makeJointTorqueMeasurement(const mc_rbdyn::Robot & measRobot,
+                                                           mc_rbdyn::Robot & dynamicsRobot);
+
+  inline stateObservation::kine::Kinematics fgLocKineToSoKine(const ko_fg::LocKinematics & locK) const
   {
     stateObservation::KineticsObserver::Kinematics kine;
 
@@ -309,6 +328,14 @@ private: // instance of the Kinetics Observer
 
   stateObservation::Vector6 inputWrench_;
 
+  bool useJointTorqueMeasurements_ = false;
+  double jointTorqueNoise_ = 10.0;
+  double jointTorqueResidualInitNoise_ = 1000.0;
+  double jointTorqueResidualProcessNoise_ = 100.0;
+  double jointTorqueFiniteDiffStep_ = 1e-6;
+  Eigen::VectorXd measuredJointTorques_;
+  Eigen::VectorXd modelJointTorques_;
+
   size_t k_;
 
   /*
@@ -321,7 +348,7 @@ private: // instance of the Kinetics Observer
   - disturbForce
   - disturbMoment
   */
-  std::array<double, 8> initNoises_;
+  std::array<double, 10> initNoises_;
   std::array<double, 8> processNoises_;
   std::unordered_map<size_t, std::array<double, 4>> imuNoises_;
 

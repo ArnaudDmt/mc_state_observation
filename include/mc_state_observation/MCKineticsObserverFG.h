@@ -391,6 +391,11 @@ private: // instance of the Kinetics Observer
   // total torque measured by the sensors that are not associated to a currently set contact and expressed in the
   // floating base's frame. Used as an input for the Kinetics Observer.
   stateObservation::Vector3 additionalUserResultingMoment_ = stateObservation::Vector3::Zero();
+
+  // Anchor positions used when running without odometry to reconstruct a world floating-base pose from maintained
+  // contacts, following the same semantics as MCKineticsObserver.
+  stateObservation::Vector3 worldAnchorPos_ = stateObservation::Vector3::Zero();
+  stateObservation::Vector3 fbAnchorPos_ = stateObservation::Vector3::Zero();
 };
 
 } // namespace mc_state_observation

@@ -9,13 +9,7 @@ contacts:
   contactsDetection: Surfaces
   surfacesForContactDetection: [RightFootCenter, LeftFootCenter]
   schmittTriggerLowerPropThreshold: 0.11
-  schmittTriggerUpperPropThreshold: 0.12
-
-  # Fallback values. Override per robot in etc/MCKineticsObserverFG/<robot>.yaml
-  linStiffness: [3e4, 3e4, 3e4]
-  angStiffness: [727, 727, 727]
-  linDamping: [150, 150, 150]
-  angDamping: [17, 17, 17]
+  schmittTriggerUpperPropThreshold: 0.12 
 
 stateInitNoises:
   posNoise: 1e-6
@@ -49,15 +43,4 @@ stateProcessNoises:
   forceNoise: 250.0
   momentNoise: 250.0
 
-sensorNoises:
-  acceleroNoise: 1e-4
-  gyroNoise: 1e-6
-  forceNoise: 20.0
-  torqueNoise: 1.5
-
-jointTorques:
-  enabled: false
-  noise: 10.0
-  residualInitNoise: 1000.0
-  residualProcessNoise: 100.0
-  finiteDiffStep: 1e-6
+ 

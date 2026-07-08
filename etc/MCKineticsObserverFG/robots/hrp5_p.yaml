@@ -9,3 +9,10 @@ contacts:
   angStiffness: [1000, 1000, 1000]
   linDamping: [150, 150, 150]
   angDamping: [17, 17, 17]
+
+jointTorques:
+  enabled: false
+  noise: 10.0
+  residualInitNoise: 1000.0
+  residualProcessNoise: 100.0
+  finiteDiffStep: 1e-6

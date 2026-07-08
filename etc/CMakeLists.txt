@@ -2,7 +2,7 @@ option(INSTALL_OBSERVER_CONFIG_FILES
        "Install observer configuration files to local directory" ON)
 
 if(${INSTALL_OBSERVER_CONFIG_FILES})
-  set(OBSERVERS MCKineticsObserver Tilt MCWaiko MCValinor)
+  set(OBSERVERS MCKineticsObserver MCKineticsObserverFG Tilt MCWaiko MCValinor)
 
   foreach(OBS ${OBSERVERS})
 

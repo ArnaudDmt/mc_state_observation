@@ -1,0 +1,68 @@
+ObserverModulePaths: ["$<TARGET_FILE_DIR:MCKineticsObserverFG>"]
+ObserverPipelines:
+  name: MainObserverPipeline
+  gui: false
+  observers:
+    - type: MCKineticsObserverFG
+      update: true
+      config:
+        withDebugLogs: false
+        withGui: false
+
+        leggedOdometry:
+          odometryType: Flat
+
+        contacts:
+          contactsDetection: Surfaces
+          surfacesForContactDetection: [RightFootCenter, LeftFootCenter]
+          schmittTriggerLowerPropThreshold: 0.11
+          schmittTriggerUpperPropThreshold: 0.12
+          linStiffness: [3e4, 3e4, 3e4]
+          angStiffness: [727, 727, 727]
+          linDamping: [150, 150, 150]
+          angDamping: [17, 17, 17]
+
+        stateInitNoises:
+          posNoise: 1e-6
+          oriNoise: 1e-4
+          linVelNoise: 1e-6
+          angVelNoise: 1e-6
+          linAccNoise: 1e-3
+          angAccNoise: 1e-3
+          disturbForceNoise: 1.0
+          disturbMomentNoise: 1.0
+          gyroBiasNoise: 1e-8
+          contactRestPosAverageNoise: 1e-6
+          contactRestYawAverageNoise: 1e-6
+          restPosNoise: 1e-6
+          restOriNoise: 1e-6
+          forceNoise: 400.0
+          momentNoise: 100.0
+
+        stateProcessNoises:
+          posNoise: 1e-10
+          oriNoise: 1e-12
+          linVelNoise: 1e-10
+          angVelNoise: 1e-10
+          linAccNoise: 1e-6
+          angAccNoise: 1e-6
+          disturbForceNoise: 9e-2
+          disturbMomentNoise: 5e-2
+          gyroBiasNoise: 1e-12
+          restPosNoise: 0.0
+          restOriNoise: 0.0
+          forceNoise: 250.0
+          momentNoise: 250.0
+
+        sensorNoises:
+          acceleroNoise: 1e-4
+          gyroNoise: 1e-6
+          forceNoise: 20.0
+          torqueNoise: 1.5
+
+        jointTorques:
+          enabled: false
+          noise: 10.0
+          residualInitNoise: 1000.0
+          residualProcessNoise: 100.0
+          finiteDiffStep: 1e-6

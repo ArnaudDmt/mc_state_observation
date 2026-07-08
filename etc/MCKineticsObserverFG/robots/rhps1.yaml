@@ -1,0 +1,11 @@
+sensorNoises:
+  gyroNoise: 1.6e-5
+  acceleroNoise: 3.6e-3
+  forceNoise: 1.0
+  torqueNoise: 1e-2
+
+contacts:
+  linStiffness: [3e4, 3e4, 3e4]
+  angStiffness: [727, 727, 727]
+  linDamping: [150, 150, 150]
+  angDamping: [17, 17, 17]

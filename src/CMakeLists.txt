@@ -14,6 +14,8 @@ install(
   ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
   RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 
+option(WITH_KINETICS_OBSERVER_FG "Build MCKineticsObserverFG" OFF)
+
 macro(add_simple_observer observer_name)
   add_observer(${observer_name} "${observer_name}.cpp"
                "${CMAKE_SOURCE_DIR}/include/${PROJECT_NAME}/${observer_name}.h")
@@ -51,6 +53,21 @@ macro(add_valinor)
                      mc_state_observation TiltObserver)
 endmacro()
 
+macro(add_kineticsobserver_fg)
+  find_package(kinetics_observer_fg REQUIRED CONFIG)
+
+  add_observer(
+    MCKineticsObserverFG "MCKineticsObserverFG.cpp"
+    "${CMAKE_SOURCE_DIR}/include/${PROJECT_NAME}/MCKineticsObserverFG.h")
+
+  target_link_libraries(
+    MCKineticsObserverFG
+    PUBLIC mc_rtc::mc_control
+           state-observation::state-observation
+           mc_state_observation
+           kinetics_observer_fg::kinetics_observer_fg)
+endmacro()
+
 macro(add_observer_with_filter observer_name)
   add_observer(
     ${observer_name}
@@ -69,6 +86,10 @@ add_so_observer(MocapVisualizer)
 
 add_kineticsobserver()
 add_valinor()
+
+if(WITH_KINETICS_OBSERVER_FG)
+  add_kineticsobserver_fg()
+endif()
 
 if(WITH_ROS_OBSERVERS)
   add_simple_observer(MocapObserver)

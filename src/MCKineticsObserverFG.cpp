@@ -3,11 +3,16 @@
 #include <mc_rtc/logging.h>
 
 #include <array>
+#include <cmath>
 #include <gtsam/geometry/Pose3.h>
 #include <mc_state_observation/MCKineticsObserverFG.h>
 #include <mc_state_observation/gui_helpers.h>
 
-#include <RBDyn/ID.h>
+#include <RBDyn/Coriolis.h>
+#include <RBDyn/FD.h>
+#include <RBDyn/FK.h>
+#include <RBDyn/FV.h>
+#include <RBDyn/MultiBodyConfig.h>
 
 #include <mc_state_observation/conversions/kinematics.h>
 #include <optional>
@@ -18,7 +23,7 @@ namespace so = stateObservation;
 namespace mc_state_observation
 {
 MCKineticsObserverFG::MCKineticsObserverFG(const std::string & type, double dt)
-: mc_observers::Observer(type, dt), observer_(0.05), removeWrenchOffset_(false)
+: mc_observers::Observer(type, dt), observer_(0.016), removeWrenchOffset_(false)
 {
   observer_.setSamplingTime(dt);
 }
@@ -55,6 +60,7 @@ void MCKineticsObserverFG::configure(const mc_control::MCController & ctl, const
   observer_.setFlatOdometry(odometryType_ == so::odometry::OdometryType::Flat);
 
   config("withDebugLogs", withDebugLogs_);
+  leggedOdomConfig("withRestPoseAverageFactor", withRestPoseAverageFactor_);
 
   /* configuration of the contacts manager */
   auto contactsConfig = config("contacts");
@@ -178,10 +184,20 @@ void MCKineticsObserverFG::configure(const mc_control::MCController & ctl, const
   {
     auto jointTorquesConfig = config("jointTorques");
     useJointTorqueMeasurements_ = jointTorquesConfig("enabled", false);
-    jointTorquesConfig("noise", jointTorqueNoise_);
-    jointTorquesConfig("residualInitNoise", jointTorqueResidualInitNoise_);
-    jointTorquesConfig("residualProcessNoise", jointTorqueResidualProcessNoise_);
-    jointTorquesConfig("finiteDiffStep", jointTorqueFiniteDiffStep_);
+    if(useJointTorqueMeasurements_)
+    {
+      useJointTorqueCommandAsMeasurement_ = jointTorquesConfig("useCommandAsMeasurement", true);
+      jointTorquesConfig("noise", jointTorqueNoise_);
+      mc_rtc::log::info("[{}]: Joint impulse-momentum factor enabled: torque sigma={}, command fallback={}.", name(),
+                        jointTorqueNoise_, useJointTorqueCommandAsMeasurement_);
+    }
+    else
+    {
+      // Keep the disabled path independent of every other jointTorques key.
+      // In particular, merely adding a noise entry must not alter the graph.
+      useJointTorqueCommandAsMeasurement_ = false;
+      mc_rtc::log::info("[{}]: Joint impulse-momentum factor disabled.", name());
+    }
   }
 }
 
@@ -271,24 +287,25 @@ void MCKineticsObserverFG::reset(const mc_control::MCController & ctl)
   initExtTorque.setZero();
   initBias.setZero();
 
-  observer_.init(mass_, initState, initNoises_, processNoises_, imuNoises_, std::nullopt);
+  observer_.init(mass_, initState, initNoises_, processNoises_, imuNoises_, std::nullopt, withRestPoseAverageFactor_);
+
+  // These caches are outside the factor graph and must never survive a reset,
+  // including when joint torque measurements have just been disabled.
+  previousMomentumEndpoint_.reset();
+  previousMeasuredJointTorques_.reset();
+  pendingMomentumMeasurement_.reset();
+  pendingMomentumContactIds_.clear();
+  pendingMomentumTime_ = 0;
 
   if(useJointTorqueMeasurements_)
   {
-    size_t jointTorqueDim = 0;
-    for(const auto & jointName : realRobot.refJointOrder())
-    {
-      const int jointIndex = realRobot.mb().jointIndexByName(jointName);
-      jointTorqueDim += static_cast<size_t>(realRobot.mb().joint(jointIndex).dof());
-    }
+    const size_t jointTorqueDim = static_cast<size_t>(actuatedJointTorqueDim(realRobot));
 
     if(jointTorqueDim > 0)
     {
-      observer_.configureJointTorqueResidual(jointTorqueDim, Vector::Zero(jointTorqueDim),
-                                             Vector::Constant(jointTorqueDim, jointTorqueResidualInitNoise_),
-                                             Vector::Constant(jointTorqueDim, jointTorqueResidualProcessNoise_));
+      inputJointTorques_ = Vector::Zero(jointTorqueDim);
       measuredJointTorques_ = Vector::Zero(jointTorqueDim);
-      modelJointTorques_ = Vector::Zero(jointTorqueDim);
+      estimatedJointTorqueResidual_ = Vector::Zero(jointTorqueDim);
     }
     else
     {
@@ -360,6 +377,7 @@ bool MCKineticsObserverFG::run(const mc_control::MCController & ctl)
   Vector3 angularMomentum =
       rbd::computeCentroidalMomentum(inputRobot.mb(), inputRobot.mbc(), fbCentroidKine_.position()).moment();
 
+  inputJointTorques_ = jointTorqueVectorFromRefOrder(robot);
   observer_.setInput(dt_, inertiaMatrix, angularMomentum, inputWrench_.segment(0, 3), inputWrench_.segment(3, 3));
 
   // update of the contacts
@@ -377,6 +395,7 @@ bool MCKineticsObserverFG::run(const mc_control::MCController & ctl)
   try
   {
     observer_.runIteration(k_);
+    if(useJointTorqueMeasurements_) { updateEstimatedJointTorqueResidual(); }
   }
   catch(const std::exception & e)
   {
@@ -563,32 +582,51 @@ void MCKineticsObserverFG::updateIMUs(const mc_rbdyn::Robot & measRobot, const m
   }
 }
 
-so::kine::Kinematics MCKineticsObserverFG::centroidStateToFloatingBaseKinematics(
-    const ko_fg::LocKinematics & centroidKine) const
-{
-  return fgLocKineToSoKine(centroidKine) * centroidFbKine_;
-}
-
-void MCKineticsObserverFG::setFloatingBaseKinematics(mc_rbdyn::Robot & robot, const so::kine::Kinematics & fbKine) const
-{
-  robot.posW(sva::PTransformd(fbKine.orientation.toMatrix3().transpose(), fbKine.position()));
-  robot.velW(sva::MotionVecd(fbKine.angVel(), fbKine.linVel()));
-  robot.accW(sva::MotionVecd(fbKine.angAcc(), fbKine.linAcc()));
-
-  robot.forwardKinematics();
-  robot.forwardVelocity();
-  robot.forwardAcceleration();
-}
-
 Eigen::VectorXd MCKineticsObserverFG::measuredJointTorqueVector(const mc_rbdyn::Robot & robot) const
 {
+  const Eigen::Index expectedDim = actuatedJointTorqueDim(robot);
   const auto & tau = robot.jointTorques();
-  if(tau.empty()) { return Eigen::VectorXd(); }
+  if(tau.empty())
+  {
+    if(useJointTorqueCommandAsMeasurement_) { return jointTorqueVectorFromRefOrder(robot); }
+    return {};
+  }
 
-  return Eigen::Map<const Eigen::VectorXd>(tau.data(), static_cast<Eigen::Index>(tau.size()));
+  const auto & refJointOrder = robot.refJointOrder();
+  if(tau.size() == refJointOrder.size())
+  {
+    Eigen::VectorXd selected(expectedDim);
+    Eigen::Index out = 0;
+    for(size_t refIndex = 0; refIndex < refJointOrder.size(); ++refIndex)
+    {
+      const auto & jointName = refJointOrder[refIndex];
+      const int jointIndex = robot.mb().jointIndexByName(jointName);
+      const int dof = robot.mb().joint(jointIndex).dof();
+      if(dof == 0) { continue; }
+      if(dof != 1)
+      {
+        mc_rtc::log::warning(
+            "[{}]: Joint torque sensor entry '{}' maps to a {}-DoF joint and cannot be expanded unambiguously.", name(),
+            jointName, dof);
+        return {};
+      }
+      selected(out++) = tau[refIndex];
+    }
+    return selected;
+  }
+
+  if(static_cast<Eigen::Index>(tau.size()) == expectedDim)
+  {
+    return Eigen::Map<const Eigen::VectorXd>(tau.data(), static_cast<Eigen::Index>(tau.size()));
+  }
+
+  mc_rtc::log::warning(
+      "[{}]: Joint torque measurement size ({}) matches neither refJointOrder ({}) nor selected torque size ({}).",
+      name(), tau.size(), refJointOrder.size(), expectedDim);
+  return {};
 }
 
-Eigen::VectorXd MCKineticsObserverFG::modelJointTorqueVector(const mc_rbdyn::Robot & robot) const
+Eigen::Index MCKineticsObserverFG::actuatedJointTorqueDim(const mc_rbdyn::Robot & robot) const
 {
   Eigen::Index dim = 0;
   for(const auto & jointName : robot.refJointOrder())
@@ -596,9 +634,34 @@ Eigen::VectorXd MCKineticsObserverFG::modelJointTorqueVector(const mc_rbdyn::Rob
     const int jointIndex = robot.mb().jointIndexByName(jointName);
     dim += robot.mb().joint(jointIndex).dof();
   }
+  return dim;
+}
 
+std::vector<std::string> MCKineticsObserverFG::actuatedJointTorqueNames(const mc_rbdyn::Robot & robot) const
+{
+  std::vector<std::string> names;
+  names.reserve(static_cast<size_t>(actuatedJointTorqueDim(robot)));
+
+  for(const auto & jointName : robot.refJointOrder())
+  {
+    const int jointIndex = robot.mb().jointIndexByName(jointName);
+    const int dof = robot.mb().joint(jointIndex).dof();
+    if(dof == 1) { names.push_back(jointName); }
+    else
+    {
+      for(int i = 0; i < dof; ++i) { names.push_back(jointName + "_" + std::to_string(i)); }
+    }
+  }
+
+  return names;
+}
+
+Eigen::VectorXd MCKineticsObserverFG::jointTorqueVectorFromRefOrder(const mc_rbdyn::Robot & robot) const
+{
+  const Eigen::Index dim = actuatedJointTorqueDim(robot);
   Eigen::VectorXd tau(dim);
   Eigen::Index out = 0;
+
   for(const auto & jointName : robot.refJointOrder())
   {
     const int jointIndex = robot.mb().jointIndexByName(jointName);
@@ -609,134 +672,201 @@ Eigen::VectorXd MCKineticsObserverFG::modelJointTorqueVector(const mc_rbdyn::Rob
   return tau;
 }
 
-Eigen::VectorXd MCKineticsObserverFG::computeInverseDynamicsTorque(
-    mc_rbdyn::Robot & robot,
-    const ko_fg::LocKinematics & centroidKine,
-    const std::unordered_map<unsigned, so::Vector6> & contactWrenches) const
+ko_fg::MomentumResidualEndpoint MCKineticsObserverFG::makeMomentumResidualEndpoint(mc_rbdyn::Robot & dynamicsRobot)
 {
-  rbd::MultiBodyConfig savedMbc = robot.mbc();
+  const auto & mb = dynamicsRobot.mb();
+  rbd::MultiBodyConfig mbc = dynamicsRobot.mbc();
+  rbd::forwardKinematics(mb, mbc);
+  rbd::forwardVelocity(mb, mbc);
 
-  const so::kine::Kinematics fbKine = centroidStateToFloatingBaseKinematics(centroidKine);
-  setFloatingBaseKinematics(robot, fbKine);
+  ko_fg::MomentumResidualEndpoint endpoint;
+  endpoint.linearizationPose_ = observer_.getCurrentState().kine_.pose();
+  endpoint.gravityWorld_ = mbc.gravity;
 
-  robot.mbc().force.assign(static_cast<size_t>(robot.mb().nrBodies()), sva::ForceVecd::Zero());
+  const Eigen::Index fullDimension = mb.nrDof();
+  const Eigen::Index measuredDimension = actuatedJointTorqueDim(dynamicsRobot);
+  const Eigen::Index residualDimension = 6 + measuredDimension;
 
-  for(const auto & [contactId, wrench] : contactWrenches)
+  const auto & predecessors = mb.predecessors();
+  const auto & successors = mb.successors();
+  if(successors.empty() || successors[0] != 0 || mb.joint(0).dof() != 6)
   {
-    const auto contactIt = maintainedContacts_.find(contactId);
-    if(contactIt == maintainedContacts_.end()) { continue; }
-
-    const KoContactWithSensor & contact = *contactIt->second;
-    const auto & surface = robot.surface(contact.surfaceName());
-    const int bodyIndex = robot.bodyIndexByName(surface.bodyName());
-
-    const so::kine::Kinematics worldContactKine = fbKine * contact.fbContactKine_;
-    const Eigen::Matrix3d R_0_c = worldContactKine.orientation.toMatrix3();
-    const Eigen::Vector3d forceWorld = R_0_c * wrench.segment<3>(0);
-    const Eigen::Vector3d momentAtContactWorld = R_0_c * wrench.segment<3>(3);
-    const Eigen::Vector3d bodyPosWorld = robot.mbc().bodyPosW[static_cast<size_t>(bodyIndex)].translation();
-    const Eigen::Vector3d momentAtBodyWorld =
-        momentAtContactWorld + (worldContactKine.position() - bodyPosWorld).cross(forceWorld);
-
-    robot.mbc().force[static_cast<size_t>(bodyIndex)] += sva::ForceVecd(momentAtBodyWorld, forceWorld);
+    mc_rtc::log::error_and_throw<std::runtime_error>("[{}]: Momentum residual expects a six-DoF joint as tree root.",
+                                                     name());
   }
 
-  rbd::InverseDynamics inverseDynamics(robot.mb());
-  inverseDynamics.inverseDynamics(robot.mb(), robot.mbc());
-
-  Eigen::VectorXd tau = modelJointTorqueVector(robot);
-  robot.mbc() = savedMbc;
-  return tau;
-}
-
-ko_fg::JointTorqueMeasurement MCKineticsObserverFG::makeJointTorqueMeasurement(const mc_rbdyn::Robot & measRobot,
-                                                                               mc_rbdyn::Robot & dynamicsRobot)
-{
-  ko_fg::JointTorqueMeasurement measurement;
-
-  const ko_fg::LocKinematics nominalKine = observer_.getCurrentState().kine_;
-  const std::unordered_map<unsigned, so::Vector6> noContactWrenches;
-  const Eigen::VectorXd tau0 = computeInverseDynamicsTorque(dynamicsRobot, nominalKine, noContactWrenches);
-  const Eigen::Index dim = tau0.size();
-  const double eps = jointTorqueFiniteDiffStep_;
-
-  measurement.measuredTorque_ = measuredJointTorqueVector(measRobot);
-  measurement.modelTorqueNoContact_ = tau0;
-  measurement.linearizationPose_ = nominalKine.pose();
-  measurement.linearizationLinVel_ = nominalKine.linVel();
-  measurement.linearizationAngVel_ = nominalKine.angVel();
-  measurement.linearizationLinAcc_ = nominalKine.linAcc();
-  measurement.linearizationAngAcc_ = nominalKine.angAcc();
-  measurement.poseJacobian_.setZero(dim, 6);
-  measurement.linVelJacobian_.setZero(dim, 3);
-  measurement.angVelJacobian_.setZero(dim, 3);
-  measurement.linAccJacobian_.setZero(dim, 3);
-  measurement.angAccJacobian_.setZero(dim, 3);
-  measurement.noise_ = ko_fg::makeNoise(Vector::Constant(dim, jointTorqueNoise_));
-
-  for(Eigen::Index col = 0; col < 6; ++col)
+  std::vector<Eigen::Index> jointOffsets(static_cast<size_t>(mb.nrJoints()));
+  std::vector<int> bodyJoint(static_cast<size_t>(mb.nrBodies()), -1);
+  Eigen::Index offset = 0;
+  for(size_t joint = 0; joint < static_cast<size_t>(mb.nrJoints()); ++joint)
   {
-    ko_fg::LocKinematics perturbed = nominalKine;
-    Vector delta = Vector::Zero(6);
-    delta(col) = eps;
-    perturbed.pose(gtsam::traits<ko_fg::LocalPose3>::Retract(nominalKine.pose(), delta));
-    measurement.poseJacobian_.col(col) =
-        (computeInverseDynamicsTorque(dynamicsRobot, perturbed, noContactWrenches) - tau0) / eps;
+    const size_t body = static_cast<size_t>(successors[joint]);
+    jointOffsets[joint] = offset;
+    bodyJoint[body] = static_cast<int>(joint);
+    offset += mb.joint(static_cast<int>(joint)).dof();
   }
 
-  for(Eigen::Index col = 0; col < 3; ++col)
+  std::vector<Eigen::Index> selectedRows;
+  selectedRows.reserve(static_cast<size_t>(residualDimension));
+  for(Eigen::Index row = 0; row < 6; ++row) { selectedRows.push_back(row); }
+  for(const auto & jointName : dynamicsRobot.refJointOrder())
   {
-    ko_fg::LocKinematics perturbed = nominalKine;
-    Eigen::Vector3d value = nominalKine.linVel();
-    value(col) += eps;
-    perturbed.linVel(value);
-    measurement.linVelJacobian_.col(col) =
-        (computeInverseDynamicsTorque(dynamicsRobot, perturbed, noContactWrenches) - tau0) / eps;
-
-    perturbed = nominalKine;
-    value = nominalKine.angVel();
-    value(col) += eps;
-    perturbed.angVel(value);
-    measurement.angVelJacobian_.col(col) =
-        (computeInverseDynamicsTorque(dynamicsRobot, perturbed, noContactWrenches) - tau0) / eps;
-
-    perturbed = nominalKine;
-    value = nominalKine.linAcc();
-    value(col) += eps;
-    perturbed.linAcc(value);
-    measurement.linAccJacobian_.col(col) =
-        (computeInverseDynamicsTorque(dynamicsRobot, perturbed, noContactWrenches) - tau0) / eps;
-
-    perturbed = nominalKine;
-    value = nominalKine.angAcc();
-    value(col) += eps;
-    perturbed.angAcc(value);
-    measurement.angAccJacobian_.col(col) =
-        (computeInverseDynamicsTorque(dynamicsRobot, perturbed, noContactWrenches) - tau0) / eps;
-  }
-
-  for(const auto & [contactId, contact] : observer_.getActiveContacts())
-  {
-    Eigen::MatrixXd forceJac = Eigen::MatrixXd::Zero(dim, 3);
-    Eigen::MatrixXd momentJac = Eigen::MatrixXd::Zero(dim, 3);
-
-    for(Eigen::Index col = 0; col < 3; ++col)
+    const int jointIndex = mb.jointIndexByName(jointName);
+    for(int dof = 0; dof < mb.joint(jointIndex).dof(); ++dof)
     {
-      std::unordered_map<unsigned, so::Vector6> contactWrenches;
-      so::Vector6 wrench = so::Vector6::Zero();
-      wrench(col) = eps;
-      contactWrenches[static_cast<unsigned>(contactId)] = wrench;
-      forceJac.col(col) = (computeInverseDynamicsTorque(dynamicsRobot, nominalKine, contactWrenches) - tau0) / eps;
+      selectedRows.push_back(jointOffsets[static_cast<size_t>(jointIndex)] + dof);
+    }
+  }
+  if(static_cast<Eigen::Index>(selectedRows.size()) != residualDimension)
+  {
+    mc_rtc::log::error_and_throw<std::runtime_error>("[{}]: Invalid momentum residual row selection.", name());
+  }
 
-      wrench.setZero();
-      wrench(3 + col) = eps;
-      contactWrenches[static_cast<unsigned>(contactId)] = wrench;
-      momentJac.col(col) = (computeInverseDynamicsTorque(dynamicsRobot, nominalKine, contactWrenches) - tau0) / eps;
+  const auto selectRows = [&selectedRows](const Eigen::MatrixXd & matrix)
+  {
+    Eigen::MatrixXd selected(static_cast<Eigen::Index>(selectedRows.size()), matrix.cols());
+    for(size_t row = 0; row < selectedRows.size(); ++row)
+    {
+      selected.row(static_cast<Eigen::Index>(row)) = matrix.row(selectedRows[row]);
+    }
+    return selected;
+  };
+  const auto selectVector = [&selectedRows](const Eigen::VectorXd & vector)
+  {
+    Eigen::VectorXd selected(static_cast<Eigen::Index>(selectedRows.size()));
+    for(size_t row = 0; row < selectedRows.size(); ++row)
+    {
+      selected(static_cast<Eigen::Index>(row)) = vector(selectedRows[row]);
+    }
+    return selected;
+  };
+
+  Eigen::VectorXd velocityOffset = rbd::dofToVector(mb, mbc.alpha);
+  Eigen::MatrixXd velocityMap = Eigen::MatrixXd::Zero(fullDimension, 6);
+  velocityOffset.head<3>().setZero();
+  velocityOffset.segment<3>(3) = centroidFbKine_.linVel();
+  velocityMap.block<3, 3>(0, 3).setIdentity();
+  velocityMap.block<3, 3>(3, 0).setIdentity();
+  velocityMap.block<3, 3>(3, 3) = -sva::vector3ToCrossMatrix(centroidFbKine_.position());
+
+  rbd::ForwardDynamics forwardDynamics(mb);
+  forwardDynamics.computeH(mb, mbc);
+  const Eigen::MatrixXd & inertia = forwardDynamics.H();
+  endpoint.momentumOffset_ = selectVector(inertia * velocityOffset);
+  endpoint.momentumJacobian_ = selectRows(inertia * velocityMap);
+  endpoint.momentumPoseJacobian_ = Eigen::MatrixXd::Zero(residualDimension, 6);
+
+  rbd::Coriolis coriolis(mb);
+  const auto coriolisAt = [&](const Eigen::VectorXd & velocity)
+  {
+    rbd::MultiBodyConfig velocityMbc = mbc;
+    velocityMbc.alpha = rbd::vectorToDof(mb, velocity);
+    rbd::forwardVelocity(mb, velocityMbc);
+    return Eigen::MatrixXd(coriolis.coriolis(mb, velocityMbc));
+  };
+
+  const Eigen::MatrixXd coriolisOffset = coriolisAt(velocityOffset);
+  endpoint.coriolisOffset_ = selectVector(coriolisOffset.transpose() * velocityOffset);
+  Eigen::MatrixXd fullLinear = coriolisOffset.transpose() * velocityMap;
+  std::array<Eigen::MatrixXd, 6> fullQuadratic;
+  for(Eigen::Index column = 0; column < 6; ++column)
+  {
+    const Eigen::MatrixXd direction = coriolisAt(velocityOffset + velocityMap.col(column)) - coriolisOffset;
+    fullLinear.col(column).noalias() += direction.transpose() * velocityOffset;
+    fullQuadratic[static_cast<size_t>(column)] = direction.transpose() * velocityMap;
+  }
+  endpoint.coriolisLinear_ = selectRows(fullLinear);
+  endpoint.coriolisPoseJacobian_ = Eigen::MatrixXd::Zero(residualDimension, 6);
+  for(size_t column = 0; column < 6; ++column)
+  {
+    endpoint.coriolisQuadratic_[column] = selectRows(fullQuadratic[column]);
+  }
+
+  rbd::MultiBodyConfig gravityMbc = mbc;
+  gravityMbc.alpha = rbd::vectorToDof(mb, Eigen::VectorXd::Zero(fullDimension));
+  gravityMbc.force.assign(static_cast<size_t>(mb.nrBodies()), sva::ForceVecd::Zero());
+  rbd::forwardVelocity(mb, gravityMbc);
+  endpoint.gravityMap_.resize(residualDimension, 3);
+  for(Eigen::Index column = 0; column < 3; ++column)
+  {
+    gravityMbc.gravity.setZero();
+    gravityMbc.gravity(column) = 1.0;
+    forwardDynamics.computeC(mb, gravityMbc);
+    endpoint.gravityMap_.col(column) = selectVector(forwardDynamics.C());
+  }
+
+  for(const auto & [contactId, graphContact] : observer_.getActiveContacts())
+  {
+    const auto maintained = maintainedContacts_.find(static_cast<unsigned>(contactId));
+    if(maintained == maintainedContacts_.end()) { continue; }
+    const auto & contact = *maintained->second;
+    const auto & surface = dynamicsRobot.surface(contact.surfaceName());
+    const size_t contactBody = dynamicsRobot.bodyIndexByName(surface.bodyName());
+    Eigen::Matrix<double, 6, 6> bodyWrenchMap;
+    const Eigen::Matrix3d R_fb_contact = contact.fbContactKine_.orientation.toMatrix3();
+    const Eigen::Vector3d p_fb_contact = contact.fbContactKine_.position();
+    for(Eigen::Index column = 0; column < 6; ++column)
+    {
+      Eigen::Matrix<double, 6, 1> local = Eigen::Matrix<double, 6, 1>::Zero();
+      local(column) = 1.0;
+      const Eigen::Vector3d forceFb = R_fb_contact * local.head<3>();
+      const Eigen::Vector3d momentFb = R_fb_contact * local.tail<3>() + p_fb_contact.cross(forceFb);
+      bodyWrenchMap.col(column) = mbc.bodyPosW[contactBody].dualMul(sva::ForceVecd(momentFb, forceFb)).vector();
     }
 
-    measurement.contactForceJacobian_[contactId] = forceJac;
-    measurement.contactMomentJacobian_[contactId] = momentJac;
+    std::vector<Eigen::Matrix<double, 6, 6>> bodyForce(static_cast<size_t>(mb.nrBodies()),
+                                                       Eigen::Matrix<double, 6, 6>::Zero());
+    bodyForce[contactBody] = bodyWrenchMap;
+    Eigen::MatrixXd generalizedMap = Eigen::MatrixXd::Zero(fullDimension, 6);
+    for(size_t reverse = static_cast<size_t>(mb.nrBodies()); reverse-- > 0;)
+    {
+      const int joint = bodyJoint[reverse];
+      if(joint < 0) { continue; }
+      const int dof = mb.joint(joint).dof();
+      generalizedMap.middleRows(jointOffsets[static_cast<size_t>(joint)], dof) =
+          mbc.motionSubspace[static_cast<size_t>(joint)].transpose() * bodyForce[reverse];
+      const int parent = predecessors[static_cast<size_t>(joint)];
+      if(parent >= 0)
+      {
+        Eigen::Matrix<double, 6, 6> motion;
+        for(Eigen::Index column = 0; column < 6; ++column)
+        {
+          Eigen::Matrix<double, 6, 1> unit = Eigen::Matrix<double, 6, 1>::Zero();
+          unit(column) = 1.0;
+          motion.col(column) = (mbc.parentToSon[static_cast<size_t>(joint)] * sva::MotionVecd(unit)).vector();
+        }
+        bodyForce[static_cast<size_t>(parent)].noalias() += motion.transpose() * bodyForce[reverse];
+      }
+    }
+    const Eigen::MatrixXd selectedMap = selectRows(generalizedMap);
+    endpoint.contactForceMap_[contactId] = selectedMap.leftCols<3>();
+    endpoint.contactMomentMap_[contactId] = selectedMap.rightCols<3>();
   }
+
+  return endpoint;
+}
+
+ko_fg::MomentumResidualMeasurement MCKineticsObserverFG::makeMomentumResidualMeasurement(
+    const mc_rbdyn::Robot & measRobot,
+    mc_rbdyn::Robot & dynamicsRobot)
+{
+  ko_fg::MomentumResidualMeasurement measurement;
+  measurement.current_ = makeMomentumResidualEndpoint(dynamicsRobot);
+  measurement.previous_ = previousMomentumEndpoint_.value();
+  previousMomentumEndpoint_ = measurement.current_;
+
+  const Eigen::VectorXd measuredTorque = measuredJointTorqueVector(measRobot);
+  const Eigen::VectorXd previousMeasuredTorque = previousMeasuredJointTorques_.value_or(measuredTorque);
+  previousMeasuredJointTorques_ = measuredTorque;
+  const Eigen::Index dimension = 6 + measuredTorque.size();
+  measurement.knownGeneralizedForce_ = Eigen::VectorXd::Zero(dimension);
+  measurement.knownGeneralizedForce_.tail(measuredTorque.size()) = 0.5 * (previousMeasuredTorque + measuredTorque);
+
+  measurement.dt_ = dt_;
+  // The factor residual is a trapezoidal generalized impulse. Assuming
+  // independent endpoint torque samples, sigma_I = dt * sigma_tau / sqrt(2).
+  Eigen::VectorXd sigmas = Eigen::VectorXd::Constant(measuredTorque.size(), dt_ * jointTorqueNoise_ / std::sqrt(2.0));
+  measurement.noise_ = ko_fg::makeNoise(sigmas);
 
   return measurement;
 }
@@ -744,19 +874,60 @@ ko_fg::JointTorqueMeasurement MCKineticsObserverFG::makeJointTorqueMeasurement(c
 void MCKineticsObserverFG::updateJointTorqueMeasurement(const mc_rbdyn::Robot & measRobot,
                                                         mc_rbdyn::Robot & dynamicsRobot)
 {
-  measuredJointTorques_ = measuredJointTorqueVector(measRobot);
-  if(measuredJointTorques_.size() == 0) { return; }
+  const Eigen::VectorXd measuredTorque = measuredJointTorqueVector(measRobot);
+  if(measuredTorque.size() == 0) { return; }
+  measuredJointTorques_ = measuredTorque;
 
-  ko_fg::JointTorqueMeasurement measurement = makeJointTorqueMeasurement(measRobot, dynamicsRobot);
-  if(measurement.measuredTorque_.size() != measurement.modelTorqueNoContact_.size())
+  if(!previousMomentumEndpoint_)
   {
-    mc_rtc::log::warning("[{}]: Joint torque measurement size ({}) does not match model torque size ({}).", name(),
-                         measurement.measuredTorque_.size(), measurement.modelTorqueNoContact_.size());
+    previousMomentumEndpoint_ = makeMomentumResidualEndpoint(dynamicsRobot);
+    previousMeasuredJointTorques_ = measuredTorque;
     return;
   }
 
-  modelJointTorques_ = measurement.modelTorqueNoContact_;
-  observer_.updateJointTorqueMeasurement(measurement);
+  const auto measurement = makeMomentumResidualMeasurement(measRobot, dynamicsRobot);
+  observer_.updateMomentumResidualMeasurement(measurement);
+
+  pendingMomentumMeasurement_ = measurement;
+  pendingMomentumContactIds_.clear();
+  pendingMomentumContactIds_.reserve(observer_.getActiveContacts().size());
+  for(const auto & [contactId, contact] : observer_.getActiveContacts())
+  {
+    (void)contact;
+    pendingMomentumContactIds_.push_back(contactId);
+  }
+  // runIteration(k_) attaches the current measurement to graph state k_ + 1.
+  pendingMomentumTime_ = k_ + 1;
+}
+
+void MCKineticsObserverFG::updateEstimatedJointTorqueResidual()
+{
+  if(!pendingMomentumMeasurement_ || pendingMomentumTime_ == 0) { return; }
+
+  const size_t current = pendingMomentumTime_;
+  const size_t previous = current - 1;
+  gtsam::KeyVector keys = {ko_fg::X(previous), ko_fg::V(previous), ko_fg::W(previous),
+                           ko_fg::X(current),  ko_fg::V(current),  ko_fg::W(current)};
+  for(const size_t contactId : pendingMomentumContactIds_)
+  {
+    const auto graphContactId = static_cast<uint32_t>(contactId);
+    keys.push_back(ko_fg::F(previous, graphContactId));
+    keys.push_back(ko_fg::T(previous, graphContactId));
+    keys.push_back(ko_fg::F(current, graphContactId));
+    keys.push_back(ko_fg::T(current, graphContactId));
+  }
+
+  const gtsam::Values estimate = observer_.getSmoother().calculateEstimate();
+  for(const gtsam::Key key : keys)
+  {
+    // Bootstrap buffering can leave the newest measurement outside the
+    // smoother until the first batch is submitted.
+    if(!estimate.exists(key)) { return; }
+  }
+
+  const ko_fg::measurementFactors::MomentumResidualFactor factor(keys, *pendingMomentumMeasurement_,
+                                                                 pendingMomentumContactIds_);
+  estimatedJointTorqueResidual_ = factor.unwhitenedError(estimate) / pendingMomentumMeasurement_->dt_;
 }
 
 const so::kine::Kinematics MCKineticsObserverFG::getContactWorldKinematics(const mc_control::MCController & ctl,
@@ -960,13 +1131,13 @@ void MCKineticsObserverFG::setNewContact(const mc_control::MCController & ctl,
   getContactFsKinematics(ctl, contact, inputRobot);
   updateContactForceMeasurement(contact, measuredWrench);
 
-  if(withDebugLogs_)
-  {
-    mc_rtc::log::info("[{}] new contact {} sensorEnabled={} forceNorm={} momentNorm={} fbPos={} {} {}", name(),
-                      contact.id(), contact.sensorEnabled_, contact.contactWrenchVector_.segment<3>(0).norm(),
-                      contact.contactWrenchVector_.segment<3>(3).norm(), contact.fbContactKine_.position().x(),
-                      contact.fbContactKine_.position().y(), contact.fbContactKine_.position().z());
-  }
+  // if(withDebugLogs_)
+  // {
+  //   mc_rtc::log::info("[{}] new contact {} sensorEnabled={} forceNorm={} momentNorm={} fbPos={} {} {}", name(),
+  //                     contact.id(), contact.sensorEnabled_, contact.contactWrenchVector_.segment<3>(0).norm(),
+  //                     contact.contactWrenchVector_.segment<3>(3).norm(), contact.fbContactKine_.position().x(),
+  //                     contact.fbContactKine_.position().y(), contact.fbContactKine_.position().z());
+  // }
 
   so::kine::Kinematics worldContactKine = est_worldFbKine_ * contact.fbContactKine_;
   Pose3_RI worldContactPose(gtsam::Rot3(worldContactKine.orientation.toMatrix3()), worldContactKine.position());
@@ -978,7 +1149,7 @@ void MCKineticsObserverFG::setNewContact(const mc_control::MCController & ctl,
   if(contact.sensorEnabled_) // the force sensor attached to the contact is used in
                              // the correction by the Kinetics Observer.
   {
-    if(withDebugLogs_) { mc_rtc::log::info("[{}] new contact {} -> updateContact(with meas)", name(), contact.id()); }
+    // if(withDebugLogs_) { mc_rtc::log::info("[{}] new contact {} -> updateContact(with meas)", name(), contact.id()); }
     observer_.updateContact(contact.id(), contact.contactWrenchVector_.segment(0, 3),
                             contact.contactWrenchVector_.segment(3, 3),
                             gtsam::Pose3(gtsam::Rot3(contact.fbContactKine_.orientation.toMatrix3()),
@@ -1024,12 +1195,12 @@ void MCKineticsObserverFG::updateContact(const mc_control::MCController & ctl, K
   updateContactForceMeasurement(contact, measuredWrench);
   contact.centroidContactKine_ = centroidFbKine_ * contact.fbContactKine_;
 
-  if(withDebugLogs_)
-  {
-    mc_rtc::log::info("[{}] update contact {} sensorEnabled={} forceNorm={} momentNorm={}", name(), contact.id(),
-                      contact.sensorEnabled_, contact.contactWrenchVector_.segment<3>(0).norm(),
-                      contact.contactWrenchVector_.segment<3>(3).norm());
-  }
+  // if(withDebugLogs_)
+  // {
+  //   mc_rtc::log::info("[{}] update contact {} sensorEnabled={} forceNorm={} momentNorm={}", name(), contact.id(),
+  //                     contact.sensorEnabled_, contact.contactWrenchVector_.segment<3>(0).norm(),
+  //                     contact.contactWrenchVector_.segment<3>(3).norm());
+  // }
 
   gtsam::Pose3 centroidContactPose(gtsam::Rot3(contact.centroidContactKine_.orientation.toMatrix3()),
                                    contact.centroidContactKine_.position());
@@ -1037,14 +1208,14 @@ void MCKineticsObserverFG::updateContact(const mc_control::MCController & ctl, K
   if(contact.sensorEnabled_) // the force sensor attached to the contact is used in
                              // the correction by the Kinetics Observer.
   {
-    if(withDebugLogs_) { mc_rtc::log::info("[{}] contact {} -> updateContact(with meas)", name(), contact.id()); }
+    // if(withDebugLogs_) { mc_rtc::log::info("[{}] contact {} -> updateContact(with meas)", name(), contact.id()); }
     observer_.updateContact(contact.id(), contact.contactWrenchVector_.segment(0, 3),
                             contact.contactWrenchVector_.segment(3, 3), centroidContactPose,
                             contact.centroidContactKine_.linVel(), contact.centroidContactKine_.angVel());
   }
   else
   {
-    if(withDebugLogs_) { mc_rtc::log::info("[{}] contact {} -> updateContactNoMeas", name(), contact.id()); }
+    // if(withDebugLogs_) { mc_rtc::log::info("[{}] contact {} -> updateContactNoMeas", name(), contact.id()); }
     observer_.updateContactNoMeas(contact.id(), centroidContactPose, contact.centroidContactKine_.linVel(),
                                   contact.centroidContactKine_.angVel());
   }
@@ -1103,6 +1274,7 @@ void MCKineticsObserverFG::addToLogger(const mc_control::MCController & ctl,
                                        const std::string & category)
 {
   category_ = category;
+  jointTorqueNames_ = actuatedJointTorqueNames(ctl.realRobot(robot_));
 
   logger.addLogEntry(category_ + "_fb_posW", [this]() -> sva::PTransformd & { return X_0_fb_; });
   logger.addLogEntry(category_ + "_fb_velW", [this]() -> sva::MotionVecd & { return v_fb_0_; });
@@ -1143,12 +1315,22 @@ void MCKineticsObserverFG::addToLogger(const mc_control::MCController & ctl,
   logger.addLogEntry(category_ + "_MEKF_estimatedState_unbiasedExtMoment",
                      [this]() -> Eigen::Vector3d { return getUnbiasedEstimatedDisturbanceWrench().moment(); });
 
-  logger.addLogEntry(category_ + "_MEKF_measurements_jointTorque_measured",
-                     [this]() -> const Eigen::VectorXd & { return measuredJointTorques_; });
-  logger.addLogEntry(category_ + "_MEKF_measurements_jointTorque_modelNoContact",
-                     [this]() -> const Eigen::VectorXd & { return modelJointTorques_; });
-  logger.addLogEntry(category_ + "_MEKF_estimatedState_jointTorqueResidual",
-                     [this]() -> const Eigen::VectorXd & { return observer_.getCurrentState().tauDisturbActuated_; });
+  for(size_t i = 0; i < jointTorqueNames_.size(); ++i)
+  {
+    const std::string & jointName = jointTorqueNames_[i];
+    logger.addLogEntry(category_ + "_MEKF_measurements_jointTorque_measured_" + jointName,
+                       [this, i]() -> double {
+                         return i < static_cast<size_t>(measuredJointTorques_.size()) ? measuredJointTorques_(i) : 0.0;
+                       });
+    logger.addLogEntry(category_ + "_MEKF_estimatedState_jointTorqueResidual_" + jointName,
+                       [this, i]() -> double {
+                         return i < static_cast<size_t>(estimatedJointTorqueResidual_.size())
+                                    ? estimatedJointTorqueResidual_(i)
+                                    : 0.0;
+                       });
+    logger.addLogEntry(category_ + "_MEKF_inputs_jointTorque_" + jointName, [this, i]() -> double
+                       { return i < static_cast<size_t>(inputJointTorques_.size()) ? inputJointTorques_(i) : 0.0; });
+  }
 
   if(withDebugLogs_)
   {
@@ -1257,6 +1439,13 @@ void MCKineticsObserverFG::removeFromLogger(mc_rtc::Logger & logger, const std::
 
   logger.removeLogEntry(category_ + "_flexStiffness");
   logger.removeLogEntry(category_ + "_flexDamping");
+
+  for(const auto & jointName : jointTorqueNames_)
+  {
+    logger.removeLogEntry(category_ + "_MEKF_measurements_jointTorque_measured_" + jointName);
+    logger.removeLogEntry(category_ + "_MEKF_estimatedState_jointTorqueResidual_" + jointName);
+    logger.removeLogEntry(category_ + "_MEKF_inputs_jointTorque_" + jointName);
+  }
 }
 
 void MCKineticsObserverFG::setOdometryType(const std::string & newOdometryType)

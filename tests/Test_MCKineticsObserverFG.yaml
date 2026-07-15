@@ -63,6 +63,3 @@ ObserverPipelines:
         jointTorques:
           enabled: false
           noise: 10.0
-          residualInitNoise: 1000.0
-          residualProcessNoise: 100.0
-          finiteDiffStep: 1e-6

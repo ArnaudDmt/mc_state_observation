@@ -213,22 +213,20 @@ protected:
   /// @param logger Logger
   void updateContact(const mc_control::MCController & ctl, KoContactWithSensor & contact);
 
-  stateObservation::kine::Kinematics centroidStateToFloatingBaseKinematics(const ko_fg::LocKinematics & centroidKine)
-      const;
+  Eigen::Index actuatedJointTorqueDim(const mc_rbdyn::Robot & robot) const;
 
-  void setFloatingBaseKinematics(mc_rbdyn::Robot & robot, const stateObservation::kine::Kinematics & fbKine) const;
+  std::vector<std::string> actuatedJointTorqueNames(const mc_rbdyn::Robot & robot) const;
+
+  Eigen::VectorXd jointTorqueVectorFromRefOrder(const mc_rbdyn::Robot & robot) const;
 
   Eigen::VectorXd measuredJointTorqueVector(const mc_rbdyn::Robot & robot) const;
 
-  Eigen::VectorXd modelJointTorqueVector(const mc_rbdyn::Robot & robot) const;
+  ko_fg::MomentumResidualEndpoint makeMomentumResidualEndpoint(mc_rbdyn::Robot & dynamicsRobot);
 
-  Eigen::VectorXd computeInverseDynamicsTorque(mc_rbdyn::Robot & robot,
-                                               const ko_fg::LocKinematics & centroidKine,
-                                               const std::unordered_map<unsigned, stateObservation::Vector6> &
-                                                   contactWrenches) const;
+  ko_fg::MomentumResidualMeasurement makeMomentumResidualMeasurement(
+      const mc_rbdyn::Robot & measRobot, mc_rbdyn::Robot & dynamicsRobot);
 
-  ko_fg::JointTorqueMeasurement makeJointTorqueMeasurement(const mc_rbdyn::Robot & measRobot,
-                                                           mc_rbdyn::Robot & dynamicsRobot);
+  void updateEstimatedJointTorqueResidual();
 
   inline stateObservation::kine::Kinematics fgLocKineToSoKine(const ko_fg::LocKinematics & locK) const
   {
@@ -344,12 +342,17 @@ private: // instance of the Kinetics Observer
   stateObservation::Vector6 inputWrench_;
 
   bool useJointTorqueMeasurements_ = false;
+  bool useJointTorqueCommandAsMeasurement_ = false;
   double jointTorqueNoise_ = 10.0;
-  double jointTorqueResidualInitNoise_ = 1000.0;
-  double jointTorqueResidualProcessNoise_ = 100.0;
-  double jointTorqueFiniteDiffStep_ = 1e-6;
+  Eigen::VectorXd inputJointTorques_;
   Eigen::VectorXd measuredJointTorques_;
-  Eigen::VectorXd modelJointTorques_;
+  Eigen::VectorXd estimatedJointTorqueResidual_;
+  std::vector<std::string> jointTorqueNames_;
+  std::optional<ko_fg::MomentumResidualEndpoint> previousMomentumEndpoint_;
+  std::optional<Eigen::VectorXd> previousMeasuredJointTorques_;
+  std::optional<ko_fg::MomentumResidualMeasurement> pendingMomentumMeasurement_;
+  std::vector<size_t> pendingMomentumContactIds_;
+  size_t pendingMomentumTime_ = 0;
 
   size_t k_;
 
@@ -396,6 +399,8 @@ private: // instance of the Kinetics Observer
   // contacts, following the same semantics as MCKineticsObserver.
   stateObservation::Vector3 worldAnchorPos_ = stateObservation::Vector3::Zero();
   stateObservation::Vector3 fbAnchorPos_ = stateObservation::Vector3::Zero();
+
+  bool withRestPoseAverageFactor_ = false;
 };
 
 } // namespace mc_state_observation

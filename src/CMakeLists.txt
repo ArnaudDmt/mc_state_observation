@@ -66,6 +66,12 @@ macro(add_kineticsobserver_fg)
            state-observation::state-observation
            mc_state_observation
            kinetics_observer_fg::kinetics_observer_fg)
+
+  get_target_property(KINETICS_OBSERVER_FG_INCLUDE_DIRS
+                      kinetics_observer_fg::kinetics_observer_fg
+                      INTERFACE_INCLUDE_DIRECTORIES)
+  target_include_directories(MCKineticsObserverFG BEFORE PRIVATE
+                             ${KINETICS_OBSERVER_FG_INCLUDE_DIRS})
 endmacro()
 
 macro(add_observer_with_filter observer_name)
@@ -88,6 +94,10 @@ add_kineticsobserver()
 add_valinor()
 
 if(WITH_KINETICS_OBSERVER_FG)
+  list(PREPEND CMAKE_PREFIX_PATH
+      "/home/arnaud/devel/src/gtsam/install"
+      "/home/arnaud/devel/install"
+    )
   add_kineticsobserver_fg()
 endif()
 

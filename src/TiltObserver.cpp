@@ -41,7 +41,7 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
   // if a user-defined anchor frame function is given, we use it instead
   if(config.has("anchorFrameFunction"))
   {
-    if(ctl.datastore().has(anchorFrameFunction_))
+    if(ctl.datastore().has(config("anchorFrameFunction")))
     {
       anchorFrameFunction_ = config("anchorFrameFunction", name() + "::" + ctl.robot(robot_).name());
     }
@@ -85,6 +85,14 @@ void TiltObserver::reset(const mc_control::MCController & ctl)
                                                                       | so::kine::Kinematics::Flags::linVel);
 
   iter_ = 0;
+
+  // Initialization of the anchor frame of the robot in the world. We use the average position of the two feet as an
+  // initial guess.
+  const sva::PTransformd X_foot_r = robot.bodyPosW(robot.surface("RightFootCenter").bodyName());
+  const sva::PTransformd X_foot_l = robot.bodyPosW(robot.surface("LeftFootCenter").bodyName());
+  const Eigen::VectorXd contact_anchor = 0.5 * (X_foot_r.translation() + X_foot_l.translation());
+  X_0_C_ctl_ = sva::PTransformd(Eigen::Matrix3d::Identity(), contact_anchor);
+  X_0_C_ = X_0_C_ctl_;
 }
 
 bool TiltObserver::run(const mc_control::MCController & ctl)
@@ -125,8 +133,10 @@ bool TiltObserver::run(const mc_control::MCController & ctl)
 
   // computation of the local linear velocity of the IMU in the world.
 
-  yv_ = worldImuKine_ctl_.orientation.toMatrix3().transpose() * worldAnchorKine_ctl_.linVel()
-        - (imu.angularVelocity()).cross(imuAnchorKine_.position()) - imuAnchorKine_.linVel();
+  // yv_ = worldImuKine_ctl_.orientation.toMatrix3().transpose() * worldAnchorKine_ctl_.linVel()
+  //       - (imu.angularVelocity()).cross(imuAnchorKine_.position()) - imuAnchorKine_.linVel();
+
+  yv_ = -imu.angularVelocity().cross(imuAnchorKine_.position()) - imuAnchorKine_.linVel();
 
   estimator_.setMeasurement(yv_, imu.linearAcceleration(), imu.angularVelocity(), k + 1);
   yk_.segment(0, 3) = yv_;
@@ -169,31 +179,86 @@ void TiltObserver::updateAnchorFrame(const mc_control::MCController & ctl, const
 
   if(!ctl.datastore().has(anchorFrameFunction_))
   {
-    double leftFootRatio =
-        robot.indirectSurfaceForceSensor("LeftFootCenter").wrenchWithoutGravity(ctl.realRobot()).force().z()
-        / (robot.indirectSurfaceForceSensor("LeftFootCenter").wrenchWithoutGravity(ctl.realRobot()).force().z()
-           + robot.indirectSurfaceForceSensor("RightFootCenter").wrenchWithoutGravity(ctl.realRobot()).force().z());
+    double fz_left_ctl =
+        robot.indirectSurfaceForceSensor("LeftFootCenter").wrenchWithoutGravity(ctl.realRobot()).force().z();
+    double fz_right_ctl =
+        robot.indirectSurfaceForceSensor("RightFootCenter").wrenchWithoutGravity(ctl.realRobot()).force().z();
+    double leftFootRatio = fz_left_ctl / (fz_left_ctl + fz_right_ctl);
 
     X_0_C_ctl_ =
         sva::interpolate(robot.surfacePose("RightFootCenter"), robot.surfacePose("LeftFootCenter"), leftFootRatio);
     X_0_C_ = sva::interpolate(updatedRobot.surfacePose("RightFootCenter"), updatedRobot.surfacePose("LeftFootCenter"),
                               leftFootRatio);
+
+    const std::string & rightFootBody = robot.surface("RightFootCenter").bodyName();
+    const std::string & leftFootBody = robot.surface("LeftFootCenter").bodyName();
+
+    // ---- analytic velocity of the anchor frame, control robot ----
+    const sva::MotionVecd & v_rf_ctl = robot.mbc().bodyVelW[robot.bodyIndexByName(rightFootBody)];
+    const sva::MotionVecd & v_lf_ctl = robot.mbc().bodyVelW[robot.bodyIndexByName(leftFootBody)];
+
+    Eigen::Vector3d p_rf_ctl = robot.surfacePose("RightFootCenter").translation();
+    Eigen::Vector3d p_lf_ctl = robot.surfacePose("LeftFootCenter").translation();
+    Eigen::Vector3d p_rBody_ctl = robot.bodyPosW(rightFootBody).translation();
+    Eigen::Vector3d p_lBody_ctl = robot.bodyPosW(leftFootBody).translation();
+
+    Eigen::Vector3d v_rf_point_ctl = v_rf_ctl.linear() + v_rf_ctl.angular().cross(p_rf_ctl - p_rBody_ctl);
+    Eigen::Vector3d v_lf_point_ctl = v_lf_ctl.linear() + v_lf_ctl.angular().cross(p_lf_ctl - p_lBody_ctl);
+
+    Eigen::Vector3d anchor_vel_ctl = (1 - leftFootRatio) * v_rf_point_ctl + leftFootRatio * v_lf_point_ctl;
+
+    // ---- analytic velocity of the anchor frame, updated (encoders) robot ----
+    const sva::MotionVecd & v_rf = updatedRobot.mbc().bodyVelW[updatedRobot.bodyIndexByName(rightFootBody)];
+    const sva::MotionVecd & v_lf = updatedRobot.mbc().bodyVelW[updatedRobot.bodyIndexByName(leftFootBody)];
+
+    Eigen::Vector3d p_rf = updatedRobot.surfacePose("RightFootCenter").translation();
+    Eigen::Vector3d p_lf = updatedRobot.surfacePose("LeftFootCenter").translation();
+    Eigen::Vector3d p_rBody = updatedRobot.bodyPosW(rightFootBody).translation();
+    Eigen::Vector3d p_lBody = updatedRobot.bodyPosW(leftFootBody).translation();
+
+    Eigen::Vector3d v_rf_point = v_rf.linear() + v_rf.angular().cross(p_rf - p_rBody);
+    Eigen::Vector3d v_lf_point = v_lf.linear() + v_lf.angular().cross(p_lf - p_lBody);
+
+    Eigen::Vector3d anchor_vel = (1 - leftFootRatio) * v_rf_point + leftFootRatio * v_lf_point;
+
+    // new pose + velocity of the anchor frame in the world (analytic, no finite differences)
+    newWorldAnchorKine_ctl_.reset();
+    newWorldAnchorKine_ctl_.position = X_0_C_ctl_.translation();
+    newWorldAnchorKine_ctl_.orientation = so::Matrix3(X_0_C_ctl_.rotation().transpose());
+    newWorldAnchorKine_ctl_.linVel = anchor_vel_ctl;
+
+    newWorldAnchorKine_.reset();
+    newWorldAnchorKine_.position = X_0_C_.translation();
+    newWorldAnchorKine_.orientation = so::Matrix3(X_0_C_.rotation().transpose());
+    newWorldAnchorKine_.linVel = anchor_vel;
+
+    worldAnchorKine_ctl_ = newWorldAnchorKine_ctl_;
+    worldAnchorKine_ = newWorldAnchorKine_;
   }
   else
   {
-    X_0_C_ctl_ = ctl.datastore().call<sva::PTransformd>(anchorFrameFunction_, robot);
-    X_0_C_ = ctl.datastore().call<sva::PTransformd>(anchorFrameFunction_, updatedRobot);
+    auto [X_0_C_ctl_temp, anchor_vel_ctl_] =
+        ctl.datastore().call<std::pair<sva::PTransformd, Eigen::Vector3d>>(anchorFrameFunction_, robot);
+    auto [X_0_C_temp, anchor_vel] =
+        ctl.datastore().call<std::pair<sva::PTransformd, Eigen::Vector3d>>(anchorFrameFunction_, updatedRobot);
+
+    X_0_C_ctl_ = X_0_C_ctl_temp;
+    X_0_C_ = X_0_C_temp;
+
+    // new pose of the anchor frame in the world.
+    newWorldAnchorKine_ctl_.reset();
+    newWorldAnchorKine_ctl_.position = X_0_C_ctl_.translation();
+    newWorldAnchorKine_ctl_.orientation = so::Matrix3(X_0_C_ctl_.rotation().transpose());
+    newWorldAnchorKine_ctl_.linVel = anchor_vel_ctl_;
+
+    newWorldAnchorKine_.reset();
+    newWorldAnchorKine_.position = X_0_C_.translation();
+    newWorldAnchorKine_.orientation = so::Matrix3(X_0_C_.rotation().transpose());
+    newWorldAnchorKine_.linVel = anchor_vel;
+
+    worldAnchorKine_ctl_ = newWorldAnchorKine_ctl_;
+    worldAnchorKine_ = newWorldAnchorKine_;
   }
-
-  // new pose of the anchor frame in the world.
-  newWorldAnchorKine_ctl_ = conversions::kinematics::fromSva(X_0_C_ctl_, so::kine::Kinematics::Flags::pose);
-  newWorldAnchorKine_ = conversions::kinematics::fromSva(X_0_C_, so::kine::Kinematics::Flags::pose);
-
-  // the velocities of the anchor frames are computed by finite differences
-  worldAnchorKine_ctl_.update(newWorldAnchorKine_ctl_, ctl.timeStep,
-                              so::kine::Kinematics::Flags::position | so::kine::Kinematics::Flags::linVel);
-  worldAnchorKine_.update(newWorldAnchorKine_, ctl.timeStep,
-                          so::kine::Kinematics::Flags::position | so::kine::Kinematics::Flags::linVel);
 
   // we ignore the initial outlier velocities due to the position jump
   if(iter_ < itersBeforeAnchorsVel_)
@@ -253,11 +318,13 @@ void TiltObserver::updateNecessaryFrames(const mc_control::MCController & ctl, c
   // differences) are not computed the same way, combining them to get the velocity of the anchor frame in the IMU
   // frame therefore leads to errors. So we "unset" the erroneous newly compute velocities to compute them by finite
   // differences from the pose of the anchor frame in the IMU.
-  newImuAnchorKine.linVel.set(false);
-  newImuAnchorKine.angVel.set(false);
+  // newImuAnchorKine.linVel.set(false);
+  // newImuAnchorKine.angVel.set(false);
 
-  imuAnchorKine_.update(newImuAnchorKine, ctl.timeStep,
-                        so::kine::Kinematics::Flags::position | so::kine::Kinematics::Flags::linVel);
+  imuAnchorKine_ = newImuAnchorKine;
+
+  // imuAnchorKine_.update(newImuAnchorKine, ctl.timeStep,
+  //                       so::kine::Kinematics::Flags::position | so::kine::Kinematics::Flags::linVel);
 
   // we ignore the initial outlier velocity due to the position jump
   // we also reset the velocity of the anchor frame when its computation mode changes.
@@ -558,7 +625,6 @@ void TiltObserver::addToLogger(const mc_control::MCController & ctl,
 
 void TiltObserver::removeFromLogger(mc_rtc::Logger & logger, const std::string & category)
 {
-  logger.removeLogEntry(category + "_imuVelC");
   logger.removeLogEntry(category + "_imuPoseC");
   logger.removeLogEntry(category + "_imuEstRotW");
   logger.removeLogEntry(category + "_controlAnchorFrame");

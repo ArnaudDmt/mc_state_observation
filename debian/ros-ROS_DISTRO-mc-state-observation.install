@@ -1,4 +1,4 @@
-usr/lib/*/mc_observers/MocapObserver.so
-usr/lib/*/mc_observers/MocapObserverROS.so
-usr/lib/*/mc_observers/SLAMObserver.so
-usr/lib/*/mc_observers/ObjectObserver.so
+usr/lib/mc_observers/MocapObserver.so
+usr/lib/mc_observers/MocapObserverROS.so
+usr/lib/mc_observers/SLAMObserver.so
+usr/lib/mc_observers/ObjectObserver.so

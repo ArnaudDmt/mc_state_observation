@@ -28,7 +28,10 @@ void ObjectObserver::configure(const mc_control::MCController & controller, cons
       mc_rtc::log::error_and_throw<std::runtime_error>("No {} body found in {}", camera_, robot_);
     }
   }
-  else { mc_rtc::log::error_and_throw<std::runtime_error>("[{}] Robot configuration is mandatory.", name()); }
+  else
+  {
+    mc_rtc::log::error_and_throw<std::runtime_error>("[{}] Robot configuration is mandatory.", name());
+  }
 
   if(config.has("Object"))
   {
@@ -39,7 +42,10 @@ void ObjectObserver::configure(const mc_control::MCController & controller, cons
     robots_ = mc_rbdyn::Robots::make();
     robots_->load(object_, ctl.robot(object_).module());
   }
-  else { mc_rtc::log::error_and_throw<std::runtime_error>("[{}] Object configuration is mandatory.", name()); }
+  else
+  {
+    mc_rtc::log::error_and_throw<std::runtime_error>("[{}] Object configuration is mandatory.", name());
+  }
 
   if(config.has("Publish")) { isPublished_ = config("Publish")("use", true); }
 
@@ -95,9 +101,7 @@ void ObjectObserver::configure(const mc_control::MCController & controller, cons
 void ObjectObserver::reset(const mc_control::MCController &) {}
 
 bool ObjectObserver::run(const mc_control::MCController &)
-{
-  return true;
-}
+{ return true; }
 
 void ObjectObserver::update(mc_control::MCController & ctl)
 {
@@ -213,7 +217,10 @@ void ObjectObserver::callback(const PoseStamped & msg)
     isNewEstimatedPose_ = true;
     isEstimatedPoseValid_ = true;
   }
-  else { isEstimatedPoseValid_ = false; }
+  else
+  {
+    isEstimatedPoseValid_ = false;
+  }
 
   isNotFirstTimeInCallback_ = true;
 }

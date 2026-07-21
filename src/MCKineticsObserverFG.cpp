@@ -188,8 +188,13 @@ void MCKineticsObserverFG::configure(const mc_control::MCController & ctl, const
     {
       useJointTorqueCommandAsMeasurement_ = jointTorquesConfig("useCommandAsMeasurement", true);
       jointTorquesConfig("noise", jointTorqueNoise_);
-      mc_rtc::log::info("[{}]: Joint impulse-momentum factor enabled: torque sigma={}, command fallback={}.", name(),
-                        jointTorqueNoise_, useJointTorqueCommandAsMeasurement_);
+      jointTorquesConfig("momentumNoise", jointMomentumNoise_);
+      jointTorquesConfig("modelNoise", jointMomentumModelNoise_);
+      mc_rtc::log::info(
+          "[{}]: Reduced joint-momentum factors enabled: momentum sigma={}, torque sigma={}, model sigma={}, "
+          "command fallback={}.",
+          name(), jointMomentumNoise_, jointTorqueNoise_, jointMomentumModelNoise_,
+          useJointTorqueCommandAsMeasurement_);
     }
     else
     {
@@ -846,27 +851,128 @@ ko_fg::MomentumResidualEndpoint MCKineticsObserverFG::makeMomentumResidualEndpoi
   return endpoint;
 }
 
-ko_fg::MomentumResidualMeasurement MCKineticsObserverFG::makeMomentumResidualMeasurement(
+ko_fg::ReducedJointMomentumEndpoint MCKineticsObserverFG::makeReducedJointMomentumEndpoint(
+    mc_rbdyn::Robot & dynamicsRobot,
+    const Eigen::VectorXd & actuatorTorque)
+{
+  const auto full = makeMomentumResidualEndpoint(dynamicsRobot);
+  const auto & mb = dynamicsRobot.mb();
+  rbd::MultiBodyConfig mbc = dynamicsRobot.mbc();
+  const Eigen::Index dimension = actuatorTorque.size();
+  const Eigen::Index fullDimension = mb.nrDof();
+
+  if(full.momentumOffset_.size() != dimension + 6 || fullDimension != dimension + 6)
+  {
+    mc_rtc::log::error_and_throw<std::runtime_error>(
+        "[{}]: Reduced joint momentum requires refJointOrder to contain every non-root DoF.", name());
+  }
+
+  std::vector<Eigen::Index> jointOffsets(static_cast<size_t>(mb.nrJoints()));
+  Eigen::Index offset = 0;
+  for(size_t joint = 0; joint < static_cast<size_t>(mb.nrJoints()); ++joint)
+  {
+    jointOffsets[joint] = offset;
+    offset += mb.joint(static_cast<int>(joint)).dof();
+  }
+  std::vector<Eigen::Index> selectedRows;
+  selectedRows.reserve(static_cast<size_t>(dimension + 6));
+  for(Eigen::Index row = 0; row < 6; ++row) { selectedRows.push_back(row); }
+  for(const auto & jointName : dynamicsRobot.refJointOrder())
+  {
+    const int jointIndex = mb.jointIndexByName(jointName);
+    for(int dof = 0; dof < mb.joint(jointIndex).dof(); ++dof)
+    {
+      selectedRows.push_back(jointOffsets[static_cast<size_t>(jointIndex)] + dof);
+    }
+  }
+  const auto selectSquare = [&selectedRows](const Eigen::MatrixXd & matrix)
+  {
+    const Eigen::Index selectedDimension = static_cast<Eigen::Index>(selectedRows.size());
+    Eigen::MatrixXd selected(selectedDimension, selectedDimension);
+    for(Eigen::Index row = 0; row < selectedDimension; ++row)
+    {
+      for(Eigen::Index column = 0; column < selectedDimension; ++column)
+      {
+        selected(row, column) = matrix(selectedRows[static_cast<size_t>(row)],
+                                       selectedRows[static_cast<size_t>(column)]);
+      }
+    }
+    return selected;
+  };
+
+  rbd::ForwardDynamics forwardDynamics(mb);
+  forwardDynamics.computeH(mb, mbc);
+  const Eigen::MatrixXd inertia = selectSquare(forwardDynamics.H());
+  const Eigen::MatrixXd Hbb = inertia.topLeftCorner(6, 6);
+  const Eigen::MatrixXd Hjb = inertia.bottomLeftCorner(dimension, 6);
+  const Eigen::LDLT<Eigen::MatrixXd> baseSolve(Hbb);
+  if(baseSolve.info() != Eigen::Success)
+  {
+    mc_rtc::log::error_and_throw<std::runtime_error>("[{}]: Floating-base inertia factorization failed.", name());
+  }
+  const Eigen::MatrixXd HbbInverse = baseSolve.solve(Eigen::MatrixXd::Identity(6, 6));
+  Eigen::MatrixXd reduction = Eigen::MatrixXd::Zero(dimension, dimension + 6);
+  reduction.leftCols(6) = -Hjb * HbbInverse;
+  reduction.rightCols(dimension).setIdentity();
+
+  // Since h_J^* = S(q)h, the dynamics contains both S hdot and Sdot h.
+  // RBDyn's Christoffel matrix gives Hdot = C + C^T analytically.
+  rbd::MultiBodyConfig shapeMbc = mbc;
+  Eigen::VectorXd shapeVelocity = rbd::dofToVector(mb, shapeMbc.alpha);
+  shapeVelocity.head(6).setZero();
+  shapeMbc.alpha = rbd::vectorToDof(mb, shapeVelocity);
+  rbd::forwardVelocity(mb, shapeMbc);
+  rbd::Coriolis coriolis(mb);
+  const Eigen::MatrixXd coriolisMatrix = selectSquare(coriolis.coriolis(mb, shapeMbc));
+  const Eigen::MatrixXd inertiaDot = coriolisMatrix + coriolisMatrix.transpose();
+  const Eigen::MatrixXd HbbDot = inertiaDot.topLeftCorner(6, 6);
+  const Eigen::MatrixXd HjbDot = inertiaDot.bottomLeftCorner(dimension, 6);
+  Eigen::MatrixXd reductionDot = Eigen::MatrixXd::Zero(dimension, dimension + 6);
+  reductionDot.leftCols(6) = -HjbDot * HbbInverse + Hjb * HbbInverse * HbbDot * HbbInverse;
+
+  ko_fg::ReducedJointMomentumEndpoint endpoint;
+  endpoint.actuatorTorque_ = actuatorTorque;
+  endpoint.measuredMomentum_ = reduction * full.momentumOffset_;
+  endpoint.biasOffset_ =
+      reduction * (full.coriolisOffset_ - full.gravityMap_ * full.gravityWorld_) +
+      reductionDot * full.momentumOffset_;
+  endpoint.biasAngVelLinear_ =
+      reduction * full.coriolisLinear_.rightCols(3) +
+      reductionDot * full.momentumJacobian_.rightCols(3);
+  for(size_t axis = 0; axis < 3; ++axis)
+  {
+    endpoint.biasAngVelQuadratic_[axis] =
+        reduction * full.coriolisQuadratic_[axis + 3].rightCols(3);
+  }
+  for(const auto & [contactId, map] : full.contactForceMap_)
+  {
+    endpoint.contactForceMap_[contactId] = reduction * map;
+  }
+  for(const auto & [contactId, map] : full.contactMomentMap_)
+  {
+    endpoint.contactMomentMap_[contactId] = reduction * map;
+  }
+  return endpoint;
+}
+
+ko_fg::ReducedJointMomentumMeasurement MCKineticsObserverFG::makeReducedJointMomentumMeasurement(
     const mc_rbdyn::Robot & measRobot,
     mc_rbdyn::Robot & dynamicsRobot)
 {
-  ko_fg::MomentumResidualMeasurement measurement;
-  measurement.current_ = makeMomentumResidualEndpoint(dynamicsRobot);
+  ko_fg::ReducedJointMomentumMeasurement measurement;
+  const Eigen::VectorXd measuredTorque = measuredJointTorqueVector(measRobot);
+  measurement.current_ = makeReducedJointMomentumEndpoint(dynamicsRobot, measuredTorque);
   measurement.previous_ = previousMomentumEndpoint_.value();
   previousMomentumEndpoint_ = measurement.current_;
 
-  const Eigen::VectorXd measuredTorque = measuredJointTorqueVector(measRobot);
-  const Eigen::VectorXd previousMeasuredTorque = previousMeasuredJointTorques_.value_or(measuredTorque);
   previousMeasuredJointTorques_ = measuredTorque;
-  const Eigen::Index dimension = 6 + measuredTorque.size();
-  measurement.knownGeneralizedForce_ = Eigen::VectorXd::Zero(dimension);
-  measurement.knownGeneralizedForce_.tail(measuredTorque.size()) = 0.5 * (previousMeasuredTorque + measuredTorque);
-
   measurement.dt_ = dt_;
-  // The factor residual is a trapezoidal generalized impulse. Assuming
-  // independent endpoint torque samples, sigma_I = dt * sigma_tau / sqrt(2).
-  Eigen::VectorXd sigmas = Eigen::VectorXd::Constant(measuredTorque.size(), dt_ * jointTorqueNoise_ / std::sqrt(2.0));
-  measurement.noise_ = ko_fg::makeNoise(sigmas);
+  measurement.measurementNoise_ = ko_fg::makeNoise(measuredTorque.size(), jointMomentumNoise_);
+  const bool commandFallback = measRobot.jointTorques().empty();
+  const double torqueSigma = std::hypot(jointMomentumModelNoise_,
+                                        commandFallback ? 2.0 * jointTorqueNoise_ : jointTorqueNoise_);
+  measurement.dynamicsNoise_ =
+      ko_fg::makeNoise(measuredTorque.size(), dt_ * torqueSigma / std::sqrt(2.0));
 
   return measurement;
 }
@@ -875,18 +981,27 @@ void MCKineticsObserverFG::updateJointTorqueMeasurement(const mc_rbdyn::Robot & 
                                                         mc_rbdyn::Robot & dynamicsRobot)
 {
   const Eigen::VectorXd measuredTorque = measuredJointTorqueVector(measRobot);
-  if(measuredTorque.size() == 0) { return; }
+  if(measuredTorque.size() == 0)
+  {
+    observer_.clearJointTorqueMeasurement();
+    previousMomentumEndpoint_.reset();
+    previousMeasuredJointTorques_.reset();
+    pendingMomentumMeasurement_.reset();
+    pendingMomentumContactIds_.clear();
+    pendingMomentumTime_ = 0;
+    return;
+  }
   measuredJointTorques_ = measuredTorque;
 
   if(!previousMomentumEndpoint_)
   {
-    previousMomentumEndpoint_ = makeMomentumResidualEndpoint(dynamicsRobot);
+    previousMomentumEndpoint_ = makeReducedJointMomentumEndpoint(dynamicsRobot, measuredTorque);
     previousMeasuredJointTorques_ = measuredTorque;
     return;
   }
 
-  const auto measurement = makeMomentumResidualMeasurement(measRobot, dynamicsRobot);
-  observer_.updateMomentumResidualMeasurement(measurement);
+  const auto measurement = makeReducedJointMomentumMeasurement(measRobot, dynamicsRobot);
+  observer_.updateReducedJointMomentumMeasurement(measurement);
 
   pendingMomentumMeasurement_ = measurement;
   pendingMomentumContactIds_.clear();
@@ -894,6 +1009,13 @@ void MCKineticsObserverFG::updateJointTorqueMeasurement(const mc_rbdyn::Robot & 
   for(const auto & [contactId, contact] : observer_.getActiveContacts())
   {
     (void)contact;
+    const bool existedPreviously =
+        measurement.previous_.contactForceMap_.find(contactId) != measurement.previous_.contactForceMap_.end()
+        || measurement.previous_.contactMomentMap_.find(contactId) != measurement.previous_.contactMomentMap_.end();
+    const bool existsCurrently =
+        measurement.current_.contactForceMap_.find(contactId) != measurement.current_.contactForceMap_.end()
+        || measurement.current_.contactMomentMap_.find(contactId) != measurement.current_.contactMomentMap_.end();
+    if(!existedPreviously || !existsCurrently) { continue; }
     pendingMomentumContactIds_.push_back(contactId);
   }
   // runIteration(k_) attaches the current measurement to graph state k_ + 1.
@@ -906,8 +1028,8 @@ void MCKineticsObserverFG::updateEstimatedJointTorqueResidual()
 
   const size_t current = pendingMomentumTime_;
   const size_t previous = current - 1;
-  gtsam::KeyVector keys = {ko_fg::X(previous), ko_fg::V(previous), ko_fg::W(previous),
-                           ko_fg::X(current),  ko_fg::V(current),  ko_fg::W(current)};
+  gtsam::KeyVector keys = {ko_fg::P(previous), ko_fg::P(current),
+                           ko_fg::W(previous), ko_fg::W(current)};
   for(const size_t contactId : pendingMomentumContactIds_)
   {
     const auto graphContactId = static_cast<uint32_t>(contactId);
@@ -925,8 +1047,8 @@ void MCKineticsObserverFG::updateEstimatedJointTorqueResidual()
     if(!estimate.exists(key)) { return; }
   }
 
-  const ko_fg::measurementFactors::MomentumResidualFactor factor(keys, *pendingMomentumMeasurement_,
-                                                                 pendingMomentumContactIds_);
+  const ko_fg::measurementFactors::JointMomentumDynamicsFactor factor(
+      keys, *pendingMomentumMeasurement_, pendingMomentumContactIds_);
   estimatedJointTorqueResidual_ = factor.unwhitenedError(estimate) / pendingMomentumMeasurement_->dt_;
 }
 

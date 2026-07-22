@@ -20,6 +20,10 @@ macro(add_simple_observer observer_name)
   # mc_observers doesn't actually depend on mc_control, but the observer's
   # implementation does
   target_link_libraries(${observer_name} PUBLIC mc_rtc::mc_control)
+  # Force installation in non-debug folder
+  if("${CMAKE_BUILD_TYPE}" STREQUAL Debug)
+    install(TARGETS ${observer_name} DESTINATION ${MC_RTC_LIBDIR}/mc_observers)
+  endif()
 endmacro()
 
 macro(add_so_observer observer_name)
@@ -70,7 +74,7 @@ add_so_observer(MocapVisualizer)
 add_kineticsobserver()
 add_valinor()
 
-if(WITH_ROS_OBSERVERS)
+if(WITH_ROS_OBSERVERS AND NOT BUILD_MCKINETICS_ONLY)
   add_simple_observer(MocapObserver)
   add_simple_observer(MocapObserverROS)
   target_link_libraries(MocapObserverROS PUBLIC MocapObserver)

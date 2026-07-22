@@ -1,0 +1,8 @@
+contactsDetection: fromSurfaces # fromSolver # fromThreshold # fromSurfaces
+surfacesForContactDetection: [RightFootCenter, LeftFootCenter, LeftHandCloseContact, RightHandCloseContact] # [LeftHandForceSensor]
+
+# Flexibilities of contacts
+linStiffness: [3e5, 3e5, 3e5] # [0, 0, 0] # [4e4, 4e4, 4e4]
+angStiffness: [1000, 1000, 1000] # [0, 0, 0] # [727, 727, 727]
+linDamping: [150, 150, 150] # [0.0,0.0,0.0] # [65.76, 65.76, 65.76]  # [65.76, 65.76, 65.76] #critical damping # [250, 250, 250]
+angDamping: [17, 17, 17] # [0.0,0.0,0.0] # [17, 17, 17]

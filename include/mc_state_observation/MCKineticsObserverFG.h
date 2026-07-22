@@ -344,6 +344,12 @@ private: // instance of the Kinetics Observer
 
   stateObservation::Vector6 inputWrench_;
 
+  // Surfaces whose force sensors are reserved for validating the disturbance-wrench estimate. Their measurements are
+  // logged in the centroid frame and never passed to the factor graph, either as contacts or as additional wrenches.
+  std::unordered_set<std::string> contactsIgnoredForEstimation_;
+  std::unordered_map<std::string, std::string> ignoredForceSensorSurfaces_;
+  std::unordered_map<std::string, stateObservation::Vector6> ignoredWrenchesInCentroid_;
+
   bool useJointTorqueMeasurements_ = false;
   bool useJointTorqueCommandAsMeasurement_ = false;
   double jointTorqueNoise_ = 10.0;
@@ -356,7 +362,7 @@ private: // instance of the Kinetics Observer
   std::optional<ko_fg::ReducedJointMomentumEndpoint> previousMomentumEndpoint_;
   std::optional<Eigen::VectorXd> previousMeasuredJointTorques_;
   std::optional<ko_fg::ReducedJointMomentumMeasurement> pendingMomentumMeasurement_;
-  std::vector<size_t> pendingMomentumContactIds_;
+  std::vector<ko_fg::ReducedJointMomentumContactInterval> pendingMomentumContacts_;
   size_t pendingMomentumTime_ = 0;
 
   size_t k_;

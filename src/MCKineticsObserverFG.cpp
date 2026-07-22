@@ -65,6 +65,21 @@ void MCKineticsObserverFG::configure(const mc_control::MCController & ctl, const
   /* configuration of the contacts manager */
   auto contactsConfig = config("contacts");
 
+  contactsIgnoredForEstimation_.clear();
+  ignoredForceSensorSurfaces_.clear();
+  ignoredWrenchesInCentroid_.clear();
+  for(const auto & surface :
+      contactsConfig("contactsIgnoredForEstimation", std::vector<std::string>{}))
+  {
+    const std::string fsName = ctl.robot(robot_).indirectSurfaceForceSensor(surface).name();
+    contactsIgnoredForEstimation_.insert(surface);
+    ignoredForceSensorSurfaces_.emplace(fsName, surface);
+    ignoredWrenchesInCentroid_.emplace(surface, Vector6::Zero());
+    contactsManager_.fs_Surface_Map.emplace(fsName, surface);
+    mc_rtc::log::info("[{}]: Force sensor {} on {} excluded from estimation and logged in the centroid frame.",
+                      name(), fsName, surface);
+  }
+
   std::string contactsDetectionString = static_cast<std::string>(contactsConfig("contactsDetection"));
   KoContactsDetector::ContactsDetection contactsDetectionMethod =
       KoContactsDetector::stringToContactsDetection(contactsDetectionString, name());
@@ -77,7 +92,7 @@ void MCKineticsObserverFG::configure(const mc_control::MCController & ctl, const
     for(const auto & surface : surfacesForContactDetection)
     {
       const std::string fsName = ctl.robot().indirectSurfaceForceSensor(surface).name();
-      contactsManager_.fs_Surface_Map.emplace(fsName, surface);
+      contactsManager_.fs_Surface_Map.insert_or_assign(fsName, surface);
     }
 
     measurements::ContactsDetectorSurfacesConfiguration contactsConf(surfacesForContactDetection);
@@ -178,7 +193,7 @@ void MCKineticsObserverFG::configure(const mc_control::MCController & ctl, const
   }
 
   contactMeasNoises_.at(0) = sensorNoises("forceNoise"); // force
-  contactMeasNoises_.at(1) = sensorNoises("forceNoise"); // torque
+  contactMeasNoises_.at(1) = sensorNoises("momentNoise"); // torque
 
   if(config.has("jointTorques"))
   {
@@ -219,6 +234,12 @@ void MCKineticsObserverFG::reset(const mc_control::MCController & ctl)
   X_0_fb_ = sva::PTransformd::Identity();
   v_fb_0_ = sva::MotionVecd::Zero();
   a_fb_0_ = sva::MotionVecd::Zero();
+  inputWrench_.setZero();
+  for(auto & [surface, wrench] : ignoredWrenchesInCentroid_)
+  {
+    (void)surface;
+    wrench.setZero();
+  }
 
   my_robots_ = mc_rbdyn::Robots::make();
   my_robots_->robotCopy(robot, robot.name());
@@ -299,7 +320,7 @@ void MCKineticsObserverFG::reset(const mc_control::MCController & ctl)
   previousMomentumEndpoint_.reset();
   previousMeasuredJointTorques_.reset();
   pendingMomentumMeasurement_.reset();
-  pendingMomentumContactIds_.clear();
+  pendingMomentumContacts_.clear();
   pendingMomentumTime_ = 0;
 
   if(useJointTorqueMeasurements_)
@@ -531,6 +552,20 @@ Vector6 MCKineticsObserverFG::inputAdditionalWrench(const mc_control::MCControll
 
   for(const auto & forceSensor : measRobot.forceSensors())
   {
+    const auto ignored = ignoredForceSensorSurfaces_.find(forceSensor.name());
+    if(ignored != ignoredForceSensorSurfaces_.end())
+    {
+      // inputRobot's floating base is at the origin, so this wrench is expressed in the floating-base frame. The
+      // centroid frame has the same orientation; only the moment reference point changes.
+      const auto & inputRobot = my_robots_->robot("inputRobot");
+      const sva::ForceVecd measuredWrench = forceSensor.worldWrenchWithoutGravity(inputRobot);
+      auto & centroidWrench = ignoredWrenchesInCentroid_.at(ignored->second);
+      centroidWrench.segment<3>(0) = measuredWrench.force();
+      centroidWrench.segment<3>(3) =
+          measuredWrench.moment() - fbCentroidKine_.position().cross(measuredWrench.force());
+      continue;
+    }
+
     const auto it = contactsManager_.fs_Surface_Map.find(forceSensor.name());
 
     bool useSensor = false;
@@ -893,8 +928,8 @@ ko_fg::ReducedJointMomentumEndpoint MCKineticsObserverFG::makeReducedJointMoment
     {
       for(Eigen::Index column = 0; column < selectedDimension; ++column)
       {
-        selected(row, column) = matrix(selectedRows[static_cast<size_t>(row)],
-                                       selectedRows[static_cast<size_t>(column)]);
+        selected(row, column) =
+            matrix(selectedRows[static_cast<size_t>(row)], selectedRows[static_cast<size_t>(column)]);
       }
     }
     return selected;
@@ -934,20 +969,14 @@ ko_fg::ReducedJointMomentumEndpoint MCKineticsObserverFG::makeReducedJointMoment
   endpoint.actuatorTorque_ = actuatorTorque;
   endpoint.measuredMomentum_ = reduction * full.momentumOffset_;
   endpoint.biasOffset_ =
-      reduction * (full.coriolisOffset_ - full.gravityMap_ * full.gravityWorld_) +
-      reductionDot * full.momentumOffset_;
+      reduction * (full.coriolisOffset_ - full.gravityMap_ * full.gravityWorld_) + reductionDot * full.momentumOffset_;
   endpoint.biasAngVelLinear_ =
-      reduction * full.coriolisLinear_.rightCols(3) +
-      reductionDot * full.momentumJacobian_.rightCols(3);
+      reduction * full.coriolisLinear_.rightCols(3) + reductionDot * full.momentumJacobian_.rightCols(3);
   for(size_t axis = 0; axis < 3; ++axis)
   {
-    endpoint.biasAngVelQuadratic_[axis] =
-        reduction * full.coriolisQuadratic_[axis + 3].rightCols(3);
+    endpoint.biasAngVelQuadratic_[axis] = reduction * full.coriolisQuadratic_[axis + 3].rightCols(3);
   }
-  for(const auto & [contactId, map] : full.contactForceMap_)
-  {
-    endpoint.contactForceMap_[contactId] = reduction * map;
-  }
+  for(const auto & [contactId, map] : full.contactForceMap_) { endpoint.contactForceMap_[contactId] = reduction * map; }
   for(const auto & [contactId, map] : full.contactMomentMap_)
   {
     endpoint.contactMomentMap_[contactId] = reduction * map;
@@ -968,11 +997,8 @@ ko_fg::ReducedJointMomentumMeasurement MCKineticsObserverFG::makeReducedJointMom
   previousMeasuredJointTorques_ = measuredTorque;
   measurement.dt_ = dt_;
   measurement.measurementNoise_ = ko_fg::makeNoise(measuredTorque.size(), jointMomentumNoise_);
-  const bool commandFallback = measRobot.jointTorques().empty();
-  const double torqueSigma = std::hypot(jointMomentumModelNoise_,
-                                        commandFallback ? 2.0 * jointTorqueNoise_ : jointTorqueNoise_);
-  measurement.dynamicsNoise_ =
-      ko_fg::makeNoise(measuredTorque.size(), dt_ * torqueSigma / std::sqrt(2.0));
+  const double torqueSigma = std::hypot(jointMomentumModelNoise_, jointTorqueNoise_);
+  measurement.dynamicsNoise_ = ko_fg::makeNoise(measuredTorque.size(), dt_ * torqueSigma / std::sqrt(2.0));
 
   return measurement;
 }
@@ -987,7 +1013,7 @@ void MCKineticsObserverFG::updateJointTorqueMeasurement(const mc_rbdyn::Robot & 
     previousMomentumEndpoint_.reset();
     previousMeasuredJointTorques_.reset();
     pendingMomentumMeasurement_.reset();
-    pendingMomentumContactIds_.clear();
+    pendingMomentumContacts_.clear();
     pendingMomentumTime_ = 0;
     return;
   }
@@ -1004,20 +1030,7 @@ void MCKineticsObserverFG::updateJointTorqueMeasurement(const mc_rbdyn::Robot & 
   observer_.updateReducedJointMomentumMeasurement(measurement);
 
   pendingMomentumMeasurement_ = measurement;
-  pendingMomentumContactIds_.clear();
-  pendingMomentumContactIds_.reserve(observer_.getActiveContacts().size());
-  for(const auto & [contactId, contact] : observer_.getActiveContacts())
-  {
-    (void)contact;
-    const bool existedPreviously =
-        measurement.previous_.contactForceMap_.find(contactId) != measurement.previous_.contactForceMap_.end()
-        || measurement.previous_.contactMomentMap_.find(contactId) != measurement.previous_.contactMomentMap_.end();
-    const bool existsCurrently =
-        measurement.current_.contactForceMap_.find(contactId) != measurement.current_.contactForceMap_.end()
-        || measurement.current_.contactMomentMap_.find(contactId) != measurement.current_.contactMomentMap_.end();
-    if(!existedPreviously || !existsCurrently) { continue; }
-    pendingMomentumContactIds_.push_back(contactId);
-  }
+  pendingMomentumContacts_ = ko_fg::reducedJointMomentumContactIntervals(measurement);
   // runIteration(k_) attaches the current measurement to graph state k_ + 1.
   pendingMomentumTime_ = k_ + 1;
 }
@@ -1028,15 +1041,20 @@ void MCKineticsObserverFG::updateEstimatedJointTorqueResidual()
 
   const size_t current = pendingMomentumTime_;
   const size_t previous = current - 1;
-  gtsam::KeyVector keys = {ko_fg::P(previous), ko_fg::P(current),
-                           ko_fg::W(previous), ko_fg::W(current)};
-  for(const size_t contactId : pendingMomentumContactIds_)
+  gtsam::KeyVector keys = {ko_fg::P(previous), ko_fg::P(current), ko_fg::W(previous), ko_fg::W(current)};
+  for(const auto & contact : pendingMomentumContacts_)
   {
-    const auto graphContactId = static_cast<uint32_t>(contactId);
-    keys.push_back(ko_fg::F(previous, graphContactId));
-    keys.push_back(ko_fg::T(previous, graphContactId));
-    keys.push_back(ko_fg::F(current, graphContactId));
-    keys.push_back(ko_fg::T(current, graphContactId));
+    const auto graphContactId = static_cast<uint32_t>(contact.id_);
+    if(contact.previous_)
+    {
+      keys.push_back(ko_fg::F(previous, graphContactId));
+      keys.push_back(ko_fg::T(previous, graphContactId));
+    }
+    if(contact.current_)
+    {
+      keys.push_back(ko_fg::F(current, graphContactId));
+      keys.push_back(ko_fg::T(current, graphContactId));
+    }
   }
 
   const gtsam::Values estimate = observer_.getSmoother().calculateEstimate();
@@ -1047,8 +1065,8 @@ void MCKineticsObserverFG::updateEstimatedJointTorqueResidual()
     if(!estimate.exists(key)) { return; }
   }
 
-  const ko_fg::measurementFactors::JointMomentumDynamicsFactor factor(
-      keys, *pendingMomentumMeasurement_, pendingMomentumContactIds_);
+  const ko_fg::measurementFactors::JointMomentumDynamicsFactor factor(keys, *pendingMomentumMeasurement_,
+                                                                      pendingMomentumContacts_);
   estimatedJointTorqueResidual_ = factor.unwhitenedError(estimate) / pendingMomentumMeasurement_->dt_;
 }
 
@@ -1355,11 +1373,23 @@ void MCKineticsObserverFG::updateContacts(const mc_control::MCController & ctl, 
   else { initNoise = &contactInitNoises_; }
 
   auto onNewContact = [this, &ctl, &logger, &initNoise](KoContactWithSensor & newContact)
-  { setNewContact(ctl, newContact, *initNoise, logger); };
+  {
+    if(!contactsIgnoredForEstimation_.count(newContact.surfaceName()))
+    {
+      setNewContact(ctl, newContact, *initNoise, logger);
+    }
+  };
   auto onMaintainedContact = [this, &ctl](KoContactWithSensor & maintainedContact)
-  { updateContact(ctl, maintainedContact); };
+  {
+    if(!contactsIgnoredForEstimation_.count(maintainedContact.surfaceName()))
+    {
+      updateContact(ctl, maintainedContact);
+    }
+  };
   auto onRemovedContact = [this, &logger](KoContactWithSensor & removedContact)
   {
+    if(contactsIgnoredForEstimation_.count(removedContact.surfaceName())) { return; }
+
     observer_.removeContact(removedContact.id());
 
     if(withDebugLogs_)
@@ -1374,6 +1404,8 @@ void MCKineticsObserverFG::updateContacts(const mc_control::MCController & ctl, 
   // is using the solver.
   auto onAddedContact = [this, &ctl, &logger](KoContactWithSensor & addedContact)
   {
+    if(contactsIgnoredForEstimation_.count(addedContact.surfaceName())) { return; }
+
     observer_.addContactToList(addedContact.id(), contactFlexibilities_, contactProcessNoises_, contactMeasNoises_);
     addContactToGui(ctl, addedContact, logger);
     if(ctl.robot(robot_).frame(addedContact.surfaceName()).hasForceSensor() == false)
@@ -1436,6 +1468,17 @@ void MCKineticsObserverFG::addToLogger(const mc_control::MCController & ctl,
                      [this]() -> Eigen::Vector3d { return getUnbiasedEstimatedDisturbanceWrench().force(); });
   logger.addLogEntry(category_ + "_MEKF_estimatedState_unbiasedExtMoment",
                      [this]() -> Eigen::Vector3d { return getUnbiasedEstimatedDisturbanceWrench().moment(); });
+
+  for(const auto & [surface, wrench] : ignoredWrenchesInCentroid_)
+  {
+    (void)wrench;
+    logger.addLogEntry(category_ + "_MEKF_measurements_ignoredWrench_Centroid_" + surface + "_force",
+                       [this, surface]() -> Eigen::Vector3d
+                       { return ignoredWrenchesInCentroid_.at(surface).segment<3>(0); });
+    logger.addLogEntry(category_ + "_MEKF_measurements_ignoredWrench_Centroid_" + surface + "_moment",
+                       [this, surface]() -> Eigen::Vector3d
+                       { return ignoredWrenchesInCentroid_.at(surface).segment<3>(3); });
+  }
 
   for(size_t i = 0; i < jointTorqueNames_.size(); ++i)
   {

@@ -2,7 +2,7 @@ sensorNoises:
   gyroNoise: 1.6e-5
   acceleroNoise: 3.6e-3
   forceNoise: 1.0
-  torqueNoise: 1e-2
+  momentNoise: 1e-2
 
 contacts:
   linStiffness: [3e4, 3e4, 3e4]

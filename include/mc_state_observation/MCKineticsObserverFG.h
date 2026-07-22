@@ -229,6 +229,9 @@ protected:
   ko_fg::ReducedJointMomentumMeasurement makeReducedJointMomentumMeasurement(
       const mc_rbdyn::Robot & measRobot, mc_rbdyn::Robot & dynamicsRobot);
 
+  ko_fg::ContactNullspaceTorqueMeasurement makeContactNullspaceTorqueMeasurement(
+      const mc_rbdyn::Robot & measRobot, mc_rbdyn::Robot & dynamicsRobot);
+
   void updateEstimatedJointTorqueResidual();
 
   inline stateObservation::kine::Kinematics fgLocKineToSoKine(const ko_fg::LocKinematics & locK) const
@@ -349,6 +352,7 @@ private: // instance of the Kinetics Observer
   double jointTorqueNoise_ = 10.0;
   double jointMomentumNoise_ = 1.0;
   double jointMomentumModelNoise_ = 10.0;
+  std::string jointTorqueMethod_ = "contactNullspace";
   Eigen::VectorXd inputJointTorques_;
   Eigen::VectorXd measuredJointTorques_;
   Eigen::VectorXd estimatedJointTorqueResidual_;
@@ -356,6 +360,7 @@ private: // instance of the Kinetics Observer
   std::optional<ko_fg::ReducedJointMomentumEndpoint> previousMomentumEndpoint_;
   std::optional<Eigen::VectorXd> previousMeasuredJointTorques_;
   std::optional<ko_fg::ReducedJointMomentumMeasurement> pendingMomentumMeasurement_;
+  std::optional<ko_fg::ContactNullspaceTorqueMeasurement> pendingContactNullspaceMeasurement_;
   std::vector<size_t> pendingMomentumContactIds_;
   size_t pendingMomentumTime_ = 0;
 

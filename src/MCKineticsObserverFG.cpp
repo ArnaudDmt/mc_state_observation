@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cmath>
+#include <limits>
 #include <gtsam/geometry/Pose3.h>
 #include <mc_state_observation/MCKineticsObserverFG.h>
 #include <mc_state_observation/gui_helpers.h>
@@ -190,10 +191,15 @@ void MCKineticsObserverFG::configure(const mc_control::MCController & ctl, const
       jointTorquesConfig("noise", jointTorqueNoise_);
       jointTorquesConfig("momentumNoise", jointMomentumNoise_);
       jointTorquesConfig("modelNoise", jointMomentumModelNoise_);
+      jointTorqueMethod_ = jointTorquesConfig("method", std::string("contactNullspace"));
+      if(jointTorqueMethod_ != "contactNullspace" && jointTorqueMethod_ != "reducedMomentum")
+      {
+        mc_rtc::log::error_and_throw<std::runtime_error>(
+            "[{}]: jointTorques.method must be 'contactNullspace' or 'reducedMomentum'.", name());
+      }
       mc_rtc::log::info(
-          "[{}]: Reduced joint-momentum factors enabled: momentum sigma={}, torque sigma={}, model sigma={}, "
-          "command fallback={}.",
-          name(), jointMomentumNoise_, jointTorqueNoise_, jointMomentumModelNoise_,
+          "[{}]: Joint-torque method '{}': momentum sigma={}, torque sigma={}, model sigma={}, command fallback={}.",
+          name(), jointTorqueMethod_, jointMomentumNoise_, jointTorqueNoise_, jointMomentumModelNoise_,
           useJointTorqueCommandAsMeasurement_);
     }
     else
@@ -299,6 +305,7 @@ void MCKineticsObserverFG::reset(const mc_control::MCController & ctl)
   previousMomentumEndpoint_.reset();
   previousMeasuredJointTorques_.reset();
   pendingMomentumMeasurement_.reset();
+  pendingContactNullspaceMeasurement_.reset();
   pendingMomentumContactIds_.clear();
   pendingMomentumTime_ = 0;
 
@@ -899,7 +906,6 @@ ko_fg::ReducedJointMomentumEndpoint MCKineticsObserverFG::makeReducedJointMoment
     }
     return selected;
   };
-
   rbd::ForwardDynamics forwardDynamics(mb);
   forwardDynamics.computeH(mb, mbc);
   const Eigen::MatrixXd inertia = selectSquare(forwardDynamics.H());
@@ -977,6 +983,173 @@ ko_fg::ReducedJointMomentumMeasurement MCKineticsObserverFG::makeReducedJointMom
   return measurement;
 }
 
+ko_fg::ContactNullspaceTorqueMeasurement MCKineticsObserverFG::makeContactNullspaceTorqueMeasurement(
+    const mc_rbdyn::Robot & measRobot,
+    mc_rbdyn::Robot & dynamicsRobot)
+{
+  const Eigen::VectorXd measuredTorque = measuredJointTorqueVector(measRobot);
+  const auto full = makeMomentumResidualEndpoint(dynamicsRobot);
+  const auto & mb = dynamicsRobot.mb();
+  const auto & mbc = dynamicsRobot.mbc();
+  const Eigen::Index jointDimension = measuredTorque.size();
+  const Eigen::Index dimension = jointDimension + 6;
+  if(mb.nrDof() != dimension || full.momentumOffset_.size() != dimension)
+  {
+    mc_rtc::log::error_and_throw<std::runtime_error>(
+        "[{}]: Contact-nullspace torque requires refJointOrder to contain every non-root DoF.", name());
+  }
+
+  std::vector<Eigen::Index> jointOffsets(static_cast<size_t>(mb.nrJoints()));
+  Eigen::Index offset = 0;
+  for(size_t joint = 0; joint < static_cast<size_t>(mb.nrJoints()); ++joint)
+  {
+    jointOffsets[joint] = offset;
+    offset += mb.joint(static_cast<int>(joint)).dof();
+  }
+  std::vector<Eigen::Index> selectedRows;
+  selectedRows.reserve(static_cast<size_t>(dimension));
+  for(Eigen::Index row = 0; row < 6; ++row) { selectedRows.push_back(row); }
+  for(const auto & jointName : dynamicsRobot.refJointOrder())
+  {
+    const int jointIndex = mb.jointIndexByName(jointName);
+    for(int dof = 0; dof < mb.joint(jointIndex).dof(); ++dof)
+    {
+      selectedRows.push_back(jointOffsets[static_cast<size_t>(jointIndex)] + dof);
+    }
+  }
+  const auto selectVector = [&selectedRows](const Eigen::VectorXd & vector)
+  {
+    Eigen::VectorXd selected(static_cast<Eigen::Index>(selectedRows.size()));
+    for(size_t row = 0; row < selectedRows.size(); ++row)
+    {
+      selected(static_cast<Eigen::Index>(row)) = vector(selectedRows[row]);
+    }
+    return selected;
+  };
+  const auto selectSquare = [&selectedRows](const Eigen::MatrixXd & matrix)
+  {
+    const Eigen::Index selectedDimension = static_cast<Eigen::Index>(selectedRows.size());
+    Eigen::MatrixXd selected(selectedDimension, selectedDimension);
+    for(Eigen::Index row = 0; row < selectedDimension; ++row)
+    {
+      for(Eigen::Index column = 0; column < selectedDimension; ++column)
+      {
+        selected(row, column) = matrix(selectedRows[static_cast<size_t>(row)],
+                                       selectedRows[static_cast<size_t>(column)]);
+      }
+    }
+    return selected;
+  };
+
+  rbd::ForwardDynamics forwardDynamics(mb);
+  forwardDynamics.computeH(mb, mbc);
+  const Eigen::MatrixXd inertia = selectSquare(forwardDynamics.H());
+  Eigen::VectorXd acceleration = rbd::dofToVector(mb, mbc.alphaD);
+  acceleration.head(6).setZero();
+  Eigen::VectorXd selectedAcceleration = selectVector(acceleration);
+  selectedAcceleration.segment<3>(3) = centroidFbKine_.linAcc();
+
+  Eigen::VectorXd velocityOffset = rbd::dofToVector(mb, mbc.alpha);
+  Eigen::MatrixXd velocityMap = Eigen::MatrixXd::Zero(mb.nrDof(), 6);
+  velocityOffset.head<3>().setZero();
+  velocityOffset.segment<3>(3) = centroidFbKine_.linVel();
+  velocityMap.block<3, 3>(0, 3).setIdentity();
+  velocityMap.block<3, 3>(3, 0).setIdentity();
+  velocityMap.block<3, 3>(3, 3) = -sva::vector3ToCrossMatrix(centroidFbKine_.position());
+  rbd::Coriolis coriolis(mb);
+  const auto coriolisAt = [&](const Eigen::VectorXd & velocity)
+  {
+    rbd::MultiBodyConfig velocityMbc = mbc;
+    velocityMbc.alpha = rbd::vectorToDof(mb, velocity);
+    rbd::forwardVelocity(mb, velocityMbc);
+    return Eigen::MatrixXd(coriolis.coriolis(mb, velocityMbc));
+  };
+  const Eigen::MatrixXd coriolisOffset = coriolisAt(velocityOffset);
+  Eigen::VectorXd inverseDynamicsCoriolisOffset = coriolisOffset * velocityOffset;
+  Eigen::MatrixXd inverseDynamicsCoriolisLinear = coriolisOffset * velocityMap;
+  std::array<Eigen::MatrixXd, 6> inverseDynamicsCoriolisQuadratic;
+  for(Eigen::Index column = 0; column < 6; ++column)
+  {
+    const Eigen::MatrixXd direction = coriolisAt(velocityOffset + velocityMap.col(column)) - coriolisOffset;
+    inverseDynamicsCoriolisLinear.col(column).noalias() += direction * velocityOffset;
+    inverseDynamicsCoriolisQuadratic[static_cast<size_t>(column)] = direction * velocityMap;
+  }
+
+  const auto selectRowsContactNullspace = [&selectedRows](const Eigen::MatrixXd & matrix)
+  {
+    Eigen::MatrixXd selected(static_cast<Eigen::Index>(selectedRows.size()), matrix.cols());
+    for(size_t row = 0; row < selectedRows.size(); ++row)
+    {
+      selected.row(static_cast<Eigen::Index>(row)) = matrix.row(selectedRows[row]);
+    }
+    return selected;
+  };
+
+  ko_fg::ContactNullspaceTorqueMeasurement measurement;
+  measurement.measuredGeneralizedTorque_ = Eigen::VectorXd::Zero(dimension);
+  measurement.measuredGeneralizedTorque_.tail(jointDimension) = measuredTorque;
+  measurement.linearizationPose_ = observer_.getCurrentState().kine_.pose();
+  measurement.modelOffset_ = inertia * selectedAcceleration + selectVector(inverseDynamicsCoriolisOffset);
+  measurement.velocityLinear_ = selectRowsContactNullspace(inverseDynamicsCoriolisLinear);
+  for(size_t column = 0; column < 6; ++column)
+  {
+    measurement.velocityQuadratic_[column] =
+        selectRowsContactNullspace(inverseDynamicsCoriolisQuadratic[column]);
+  }
+  measurement.gravityMap_ = full.gravityMap_;
+  measurement.gravityWorld_ = full.gravityWorld_;
+  measurement.linAccMap_ = inertia.middleCols(3, 3);
+  measurement.baseLinAccMap_ = measurement.linAccMap_;
+  measurement.centroidToBasePosition_ = centroidFbKine_.position();
+  measurement.centroidToBaseVelocity_ = centroidFbKine_.linVel();
+  measurement.angAccMap_ = inertia.leftCols(3)
+                               - measurement.linAccMap_
+                                     * sva::vector3ToCrossMatrix(measurement.centroidToBasePosition_);
+
+  std::vector<size_t> contactIds;
+  contactIds.reserve(full.contactForceMap_.size());
+  for(const auto & [contactId, map] : full.contactForceMap_)
+  {
+    (void)map;
+    contactIds.push_back(contactId);
+  }
+  std::sort(contactIds.begin(), contactIds.end());
+  if(contactIds.empty())
+  {
+    measurement.nullspaceTranspose_ = Eigen::MatrixXd::Identity(dimension, dimension);
+  }
+  else
+  {
+    Eigen::MatrixXd contactTranspose = Eigen::MatrixXd::Zero(dimension,
+                                                              6 * contactIds.size());
+    for(size_t index = 0; index < contactIds.size(); ++index)
+    {
+      const size_t id = contactIds[index];
+      contactTranspose.middleCols(static_cast<Eigen::Index>(6 * index), 3) = full.contactForceMap_.at(id);
+      contactTranspose.middleCols(static_cast<Eigen::Index>(6 * index + 3), 3) = full.contactMomentMap_.at(id);
+    }
+    const Eigen::MatrixXd contactJacobian = contactTranspose.transpose();
+    const Eigen::JacobiSVD<Eigen::MatrixXd> svd(contactJacobian, Eigen::ComputeFullV);
+    const double largest = svd.singularValues().size() > 0 ? svd.singularValues()(0) : 0.0;
+    const double tolerance = static_cast<double>(std::max(contactJacobian.rows(), contactJacobian.cols()))
+                             * std::numeric_limits<double>::epsilon() * largest;
+    const Eigen::Index rank = (svd.singularValues().array() > tolerance).count();
+    const Eigen::Index nullity = dimension - rank;
+    if(nullity <= 0)
+    {
+      mc_rtc::log::error_and_throw<std::runtime_error>(
+          "[{}]: Rigid contacts leave no independent dynamics direction for joint torque.", name());
+    }
+    measurement.nullspaceTranspose_ = svd.matrixV().rightCols(nullity).transpose();
+  }
+
+  const bool commandFallback = measRobot.jointTorques().empty();
+  const double sigma = std::hypot(jointMomentumModelNoise_,
+                                  commandFallback ? 2.0 * jointTorqueNoise_ : jointTorqueNoise_);
+  measurement.noise_ = ko_fg::makeNoise(measurement.nullspaceTranspose_.rows(), sigma);
+  return measurement;
+}
+
 void MCKineticsObserverFG::updateJointTorqueMeasurement(const mc_rbdyn::Robot & measRobot,
                                                         mc_rbdyn::Robot & dynamicsRobot)
 {
@@ -987,11 +1160,23 @@ void MCKineticsObserverFG::updateJointTorqueMeasurement(const mc_rbdyn::Robot & 
     previousMomentumEndpoint_.reset();
     previousMeasuredJointTorques_.reset();
     pendingMomentumMeasurement_.reset();
+    pendingContactNullspaceMeasurement_.reset();
     pendingMomentumContactIds_.clear();
     pendingMomentumTime_ = 0;
     return;
   }
   measuredJointTorques_ = measuredTorque;
+
+  if(jointTorqueMethod_ == "contactNullspace")
+  {
+    const auto measurement = makeContactNullspaceTorqueMeasurement(measRobot, dynamicsRobot);
+    observer_.updateContactNullspaceTorqueMeasurement(measurement);
+    pendingContactNullspaceMeasurement_ = measurement;
+    pendingMomentumMeasurement_.reset();
+    pendingMomentumContactIds_.clear();
+    pendingMomentumTime_ = k_ + 1;
+    return;
+  }
 
   if(!previousMomentumEndpoint_)
   {
@@ -1004,6 +1189,7 @@ void MCKineticsObserverFG::updateJointTorqueMeasurement(const mc_rbdyn::Robot & 
   observer_.updateReducedJointMomentumMeasurement(measurement);
 
   pendingMomentumMeasurement_ = measurement;
+  pendingContactNullspaceMeasurement_.reset();
   pendingMomentumContactIds_.clear();
   pendingMomentumContactIds_.reserve(observer_.getActiveContacts().size());
   for(const auto & [contactId, contact] : observer_.getActiveContacts())
@@ -1024,7 +1210,28 @@ void MCKineticsObserverFG::updateJointTorqueMeasurement(const mc_rbdyn::Robot & 
 
 void MCKineticsObserverFG::updateEstimatedJointTorqueResidual()
 {
-  if(!pendingMomentumMeasurement_ || pendingMomentumTime_ == 0) { return; }
+  if(pendingMomentumTime_ == 0) { return; }
+
+  if(pendingContactNullspaceMeasurement_)
+  {
+    const size_t current = pendingMomentumTime_;
+    const gtsam::KeyVector keys = {ko_fg::X(current), ko_fg::V(current), ko_fg::W(current),
+                                   ko_fg::L(current), ko_fg::A(current)};
+    const gtsam::Values estimate = observer_.getSmoother().calculateEstimate();
+    for(const gtsam::Key key : keys)
+    {
+      if(!estimate.exists(key)) { return; }
+    }
+    const ko_fg::measurementFactors::ContactNullspaceTorqueFactor factor(
+        keys, *pendingContactNullspaceMeasurement_);
+    const Eigen::VectorXd reducedResidual = factor.unwhitenedError(estimate);
+    const Eigen::VectorXd generalizedResidual =
+        pendingContactNullspaceMeasurement_->nullspaceTranspose_.transpose() * reducedResidual;
+    estimatedJointTorqueResidual_ = generalizedResidual.tail(measuredJointTorques_.size());
+    return;
+  }
+
+  if(!pendingMomentumMeasurement_) { return; }
 
   const size_t current = pendingMomentumTime_;
   const size_t previous = current - 1;

@@ -19,6 +19,8 @@ struct SLAMObserver : public mc_observers::Observer
 
   SLAMObserver(const std::string & type, double dt);
 
+  ~SLAMObserver();
+
   void configure(const mc_control::MCController & ctl, const mc_rtc::Configuration &) override;
 
   void reset(const mc_control::MCController & ctl) override;
@@ -85,6 +87,7 @@ protected:
   mc_rtc::NodeHandlePtr nh_ = nullptr;
   void rosSpinner();
   std::thread thread_;
+  bool thread_run_ = true;
   tf2_ros::Buffer tfBuffer_;
   tf2_ros::TransformListener tfListener_{tfBuffer_};
   tf2_ros::TransformBroadcaster tfBroadcaster_;

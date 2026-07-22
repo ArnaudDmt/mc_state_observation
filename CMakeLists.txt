@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.22)
+cmake_minimum_required(VERSION 3.24)
 
 set(PROJECT_NAME mc_state_observation)
 set(PROJECT_DESCRIPTION "Implementation of state-observation for mc_rtc")
@@ -70,3 +70,9 @@ if(WITH_ROS_OBSERVERS)
 endif()
 
 add_subdirectory(src)
+
+add_subdirectory(etc)
+
+if(BUILD_TESTING)
+  add_subdirectory(tests)
+endif()

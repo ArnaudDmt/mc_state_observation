@@ -90,7 +90,7 @@ protected:
   stateObservation::Matrix q_;
   stateObservation::Matrix r_;
 
-  stateObservation::Vector uk_;
+  stateObservation::VectorInput uk_;
   stateObservation::Vector xk_;
 
   stateObservation::Matrix3 Kpt_, Kdt_;

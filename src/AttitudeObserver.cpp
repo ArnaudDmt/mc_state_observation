@@ -14,7 +14,8 @@ constexpr unsigned AttitudeObserver::INPUT_SIZE;
 namespace so = stateObservation;
 
 AttitudeObserver::AttitudeObserver(const std::string & type, double dt)
-: mc_observers::Observer(type, dt), filter_(STATE_SIZE, MEASUREMENT_SIZE, INPUT_SIZE, false),
+: mc_observers::Observer(type, dt),
+  filter_(STATE_SIZE, MEASUREMENT_SIZE, false, true, std::make_shared<stateObservation::IndexedInputVectorArray>()),
   q_(so::Matrix::Identity(STATE_SIZE, STATE_SIZE) * defaultConfig_.stateCov),
   r_(so::Matrix::Identity(MEASUREMENT_SIZE, MEASUREMENT_SIZE) * defaultConfig_.acceleroCovariance), uk_(INPUT_SIZE),
   xk_(STATE_SIZE)

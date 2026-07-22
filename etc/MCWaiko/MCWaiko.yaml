@@ -1,0 +1,15 @@
+filterGains:
+        initAlpha: 4
+        initRho: 2
+        initBeta: 4
+        initGamma: 1
+        initMu: 1
+        finalAlpha: 4
+        finalRho: 1
+        finalBeta: 4
+        finalGamma: 1
+        finalMu: 1
+
+contacts:
+  contactsDetection: Surfaces
+  surfacesForContactDetection: [RightFootCenter, LeftFootCenter]

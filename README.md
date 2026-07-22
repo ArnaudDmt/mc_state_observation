@@ -185,3 +185,116 @@ sudo apt install mc-state-observation
 # For ROS-based observers
 sudo apt install ros-${ROS_DISTRO}-mc-state-observation
 ```
+
+
+## Summary of the Observers
+
+- **Tilt Observer**: [*Lyapunov-Stable Orientation Estimator for Humanoid Robots*](https://ieeexplore.ieee.org/document/9158355), by Benallegue et al., IEEE Robotics and Automation Letters, 2020. \
+Adaptation of the Tilt Observer to the case of humanoid robots, where the IMU's local linear velocity measurement is obtained using the assumption of fixed contacts.
+    - Measurements:
+        - IMU's accelerometer and gyrometer.
+        - Robot's joint encoders.
+    - Inputs:
+        - Center of pressure of the contacts.
+    - State:
+        - IMU's local linear velocity.
+        - IMU's tilt ($=\boldsymbol{R}^{T}\boldsymbol{e}_{z}$): the inclination of the IMU with respect to the vertical axis.
+    - Features:
+        - Based on a complementary filter, allowing for a very fast computation.
+        - The estimation error's dynamics is autonomous and its convergence is mathematically proven.
+
+
+- **Kinetics Observer**: [*The Kinetics Observer: A Tightly Coupled Estimator for Legged Robots*](https://hal.science/hal-04616647), by Demont et al.
+    - Measurements:
+        - IMU's accelerometer and gyrometer.
+        - Robot's joint encoders.
+        - Force / torque sensors.
+    - State:
+        - Centroid frame's position ($\boldsymbol{p}_{l}=\boldsymbol{R}^{T}\boldsymbol{p}$) and orientation in the world.
+        - Centroid frame's linear ($\boldsymbol{v}_{l}=\boldsymbol{R}^{T}\dot{\boldsymbol{p}}$) and angular velocities in the world.
+        - Gyrometer measurement biases.
+        - Resultant of the unmodeled external wrench applied to the robot, expressed in the centroid frame.
+        - Contact rest poses in the world.
+        - Contact reaction wrench.
+    - Features:
+        - Based on a Multiplicative Extended Kalman Filter.
+        - Performs a proprioceptive odometry, which is corrected by the wrench sensor measurements. This provides the observability of contact slippage in the frame attached to the robot.
+
+
+## Configuation of the observers within mc_rtc
+
+Here is a list and explanation of the main parameters for the configuration of the observers in mc_rtc. An example of configuration can be found in [this repository](https://github.com/ArnaudDmt/mc_rtc_Configs), which can be locally located in ~/.config. The configuration of an observer can be customized for each robot.
+
+### ContactsManager
+
+Some observers require a detection of contacts, which is done by the ContactsManager. It can be configured in the observer's configuration file with the synthax:
+```
+contacts:
+  contactsDetection: Surfaces / Sensors / Solver
+  schmittTriggerLowerPropThreshold # (default: 0.10)
+  schmittTriggerUpperPropThreshold # (default: 0.15)
+  # surfacesForContactDetection: [RightFootCenter, LeftFootCenter, LeftHandCloseContact] # List of surfaces to consider when using 'Surfaces' as the detection method.
+```
+Contacts can be detected with three different methods.
+- `Surfaces`: the contact manager will focus on a given list of surfaces the robot can have with the environment. This list is added to the configuration as surfacesForContactDetection. A contact is detected if the force measured at the sensor attached to the surface is above the lower threshold of the Schmitt Trigger. Its name is the force sensor's name and its frame is the surface's frame.
+- `Sensors`: the contact manager will consider all the robot's force sensors. A contact is detected if the force measured at the sensor attached to the surface is above the lower threshold of the Schmitt Trigger. Its name is the force sensor's name and its frame is the force sensor's frame (and not of the surface in contact!).
+- `Solver`: the list of contacts is given by the controller, and accessed by the contacts manager through the command 'ctl.solver().contacts()'.
+
+### Legged Odometry
+
+Some observers are able to perform odometry, **when not used for the control feedback**. The odometry mode can be configured with the synthax:
+```
+leggedOdometry:
+  odometryType: None / 6D / Flat
+  correctContacts: true # defines if the contact reference poses must be corrected over time
+```
+Possible modes:
+- `None`: (default) the observer remains attached to the control robot and can be used as a feedback for the controller.
+- `6D`: the observer performs 6D odometry. Its pose is obtained using the sensor measurements and is independent from the one of the control robot.
+- `Flat`: odometry for walks on flat ground. Contacts are created with a zero height, constraining the robot to the ground. Use the 6D odometry if you intend to create other kinds of contacts.
+
+
+### Tilt Observer
+
+The Tilt Observer is able to perform [odometry](#legged-odometry).
+```
+leggedOdometry:
+  # See above
+
+filterGains:
+  initAlpha: 5 # (default: 5)
+  initBeta: 1 # (default: 1)
+  initGamma: 2 # (default: 2)
+
+  finalAlpha: 5 # (default: 5)
+  finalBeta: 1 # (default: 1)
+  finalGamma: 2 # (default: 2)
+```
+Parameters:
+  - `alpha`: gain $\alpha_{1}$ in [the paper](https://ieeexplore.ieee.org/document/9158355), related to the convergence of the linear velocity $\hat{\boldsymbol{x}}_{1}$.
+  - `beta`: gain $\alpha_{2}$ in [the paper](https://ieeexplore.ieee.org/document/9158355), related to the convergence of the intermediate tilt $\hat{\boldsymbol{x}}_{2}^{\prime}$.
+  - `gamma`: gain $\gamma$ in [the paper](https://ieeexplore.ieee.org/document/9158355), related to the convergence of the tilt $\hat{\boldsymbol{x}}_{2}$.
+
+### Kinetics Observer
+
+The Kinetics Observer is able to perform [odometry](#legged-odometry). To configure it, please see the [dedicated section](#legged-odometry).
+```
+leggedOdometry:
+  # See above
+```
+As in [this repository](https://github.com/ArnaudDmt/mc_rtc_Configs/tree/main/observers), the Kinetics Observer can be configured with **global** and **robot-specific** parameters.
+
+#### Parameters:
+
+  - The contact linear and angular flexibilities: `linStiffness`, `angStiffness`, `linDamping`, and `angDamping`. Often robot-specific.
+  - The Kalman Filter covariances:
+    ```
+    ekfStateProcessVariances:
+      ... # initial state covariances and process covariances
+    ekfSensorNoiseVariances:
+      # measurement covariances. Often robot-specific.
+    ```
+  - `backupInterval`: capacity (in seconds) of the buffer that allows to recover the state if the estimation diverges. The Tilt Observer is ran internally and used for the recovery.
+  - `withDebugLogs`: add all the debugging logs.
+  - `withGyroBias`: defines whether the gyrometer bias must be estimated.
+  - `withUnmodeledWrench`: defines whether the unmodeled external wrench must be estimated.

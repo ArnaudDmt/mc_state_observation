@@ -2,6 +2,7 @@
 #include <mc_observers/ObserverMacros.h>
 #include <mc_rtc/logging.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <gtsam/geometry/Pose3.h>
@@ -9,6 +10,8 @@
 #include <mc_state_observation/gui_helpers.h>
 
 #include <RBDyn/Coriolis.h>
+#include <RBDyn/CoM.h>
+#include <RBDyn/FA.h>
 #include <RBDyn/FD.h>
 #include <RBDyn/FK.h>
 #include <RBDyn/FV.h>
@@ -203,12 +206,15 @@ void MCKineticsObserverFG::configure(const mc_control::MCController & ctl, const
     {
       useJointTorqueCommandAsMeasurement_ = jointTorquesConfig("useCommandAsMeasurement", true);
       jointTorquesConfig("noise", jointTorqueNoise_);
-      jointTorquesConfig("momentumNoise", jointMomentumNoise_);
       jointTorquesConfig("modelNoise", jointMomentumModelNoise_);
+      jointTorquesConfig("jointAccelerationInitNoise", jointAccelerationInitNoise_);
+      jointTorquesConfig("jointAccelerationProcessNoise", jointAccelerationProcessNoise_);
+      jointTorquesConfig("jointAccelerationFiniteDifferenceNoise", jointAccelerationFiniteDifferenceNoise_);
       mc_rtc::log::info(
-          "[{}]: Reduced joint-momentum factors enabled: momentum sigma={}, torque sigma={}, model sigma={}, "
-          "command fallback={}.",
-          name(), jointMomentumNoise_, jointTorqueNoise_, jointMomentumModelNoise_,
+          "[{}]: Latent joint-acceleration torque factors enabled: torque sigma={}, model sigma={}, "
+          "qdd finite-difference sigma={}, qdd process sigma={}, command fallback={}.",
+          name(), jointTorqueNoise_, jointMomentumModelNoise_, jointAccelerationFiniteDifferenceNoise_,
+          jointAccelerationProcessNoise_,
           useJointTorqueCommandAsMeasurement_);
     }
     else
@@ -216,7 +222,7 @@ void MCKineticsObserverFG::configure(const mc_control::MCController & ctl, const
       // Keep the disabled path independent of every other jointTorques key.
       // In particular, merely adding a noise entry must not alter the graph.
       useJointTorqueCommandAsMeasurement_ = false;
-      mc_rtc::log::info("[{}]: Joint impulse-momentum factor disabled.", name());
+      mc_rtc::log::info("[{}]: Joint acceleration torque factor disabled.", name());
     }
   }
 }
@@ -322,6 +328,10 @@ void MCKineticsObserverFG::reset(const mc_control::MCController & ctl)
   pendingMomentumMeasurement_.reset();
   pendingMomentumContacts_.clear();
   pendingMomentumTime_ = 0;
+  previousJointVelocity_.reset();
+  pendingJointAccelerationMeasurement_.reset();
+  pendingJointAccelerationContacts_.clear();
+  pendingJointAccelerationTime_ = 0;
 
   if(useJointTorqueMeasurements_)
   {
@@ -332,6 +342,11 @@ void MCKineticsObserverFG::reset(const mc_control::MCController & ctl)
       inputJointTorques_ = Vector::Zero(jointTorqueDim);
       measuredJointTorques_ = Vector::Zero(jointTorqueDim);
       estimatedJointTorqueResidual_ = Vector::Zero(jointTorqueDim);
+      const Vector initialJointAcceleration = Vector::Zero(jointTorqueDim);
+      observer_.configureJointAcceleration(
+          jointTorqueDim, initialJointAcceleration,
+          Vector::Constant(jointTorqueDim, jointAccelerationInitNoise_),
+          Vector::Constant(jointTorqueDim, jointAccelerationProcessNoise_));
     }
     else
     {
@@ -712,6 +727,131 @@ Eigen::VectorXd MCKineticsObserverFG::jointTorqueVectorFromRefOrder(const mc_rbd
   return tau;
 }
 
+Eigen::VectorXd MCKineticsObserverFG::actuatedJointVelocityVector(const mc_rbdyn::Robot & robot) const
+{
+  Eigen::VectorXd velocity(actuatedJointTorqueDim(robot));
+  Eigen::Index out = 0;
+  for(const auto & jointName : robot.refJointOrder())
+  {
+    const int jointIndex = robot.mb().jointIndexByName(jointName);
+    for(double value : robot.mbc().alpha[static_cast<size_t>(jointIndex)]) { velocity(out++) = value; }
+  }
+  return velocity;
+}
+
+std::shared_ptr<const ko_fg::RecursiveJointTorqueModel> MCKineticsObserverFG::makeJointTorqueModel(
+    mc_rbdyn::Robot & dynamicsRobot) const
+{
+  const auto & mb = dynamicsRobot.mb();
+  rbd::MultiBodyConfig mbc = dynamicsRobot.mbc();
+  rbd::forwardKinematics(mb, mbc);
+  rbd::forwardVelocity(mb, mbc);
+
+  const auto & predecessors = mb.predecessors();
+  const auto & successors = mb.successors();
+  if(successors.empty() || successors[0] != 0 || mb.joint(0).dof() != 6)
+  {
+    mc_rtc::log::error_and_throw<std::runtime_error>(
+        "[{}]: Latent joint acceleration model expects a six-DoF root joint.", name());
+  }
+
+  ko_fg::RecursiveJointTorqueModel::Snapshot snapshot;
+  snapshot.bodies_.resize(static_cast<size_t>(mb.nrBodies()));
+  std::vector<int> bodyJoint(static_cast<size_t>(mb.nrBodies()), -1);
+  for(size_t joint = 0; joint < static_cast<size_t>(mb.nrJoints()); ++joint)
+  {
+    bodyJoint[static_cast<size_t>(successors[joint])] = static_cast<int>(joint);
+  }
+
+  for(size_t body = 0; body < snapshot.bodies_.size(); ++body)
+  {
+    const int joint = bodyJoint[body];
+    if(joint < 0)
+    {
+      mc_rtc::log::error_and_throw<std::runtime_error>("[{}]: Body without predecessor joint.", name());
+    }
+    auto & data = snapshot.bodies_[body];
+    data.parent_ = predecessors[static_cast<size_t>(joint)];
+    data.motionParentToBody_ = mbc.parentToSon[static_cast<size_t>(joint)].matrix();
+    data.spatialInertia_ = mb.body(static_cast<int>(body)).inertia().matrix();
+    data.motionSubspace_ = mbc.motionSubspace[static_cast<size_t>(joint)];
+    if(body > 0) { data.jointVelocity_ = mbc.jointVelocity[static_cast<size_t>(joint)].vector(); }
+    data.jointAcceleration_.setZero();
+  }
+
+  for(const auto & jointName : dynamicsRobot.refJointOrder())
+  {
+    const int joint = mb.jointIndexByName(jointName);
+    const size_t body = static_cast<size_t>(successors[static_cast<size_t>(joint)]);
+    for(int dof = 0; dof < mb.joint(joint).dof(); ++dof)
+    {
+      snapshot.outputs_.push_back({body, static_cast<size_t>(dof)});
+    }
+  }
+
+  snapshot.centroidToBasePosition_ = centroidFbKine_.position();
+  snapshot.centroidToBaseVelocity_ = centroidFbKine_.linVel();
+  const Eigen::Index jointDimension = actuatedJointTorqueDim(dynamicsRobot);
+  const auto relativeAccelerationAt = [&](const Eigen::VectorXd & jointAcceleration)
+  {
+    rbd::MultiBodyConfig accelerationMbc = mbc;
+    for(auto & joint : accelerationMbc.alphaD) { std::fill(joint.begin(), joint.end(), 0.0); }
+    Eigen::Index offset = 0;
+    for(const auto & jointName : dynamicsRobot.refJointOrder())
+    {
+      const int joint = mb.jointIndexByName(jointName);
+      auto & alphaD = accelerationMbc.alphaD[static_cast<size_t>(joint)];
+      for(double & value : alphaD) { value = jointAcceleration(offset++); }
+    }
+    rbd::forwardAcceleration(mb, accelerationMbc);
+
+    so::kine::Kinematics fbCentroid;
+    fbCentroid.position = rbd::computeCoM(mb, accelerationMbc);
+    fbCentroid.orientation.setZeroRotation();
+    fbCentroid.linVel = rbd::computeCoMVelocity(mb, accelerationMbc);
+    fbCentroid.angVel.set().setZero();
+    fbCentroid.linAcc = rbd::computeCoMAcceleration(mb, accelerationMbc);
+    fbCentroid.angAcc.set().setZero();
+    return fbCentroid.getInverse().linAcc();
+  };
+  const Eigen::VectorXd zeroJointAcceleration = Eigen::VectorXd::Zero(jointDimension);
+  snapshot.centroidToBaseAcceleration_ = relativeAccelerationAt(zeroJointAcceleration);
+  snapshot.centroidToBaseAccelerationJacobian_.resize(3, jointDimension);
+  for(Eigen::Index column = 0; column < jointDimension; ++column)
+  {
+    Eigen::VectorXd unit = Eigen::VectorXd::Zero(jointDimension);
+    unit(column) = 1.0;
+    snapshot.centroidToBaseAccelerationJacobian_.col(column) =
+        relativeAccelerationAt(unit) - snapshot.centroidToBaseAcceleration_;
+  }
+  snapshot.gravityWorld_ = mbc.gravity;
+
+  for(const auto & [contactId, graphContact] : observer_.getActiveContacts())
+  {
+    (void)graphContact;
+    const auto maintained = maintainedContacts_.find(static_cast<unsigned>(contactId));
+    if(maintained == maintainedContacts_.end()) { continue; }
+    const auto & contact = *maintained->second;
+    const auto & surface = dynamicsRobot.surface(contact.surfaceName());
+    const size_t body = dynamicsRobot.bodyIndexByName(surface.bodyName());
+    Eigen::Matrix<double, 6, 6> bodyWrenchMap;
+    const Eigen::Matrix3d rotation = contact.fbContactKine_.orientation.toMatrix3();
+    const Eigen::Vector3d position = contact.fbContactKine_.position();
+    for(Eigen::Index column = 0; column < 6; ++column)
+    {
+      Eigen::Matrix<double, 6, 1> unit = Eigen::Matrix<double, 6, 1>::Zero();
+      unit(column) = 1.0;
+      const Eigen::Vector3d force = rotation * unit.head<3>();
+      const Eigen::Vector3d moment = rotation * unit.tail<3>() + position.cross(force);
+      bodyWrenchMap.col(column) =
+          mbc.bodyPosW[body].dualMul(sva::ForceVecd(moment, force)).vector();
+    }
+    snapshot.contacts_.push_back({contactId, body, bodyWrenchMap});
+  }
+
+  return std::make_shared<ko_fg::RecursiveJointTorqueModel>(std::move(snapshot));
+}
+
 ko_fg::MomentumResidualEndpoint MCKineticsObserverFG::makeMomentumResidualEndpoint(mc_rbdyn::Robot & dynamicsRobot)
 {
   const auto & mb = dynamicsRobot.mb();
@@ -1010,51 +1150,55 @@ void MCKineticsObserverFG::updateJointTorqueMeasurement(const mc_rbdyn::Robot & 
   if(measuredTorque.size() == 0)
   {
     observer_.clearJointTorqueMeasurement();
-    previousMomentumEndpoint_.reset();
-    previousMeasuredJointTorques_.reset();
-    pendingMomentumMeasurement_.reset();
-    pendingMomentumContacts_.clear();
-    pendingMomentumTime_ = 0;
+    previousJointVelocity_.reset();
+    pendingJointAccelerationMeasurement_.reset();
+    pendingJointAccelerationContacts_.clear();
+    pendingJointAccelerationTime_ = 0;
     return;
   }
   measuredJointTorques_ = measuredTorque;
 
-  if(!previousMomentumEndpoint_)
+  const Eigen::VectorXd jointVelocity = actuatedJointVelocityVector(dynamicsRobot);
+  Eigen::VectorXd jointAccelerationPrediction = Eigen::VectorXd::Zero(jointVelocity.size());
+  if(previousJointVelocity_)
   {
-    previousMomentumEndpoint_ = makeReducedJointMomentumEndpoint(dynamicsRobot, measuredTorque);
-    previousMeasuredJointTorques_ = measuredTorque;
-    return;
+    jointAccelerationPrediction = (jointVelocity - *previousJointVelocity_) / dt_;
   }
+  previousJointVelocity_ = jointVelocity;
 
-  const auto measurement = makeReducedJointMomentumMeasurement(measRobot, dynamicsRobot);
-  observer_.updateReducedJointMomentumMeasurement(measurement);
+  ko_fg::JointTorqueMeasurement measurement;
+  measurement.measuredTorque_ = measuredTorque;
+  measurement.jointAccelerationPrediction_ = jointAccelerationPrediction;
+  measurement.linearizationJointAcceleration_ = jointAccelerationPrediction;
+  measurement.noise_ = ko_fg::makeNoise(
+      measuredTorque.size(), std::hypot(jointTorqueNoise_, jointMomentumModelNoise_));
+  measurement.jointAccelerationNoise_ =
+      ko_fg::makeNoise(measuredTorque.size(), jointAccelerationFiniteDifferenceNoise_);
+  measurement.model_ = makeJointTorqueModel(dynamicsRobot);
+  observer_.updateJointAccelerationTorqueMeasurement(measurement);
 
-  pendingMomentumMeasurement_ = measurement;
-  pendingMomentumContacts_ = ko_fg::reducedJointMomentumContactIntervals(measurement);
-  // runIteration(k_) attaches the current measurement to graph state k_ + 1.
-  pendingMomentumTime_ = k_ + 1;
+  pendingJointAccelerationMeasurement_ = measurement;
+  pendingJointAccelerationContacts_.clear();
+  for(const auto & [contactId, contact] : observer_.getActiveContacts())
+  {
+    (void)contact;
+    pendingJointAccelerationContacts_.push_back(contactId);
+  }
+  std::sort(pendingJointAccelerationContacts_.begin(), pendingJointAccelerationContacts_.end());
+  pendingJointAccelerationTime_ = k_ + 1;
 }
 
 void MCKineticsObserverFG::updateEstimatedJointTorqueResidual()
 {
-  if(!pendingMomentumMeasurement_ || pendingMomentumTime_ == 0) { return; }
+  if(!pendingJointAccelerationMeasurement_ || pendingJointAccelerationTime_ == 0) { return; }
 
-  const size_t current = pendingMomentumTime_;
-  const size_t previous = current - 1;
-  gtsam::KeyVector keys = {ko_fg::P(previous), ko_fg::P(current), ko_fg::W(previous), ko_fg::W(current)};
-  for(const auto & contact : pendingMomentumContacts_)
+  const size_t current = pendingJointAccelerationTime_;
+  gtsam::KeyVector keys = {ko_fg::X(current), ko_fg::V(current), ko_fg::W(current),
+                           ko_fg::L(current), ko_fg::A(current), ko_fg::J(current)};
+  for(const size_t contactId : pendingJointAccelerationContacts_)
   {
-    const auto graphContactId = static_cast<uint32_t>(contact.id_);
-    if(contact.previous_)
-    {
-      keys.push_back(ko_fg::F(previous, graphContactId));
-      keys.push_back(ko_fg::T(previous, graphContactId));
-    }
-    if(contact.current_)
-    {
-      keys.push_back(ko_fg::F(current, graphContactId));
-      keys.push_back(ko_fg::T(current, graphContactId));
-    }
+    keys.push_back(ko_fg::F(current, static_cast<uint32_t>(contactId)));
+    keys.push_back(ko_fg::T(current, static_cast<uint32_t>(contactId)));
   }
 
   const gtsam::Values estimate = observer_.getSmoother().calculateEstimate();
@@ -1065,9 +1209,9 @@ void MCKineticsObserverFG::updateEstimatedJointTorqueResidual()
     if(!estimate.exists(key)) { return; }
   }
 
-  const ko_fg::measurementFactors::JointMomentumDynamicsFactor factor(keys, *pendingMomentumMeasurement_,
-                                                                      pendingMomentumContacts_);
-  estimatedJointTorqueResidual_ = factor.unwhitenedError(estimate) / pendingMomentumMeasurement_->dt_;
+  const ko_fg::measurementFactors::JointAccelerationTorqueFactor factor(
+      keys, *pendingJointAccelerationMeasurement_, pendingJointAccelerationContacts_);
+  estimatedJointTorqueResidual_ = -factor.unwhitenedError(estimate);
 }
 
 const so::kine::Kinematics MCKineticsObserverFG::getContactWorldKinematics(const mc_control::MCController & ctl,
@@ -1492,6 +1636,18 @@ void MCKineticsObserverFG::addToLogger(const mc_control::MCController & ctl,
                          return i < static_cast<size_t>(estimatedJointTorqueResidual_.size())
                                     ? estimatedJointTorqueResidual_(i)
                                     : 0.0;
+                       });
+    logger.addLogEntry(category_ + "_MEKF_estimatedState_jointAcceleration_" + jointName,
+                       [this, i]() -> double {
+                         const auto & acceleration = observer_.getJointAccelerationEstimate();
+                         return i < static_cast<size_t>(acceleration.size()) ? acceleration(i) : 0.0;
+                       });
+    logger.addLogEntry(category_ + "_MEKF_inputs_jointAccelerationFiniteDifference_" + jointName,
+                       [this, i]() -> double {
+                         if(!pendingJointAccelerationMeasurement_) { return 0.0; }
+                         const auto & prediction =
+                             pendingJointAccelerationMeasurement_->jointAccelerationPrediction_;
+                         return i < static_cast<size_t>(prediction.size()) ? prediction(i) : 0.0;
                        });
     logger.addLogEntry(category_ + "_MEKF_inputs_jointTorque_" + jointName, [this, i]() -> double
                        { return i < static_cast<size_t>(inputJointTorques_.size()) ? inputJointTorques_(i) : 0.0; });

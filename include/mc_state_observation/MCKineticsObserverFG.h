@@ -221,6 +221,11 @@ protected:
 
   Eigen::VectorXd measuredJointTorqueVector(const mc_rbdyn::Robot & robot) const;
 
+  Eigen::VectorXd actuatedJointVelocityVector(const mc_rbdyn::Robot & robot) const;
+
+  std::shared_ptr<const ko_fg::RecursiveJointTorqueModel> makeJointTorqueModel(
+      mc_rbdyn::Robot & dynamicsRobot) const;
+
   ko_fg::MomentumResidualEndpoint makeMomentumResidualEndpoint(mc_rbdyn::Robot & dynamicsRobot);
 
   ko_fg::ReducedJointMomentumEndpoint makeReducedJointMomentumEndpoint(
@@ -353,11 +358,18 @@ private: // instance of the Kinetics Observer
   bool useJointTorqueMeasurements_ = false;
   bool useJointTorqueCommandAsMeasurement_ = false;
   double jointTorqueNoise_ = 10.0;
+  double jointAccelerationInitNoise_ = 100.0;
+  double jointAccelerationProcessNoise_ = 50.0;
+  double jointAccelerationFiniteDifferenceNoise_ = 25.0;
   double jointMomentumNoise_ = 1.0;
   double jointMomentumModelNoise_ = 10.0;
   Eigen::VectorXd inputJointTorques_;
   Eigen::VectorXd measuredJointTorques_;
   Eigen::VectorXd estimatedJointTorqueResidual_;
+  std::optional<Eigen::VectorXd> previousJointVelocity_;
+  std::optional<ko_fg::JointTorqueMeasurement> pendingJointAccelerationMeasurement_;
+  std::vector<size_t> pendingJointAccelerationContacts_;
+  size_t pendingJointAccelerationTime_ = 0;
   std::vector<std::string> jointTorqueNames_;
   std::optional<ko_fg::ReducedJointMomentumEndpoint> previousMomentumEndpoint_;
   std::optional<Eigen::VectorXd> previousMeasuredJointTorques_;

@@ -75,7 +75,7 @@ private:
    * @details In particular the kinematics of the anchor in the IMU frame.
    *
    * @param ctl Controller.
-   * @param updatedRobot
+   * @param updatedRobot robot with the updated encoder measurements
    */
   virtual void updateNecessaryFrames(const mc_control::MCController & ctl,
                                      const mc_rbdyn::Robot & updatedRobot) override;

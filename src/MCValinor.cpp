@@ -401,11 +401,11 @@ so::kine::Kinematics MCValinor::applyLastTransformation(const so::kine::Kinemati
   return newKine;
 }
 
-void MCValinor::updateNecessaryFrames(const mc_control::MCController & ctl, const mc_rbdyn::Robot & odomRobot)
+void MCValinor::updateNecessaryFrames(const mc_control::MCController & ctl, const mc_rbdyn::Robot & updatedRobot)
 
 {
   // pose of the floating base' frame in the world for the odometry robot
-  worldFbKine_ = conversions::kinematics::fromSva(odomRobot.posW(), odomRobot.velW(), true);
+  worldFbKine_ = conversions::kinematics::fromSva(updatedRobot.posW(), updatedRobot.velW(), true);
 
   const auto & imu = ctl.robot(robot_).bodySensor(imuSensor_);
   const sva::PTransformd & imuXbs = imu.X_b_s();
@@ -413,9 +413,9 @@ void MCValinor::updateNecessaryFrames(const mc_control::MCController & ctl, cons
       conversions::kinematics::fromSva(imuXbs, so::kine::Kinematics::Flags::pose | so::kine::Kinematics::Flags::vel);
 
   // pose of the IMU's parent body in the world for the odometry robot
-  const sva::PTransformd & parentPoseW = odomRobot.bodyPosW(imu.parentBody());
+  const sva::PTransformd & parentPoseW = updatedRobot.bodyPosW(imu.parentBody());
   // velocity of the IMU's parent body in the world for the odometry robot
-  const sva::MotionVecd & v_0_imuParent = odomRobot.mbc().bodyVelW[odomRobot.bodyIndexByName(imu.parentBody())];
+  const sva::MotionVecd & v_0_imuParent = updatedRobot.mbc().bodyVelW[updatedRobot.bodyIndexByName(imu.parentBody())];
 
   // kinematics of the IMU's parent body in the world for the odometry robot
   so::kine::Kinematics worldParentKine = conversions::kinematics::fromSva(parentPoseW, v_0_imuParent, true);
@@ -470,8 +470,6 @@ void MCValinor::updatePoseAndVel(const mc_control::MCController & ctl)
       }
     }
 
-    worldFbKine_.position = ctlWorldAnchorPos_ - worldFbKine_.orientation.toMatrix3() * fbAnchorPos_;
-
     so::Matrix3 ctlYawWithEstimatedTiltOri = so::kine::mergeRoll1Pitch1WithYaw2AxisAgnostic(
         estimatedWorldFbKine_.orientation.toMatrix3(), ctl.robot().posW().rotation().transpose());
     // orientation matrix that converts the estimated kinematics in the world frame back to the local frame, then
@@ -481,7 +479,7 @@ void MCValinor::updatePoseAndVel(const mc_control::MCController & ctl)
     poseW_.rotation() = ctlYawWithEstimatedTiltOri.transpose();
     poseW_.translation() = ctlWorldAnchorPos_ - ctlYawWithEstimatedTiltOri * fbAnchorPos_;
 
-    velW_.angular() = ctlRealOri * worldFbKine_.angVel();
+    velW_.angular() = ctlRealOri * estimatedWorldFbKine_.angVel();
     velW_.linear() = ctlRealOri * estimatedWorldFbKine_.linVel();
   }
 }

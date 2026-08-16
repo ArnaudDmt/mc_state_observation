@@ -34,9 +34,9 @@ public:
    * @details In particular the kinematics of the anchor in the IMU frame.
    *
    * @param ctl Controller.
-   * @param odomRobot
+   * @param updatedRobot robot with the updated encoder measurements
    */
-  void updateNecessaryFramesOdom(const mc_control::MCController & ctl, const mc_rbdyn::Robot & odomRobot);
+  void updateNecessaryFramesOdom(const mc_control::MCController & ctl, const mc_rbdyn::Robot & updatedRobot);
 
   /// @brief updates the pose and the velcoity of the floating base in the world frame using our estimation results
   void updatePoseAndVel(const mc_control::MCController & ctl);

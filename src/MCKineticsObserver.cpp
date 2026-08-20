@@ -172,6 +172,8 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   contactInitCovarianceNewContacts_.setZero();
   contactInitCovarianceNewContacts_flat_.setZero();
 
+  contactInitCovarianceNewContacts_.block<3, 3>(0, 0) =
+      (ekfStateProcessVariances("contactPositionInitVarianceNewContacts").operator so::Vector3()).matrix().asDiagonal();
   contactInitCovarianceNewContacts_.block<3, 3>(3, 3) =
       (ekfStateProcessVariances("contactOriInitVarianceNewContacts").operator so::Vector3()).matrix().asDiagonal();
 
@@ -488,7 +490,7 @@ bool MCKineticsObserver::run(const mc_control::MCController & ctl)
 
   // force measurements from sensor that are not associated to a currently set contact are given to the Kinetics
   // Observer as inputs.
-  inputAdditionalWrench(ctl, inputRobot, robot);
+  inputAdditionalWrench(inputRobot, robot);
 
   res_ = observer_.update();
 
@@ -735,9 +737,7 @@ void MCKineticsObserver::update(mc_rbdyn::Robot & robot)
   robot.velW(v_fb_0_.vector());
 }
 
-void MCKineticsObserver::inputAdditionalWrench(const mc_control::MCController & ctl,
-                                               const mc_rbdyn::Robot & inputRobot,
-                                               const mc_rbdyn::Robot & measRobot)
+void MCKineticsObserver::inputAdditionalWrench(const mc_rbdyn::Robot & inputRobot, const mc_rbdyn::Robot & measRobot)
 {
   additionalUserResultingForce_.setZero();
   additionalUserResultingMoment_.setZero();
@@ -760,16 +760,9 @@ void MCKineticsObserver::inputAdditionalWrench(const mc_control::MCController & 
 
     if(useSensor)
     {
-      sva::ForceVecd measuredWrench = forceSensor.wrenchWithoutGravity(ctl.realRobot(robot_));
-
-      so::kine::Kinematics fbSensorKine =
-          conversions::kinematics::fromSva(forceSensor.X_0_s(inputRobot), so::kine::Kinematics::Flags::pose);
-
-      so::Vector3 measuredForceFb = fbSensorKine.orientation * measuredWrench.force();
-
-      additionalUserResultingForce_ += measuredForceFb;
-      additionalUserResultingMoment_ +=
-          fbSensorKine.orientation * measuredWrench.moment() + fbSensorKine.position().cross(measuredForceFb);
+      const sva::ForceVecd measuredWrench = wrenchInFloatingBaseFrame(forceSensor, inputRobot);
+      additionalUserResultingForce_ += measuredWrench.force();
+      additionalUserResultingMoment_ += measuredWrench.moment();
     }
   }
 
@@ -785,24 +778,51 @@ void MCKineticsObserver::inputAdditionalWrench(const mc_control::MCController & 
       so::Vector3 forceCentroid = so::Vector3::Zero();
       so::Vector3 torqueCentroid = so::Vector3::Zero();
 
-      sva::ForceVecd measuredWrench = fs.wrenchWithoutGravity(ctl.realRobot(robot_));
+      const sva::ForceVecd measuredWrench = wrenchInFloatingBaseFrame(fs, inputRobot);
 
-      so::kine::Kinematics fbSensorKine =
-          conversions::kinematics::fromSva(fs.X_0_s(inputRobot), so::kine::Kinematics::Flags::pose);
+      additionalUserResultingForce_ += measuredWrench.force();
+      additionalUserResultingMoment_ += measuredWrench.moment();
 
-      so::Vector3 measuredForceFb = fbSensorKine.orientation * measuredWrench.force();
-      so::Vector3 measuredMomentFb =
-          fbSensorKine.orientation * measuredWrench.moment() + fbSensorKine.position().cross(measuredForceFb);
-
-      additionalUserResultingForce_ += measuredForceFb;
-      additionalUserResultingMoment_ += measuredMomentFb;
-
-      observer_.convertWrenchFromUserToCentroid(measuredForceFb, measuredMomentFb, forceCentroid, torqueCentroid);
+      observer_.convertWrenchFromUserToCentroid(measuredWrench.force(), measuredWrench.moment(), forceCentroid,
+                                                torqueCentroid);
 
       contact.wrenchInCentroid_.segment<3>(0) = forceCentroid;
       contact.wrenchInCentroid_.segment<3>(3) = torqueCentroid;
     }
   }
+}
+
+sva::ForceVecd MCKineticsObserver::wrenchWithoutGravity(const mc_rbdyn::ForceSensor & forceSensor,
+                                                        const sva::PTransformd & X_fb_parent,
+                                                        const Eigen::Matrix3d & R_fb_world) const
+{
+  const auto & calibration = forceSensor.calib();
+
+  // Reproduce ForceSensorCalibData::wfToSensor, but express gravity in the estimated floating-base frame.
+  const sva::PTransformd X_fb_ds = calibration.X_f_ds * forceSensor.X_p_f() * X_fb_parent;
+  const sva::PTransformd X_fb_vb(X_fb_ds.inv().rotation(),
+                                 (calibration.X_p_vb * X_fb_parent * X_fb_ds.inv()).translation());
+
+  sva::ForceVecd gravityWrench = calibration.worldForce;
+  gravityWrench.force() = R_fb_world * calibration.worldForce.force();
+  gravityWrench.moment() = R_fb_world * calibration.worldForce.moment();
+
+  return forceSensor.wrench() - calibration.offset - X_fb_vb.transMul(gravityWrench);
+}
+
+sva::ForceVecd MCKineticsObserver::wrenchInFloatingBaseFrame(const mc_rbdyn::ForceSensor & forceSensor,
+                                                             const mc_rbdyn::Robot & inputRobot) const
+{
+  const unsigned parentIndex = inputRobot.bodyIndexByName(forceSensor.parentBody());
+  const auto & X_fb_parent = inputRobot.mbc().bodyPosW[parentIndex];
+
+  // X_0_fb_ is an X_world_fb transform: its rotation maps world vectors into the estimated FB frame.
+  const sva::ForceVecd gravityFreeWrench = wrenchWithoutGravity(forceSensor, X_fb_parent, X_0_fb_.rotation());
+
+  // Transport from the calibrated actual sensor frame to the floating-base frame.
+  const sva::PTransformd X_parent_fb = X_fb_parent.inv();
+  const sva::PTransformd X_sensor_fb = X_parent_fb * forceSensor.X_fsactual_parent();
+  return X_sensor_fb.dualMul(gravityFreeWrench);
 }
 
 void MCKineticsObserver::updateIMUs(const mc_rbdyn::Robot & measRobot, const mc_rbdyn::Robot & inputRobot)
@@ -956,7 +976,8 @@ const so::kine::Kinematics MCKineticsObserver::getFsWorldKinematics(const mc_con
   const so::kine::Kinematics worldFbKine =
       conversions::kinematics::fromSva(currentRobot.posW(), currentRobot.velW(), true);
 
-  const sva::PTransformd bodyFsPose = fs.X_p_f();
+  // Use the calibrated actual sensor pose, not the nominal model sensor pose.
+  const sva::PTransformd bodyFsPose = fs.X_fsactual_parent();
   unsigned bodyIndex = currentRobot.bodyIndexByName(fs.parentBody());
 
   so::kine::Kinematics bodyFsKine = conversions::kinematics::fromSva(bodyFsPose, so::kine::Kinematics::Flags::vel);
@@ -1158,12 +1179,7 @@ void MCKineticsObserver::updateContacts(const mc_control::MCController & ctl, mc
   if(odometryType_ == so::odometry::OdometryType::Flat) { initCovariance(2, 2) = 0.0; }
 
   auto onNewContact = [this, &ctl, &logger, &initCovariance](KoContactWithSensor & newContact)
-  {
-    initCovariance.block(0, 0, 3, 3).setZero();
-    contactProcessCovariance_.block(0, 0, 6, 6).setZero();
-
-    setNewContact(ctl, newContact, initCovariance, logger);
-  };
+  { setNewContact(ctl, newContact, initCovariance, logger); };
   auto onMaintainedContact = [this, &ctl](KoContactWithSensor & maintainedContact)
   {
     updateContact(ctl, maintainedContact);
@@ -2064,6 +2080,19 @@ void MCKineticsObserver::addContactLogEntries(const mc_control::MCController & c
 
   logger.addLogEntry(category_ + "_debug_contactState_isSet_" + contact.surfaceName(), &contact,
                      [&contact]() -> std::string { return contact.isSet() ? "Set" : "notSet"; });
+
+  const auto & robot = my_robots_->robot();
+  if(robot.hasForceSensor(contact.fsName_))
+  {
+    logger.addLogEntry(category_ + "_debug_contactSensorCalibrationOffset_" + contact.surfaceName() + "_force",
+                       &contact,
+                       [this, &contact]() -> Eigen::Vector3d
+                       { return my_robots_->robot().forceSensor(contact.fsName_).calib().offset.force(); });
+    logger.addLogEntry(category_ + "_debug_contactSensorCalibrationOffset_" + contact.surfaceName() + "_torque",
+                       &contact,
+                       [this, &contact]() -> Eigen::Vector3d
+                       { return my_robots_->robot().forceSensor(contact.fsName_).calib().offset.moment(); });
+  }
 }
 
 void MCKineticsObserver::addContactMeasurementsLogEntries(mc_rtc::Logger & logger, const KoContactWithSensor & contact)

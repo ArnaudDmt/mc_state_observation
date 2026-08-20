@@ -91,9 +91,20 @@ protected:
   /// accelerations are set to zero in the control frame. Allows to ease computations performed in the local frame of
   /// the robot.
   /// @param measRobot The control robot. Used to retrieve the measurements.
-  void inputAdditionalWrench(const mc_control::MCController & ctl,
-                             const mc_rbdyn::Robot & inputRobot,
+  void inputAdditionalWrench(const mc_rbdyn::Robot & inputRobot,
                              const mc_rbdyn::Robot & measRobot);
+
+  /// @brief Remove the calibrated gravity contribution using a parent pose in the floating-base frame.
+  /// @param forceSensor Force sensor whose raw measurement is corrected.
+  /// @param X_fb_parent Parent-body pose in the floating-base frame.
+  /// @param R_fb_world Rotation mapping world-frame vectors into the estimated floating-base frame.
+  sva::ForceVecd wrenchWithoutGravity(const mc_rbdyn::ForceSensor & forceSensor,
+                                      const sva::PTransformd & X_fb_parent,
+                                      const Eigen::Matrix3d & R_fb_world) const;
+
+  /// @brief Return a calibrated force-sensor wrench expressed in the floating-base frame.
+  sva::ForceVecd wrenchInFloatingBaseFrame(const mc_rbdyn::ForceSensor & forceSensor,
+                                           const mc_rbdyn::Robot & inputRobot) const;
 
   /// @brief Update the IMUs, including the measurements, measurement covariances and kinematics in the floating
   /// base's frame (user frame)

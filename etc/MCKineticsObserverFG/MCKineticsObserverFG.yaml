@@ -1,0 +1,148 @@
+# Factor-graph kinetics observer configuration
+#
+# Every noise below is a per-axis STANDARD DEVIATION, ROUNDED to one or two significant figures
+# from the square root of the corresponding variance of the EKF implementation
+# (etc/MCKineticsObserver/MCKineticsObserver.yaml and its robots/ files), which is written in the
+# comment at the end of each line. The rounding is at most 5 percent and was measured inert; the
+# two estimators are therefore given the same uncertainty to the precision that matters, not to the
+# last digit. Anything that needs the exact square root should read it from the EKF file. A scalar is still
+# accepted and means "the same on the three axes"; write one only for a quantity that really is
+# isotropic.
+leggedOdometry:
+  odometryType: Flat
+  # Keeps the load-weighted mean of the contact rest poses from DRIFTING. That mean is the mode the
+  # contact rest poses cannot observe -- every contact sliding together while the floating base
+  # follows -- so it must not be free for the others to be observable. Its VALUE stays free: it
+  # legitimately moves forward as the robot walks, because each new contact is created further
+  # along.
+  withRestPoseAverageFactor: true
+
+withDebugLogs: false
+withGui: false
+
+# Per-surface rotation correcting the direction of the measured force, as a rotation vector in the
+# contact frame (radians). Empty means no correction.
+wrenchCalibration: {}
+
+# Absolute anchor holding each contact rest pose at the pose it was created at, standard deviation
+# in metres and radians. 0 disables it.
+#
+# Without it the graph only constrains DIFFERENCES between consecutive rest poses, and a chain of
+# differences lets the whole smoother window rotate or translate in one block at no cost. Measured
+# on HRP5_MultiContact_1: during the single support at t=39.3 s the right foot's rest orientation
+# turned by 74 mrad in yaw while the factor forbidding exactly that reported a residual of
+# 3.7e-6 rad -- each step's increment was genuinely tiny, it was the window that had turned between
+# two solves. The base yaw followed and never came back, which was most of the gap with the EKF.
+#
+# With the anchor, on the four HRP-5P multicontacts, mean horizontal error 0.0062 / 0.0075 / 0.0066
+# / 0.0096 m against 0.0128 / 0.0091 / 0.0110 / 0.0153 for the EKF, and mean yaw error 0.33 / 0.29 /
+# 0.31 / 0.39 degrees against 0.81 / 0.50 / 0.58 / 0.89. The response is monotone from 1e-1 to 1e-3
+# and plateaus around 1e-4.
+restPoseAnchorNoise: 1e-3
+
+# Contact loop, after Yoon (T-RO 2023): the same statement as the per-step rest-pose average
+# factors, but between the current rest poses and those this many steps earlier. The per-step
+# factors can all be satisfied while the whole smoother window turns, because each only sees its
+# two neighbours; the loop skips the neighbours and sees the accumulation. 0 disables it.
+#
+# OFF by default, and the trade is worth stating. Measured on the four HRP-5P multicontacts, mean
+# yaw error with 18 steps: 0.154 / 0.255 / 0.139 / 0.336 deg against 0.219 / 0.222 / 0.183 / 0.385
+# without, so 12 percent better ON AVERAGE but 15 percent WORSE on MultiContact_2. Mean horizontal
+# error is unchanged (+0.4 percent). It needs the
+# smoother window to cover restPoseLoopSteps * timeStep, hence KO_FG_SMOOTHER_LAG at 0.1 s for 18
+# steps at 200 Hz, and that roughly doubles the tick time. The longer window on its own buys
+# nothing at all -- measured identical to three digits -- so the gain really is the loop's.
+restPoseLoopSteps: 0
+
+contacts:
+  contactsDetection: Surfaces
+  surfacesForContactDetection: [RightFootCenter, LeftFootCenter]
+  schmittTriggerLowerPropThreshold: 0.11
+  schmittTriggerUpperPropThreshold: 0.12
+
+# Initial standard deviations. EKF counterparts, as variances, in ekfStateProcessVariances.
+stateInitNoises:
+  posNoise: [0.0, 0.0, 0.0] # statePositionInitVariance [0, 0, 0]: the initial position is the origin by definition
+  oriNoise: [1e-2, 1e-2, 0.0] # stateOriInitVariance [1e-4, 1e-4, 0]: the initial yaw defines the world frame
+  linVelNoise: [1e-3, 1e-3, 1e-3] # stateLinVelInitVariance [1e-6, 1e-6, 1e-6]
+  angVelNoise: [1e-3, 1e-3, 1e-3] # stateAngVelInitVariance [1e-6, 1e-6, 1e-6]
+  gyroBiasNoise: [1e-4, 1e-4, 1e-4] # gyroBiasInitVariance [1e-8, 1e-8, 1e-8]
+  disturbForceNoise: [10.0, 10.0, 10.0] # unmodeledForceInitVariance [100, 100, 100]
+  disturbMomentNoise: [10.0, 10.0, 10.0] # unmodeledTorqueInitVariance [100, 100, 100]
+  # No EKF counterpart: the EKF has no acceleration state of its own and pins the rest-pose mean
+  # through a projector on the process covariance rather than through a factor.
+  linAccNoise: 1e-3
+  angAccNoise: 1e-3
+  contactRestPosAverageNoise: 1e-6
+  contactRestYawAverageNoise: 1e-6 # pins one scalar, the mean yaw: only the third component is read
+  # Contacts created once the estimate is already anchored by another contact.
+  restPosNoise: [2e-3, 2e-3, 1.5e-3] # contactPositionInitVarianceNewContacts [5e-6, 5e-6, 2e-6]
+  restOriNoise: [1.5e-2, 1.5e-2, 1.5e-2] # contactOriInitVarianceNewContacts [2e-4, 2e-4, 2e-4]
+  forceNoise: [0.7, 0.7, 0.7] # contactForceInitVarianceNewContacts [0.5, 0.5, 0.5]
+  momentNoise: [3e-2, 3e-2, 3e-2] # contactTorqueInitVarianceNewContacts [9e-4, 9e-4, 9e-4]
+
+# Contacts created while nothing else anchors the estimate: the wrench is trusted far less, since
+# there is no second contact to contradict it. EKF counterparts: contact*InitVarianceFirstContacts.
+stateInitNoisesFirstContacts:
+  restPosNoise: [2e-3, 2e-3, 1.5e-3] # [5e-6, 5e-6, 2e-6]
+  restOriNoise: [1.5e-2, 1.5e-2, 1.5e-2] # [2e-4, 2e-4, 2e-4]
+  forceNoise: [20.0, 20.0, 20.0] # [400, 400, 400]
+  momentNoise: [10.0, 10.0, 10.0] # [100, 100, 100]
+
+# Process standard deviations, expressed for a 200 Hz controller. The observer rescales them by
+# sqrt(timeStep / 0.005), because one process factor is added per iteration with no dt factor.
+stateProcessNoises:
+  posNoise: [3e-5, 3e-5, 3e-5] # statePositionProcessVariance [1e-9, 1e-9, 1e-9]
+  oriNoise: [3e-6, 3e-6, 3e-6] # stateOriProcessVariance [1e-11, 1e-11, 1e-11]
+  linVelNoise: [1e-4, 1e-4, 1e-4] # stateLinVelProcessVariance [1e-8, 1e-8, 1e-8]
+  angVelNoise: [1e-5, 1e-5, 1e-5] # stateAngVelProcessVariance [1e-10, 1e-10, 1e-10]
+  gyroBiasNoise: [1e-9, 1e-9, 1e-9] # gyroBiasProcessVariance [1e-18, 1e-18, 1e-18]
+  disturbForceNoise: [0.3, 0.3, 0.3] # unmodeledForceProcessVariance [0.09, 0.09, 0.09]
+  disturbMomentNoise: [0.3, 0.3, 0.3] # unmodeledTorqueProcessVariance [0.09, 0.09, 0.09]
+  # No EKF counterpart: the EKF has no acceleration state of its own.
+  #
+  # These are the standard deviation of the whole-body dynamics residual, in m/s2 and rad/s2. They
+  # are set to the SAME uncertainty as the one the unmodelled wrench already expresses --
+  # disturbForceNoise / mass and I^-1 * disturbMomentNoise on HRP-5P, which is 94.97 kg and
+  # diag(I) = 22.55 / 21.06 / 6.18 kg.m2. KO_FG_DUMP_NOISES=1 prints both in the same unit.
+  #
+  # They are measured INERT, and that is structural, not a coincidence: LinAccFactor and
+  # AngAccFactor have a full-rank Jacobian with respect to BOTH the acceleration state and the
+  # unmodelled wrench, so their residual can always be driven to exactly zero through whichever is
+  # cheaper. The two settings are two valves in series on the same pipe and the loosest one takes
+  # everything. Measured on the four HRP-5P multicontacts and two RHPS1 runs: identical to three
+  # digits against 1e-6. They are written here at their physically meaningful value rather than at
+  # a token 1e-6, so that the file states the uncertainty actually granted to the dynamics.
+  linAccNoise: [3e-3, 3e-3, 3e-3]
+  angAccNoise: [1e-2, 1.5e-2, 5e-2]
+  # The contact rest pose drifts horizontally far more than vertically, and in yaw far more than in
+  # roll and pitch. A single scalar here would have to be the horizontal value, letting the rest
+  # pose sink through the ground, or the vertical one, freezing the slippage the estimator exists
+  # to observe.
+  restPosNoise: [3e-3, 3e-3, 3e-5] # contactPositionProcessVariance [1e-5, 1e-5, 1e-9]
+  restOriNoise: [1e-4, 1e-4, 1e-2] # contactOrientationProcessVariance [1e-8, 1e-8, 1e-4]
+  forceNoise: [30.0, 30.0, 30.0] # contactForceProcessVariance [900, 900, 900]
+  momentNoise: [15.0, 15.0, 15.0] # contactTorqueProcessVariance [225, 225, 225]
+
+# Joint-torque factors. DISABLED, and the reason is worth keeping.
+#
+# They were measured to help a lot -- mean horizontal error against the motion capture 0.044 m ->
+# 0.027 m on HRP5_MultiContact_1 -- but that was with the smoother horizon still at its old 0.016 s.
+# What they were doing was compensating for an estimator that had almost no memory. With the horizon
+# at 0.1 s the ranking reverses: 0.0070 m without them, 0.0105 m with, and the mean yaw error goes
+# from 0.35 to 0.60 degrees. Loosening them does not recover it either: at a torque sigma of 30, 100
+# and 300 N.m the error is 0.0122, 0.0103 and 0.0125 m, all worse than not using them at all.
+#
+# So they are off. Everything below is the configuration that was measured, kept so that re-enabling
+# is a one-line change; the plateau on the torque sigma ran from 1 to 30 N.m at the old horizon.
+# They also roughly double the tick time.
+jointTorques:
+  enabled: false
+  # The joint torque sensors are read directly; the command is not used as a stand-in, because on a
+  # replay it would make the estimator fit the controller rather than the robot.
+  useCommandAsMeasurement: false
+  noise: 10.0 # standard deviation of the measured joint torque, N.m
+  modelNoise: 10.0 # standard deviation of the whole-body dynamics residual
+  jointAccelerationInitNoise: 100.0 # rad/s2
+  jointAccelerationProcessNoise: 50.0 # rad/s2 per step
+  jointAccelerationFiniteDifferenceNoise: 25.0 # rad/s2, on the encoder finite difference

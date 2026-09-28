@@ -1,0 +1,21 @@
+# Per-axis standard deviations, square roots of the variances of
+# etc/MCKineticsObserver/robots/rhps1.yaml, so both estimators see the same sensor uncertainty.
+sensorNoises:
+  gyroNoise: [4e-3, 4e-3, 4e-3] # gyroSensorVariance [1.6e-5, 1.6e-5, 1.6e-5]
+  acceleroNoise: [6e-2, 6e-2, 6e-2] # acceleroSensorVariance [3.6e-3, 3.6e-3, 3.6e-3]
+  forceNoise: [1.0, 1.0, 1.0] # forceSensorVariance [1, 1, 1]
+  momentNoise: [3e-2, 3e-2, 3e-2] # torqueSensorVariance [9e-4, 9e-4, 9e-4]
+
+contacts:
+  linStiffness: [3e4, 3e4, 3e4]
+  angStiffness: [727, 727, 727]
+  linDamping: [150, 150, 150]
+  angDamping: [17, 17, 17]
+
+# Rotation par surface corrigeant la direction de la force mesuree, vecteur de rotation dans le
+# repere de contact (radians). Reprise a l'identique de la configuration EKF du meme robot
+# (observers/MCKineticsObserver/rhps1.yaml) : sans elle le FG tourne avec les 18 degres d'erreur
+# d'etalonnage des capteurs d'effort du RHPS1 et n'est pas comparable a l'EKF.
+wrenchCalibration:
+  LeftFootCenter:  [0.047962, 0.324858, 0.015621]
+  RightFootCenter: [-0.282761, 0.142506, 0.001466]

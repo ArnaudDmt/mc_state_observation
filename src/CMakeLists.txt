@@ -67,9 +67,23 @@ endmacro()
 add_so_observer(AttitudeObserver)
 add_so_observer(MCWaiko)
 add_so_observer(TiltObserver)
+add_so_observer(MocapVisualizer)
 
 add_kineticsobserver()
 add_valinor()
+
+if(WITH_KINETICS_OBSERVER_FG)
+  find_package(GTSAM REQUIRED CONFIG)
+  find_package(GTSAM_UNSTABLE REQUIRED CONFIG)
+  find_package(kinetics_observer_fg REQUIRED CONFIG)
+  add_observer(
+    MCKineticsObserverFG "MCKineticsObserverFG.cpp"
+    "${CMAKE_SOURCE_DIR}/include/${PROJECT_NAME}/MCKineticsObserverFG.h")
+  target_link_libraries(
+    MCKineticsObserverFG
+    PUBLIC mc_rtc::mc_control state-observation::state-observation
+           mc_state_observation kinetics_observer_fg::kinetics_observer_fg)
+endif()
 
 if(WITH_ROS_OBSERVERS AND NOT BUILD_MCKINETICS_ONLY)
   add_simple_observer(MocapObserver)

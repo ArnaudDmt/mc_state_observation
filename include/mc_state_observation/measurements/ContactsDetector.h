@@ -74,6 +74,13 @@ public:
   /// @return void
   std::unordered_set<std::string> & updateContacts(const mc_control::MCController & ctl, const std::string & robotName);
 
+  /// @brief Clear runtime contact state while preserving the configured detection method and thresholds.
+  inline void reset()
+  {
+    latestContactList_.clear();
+    ignoredSurfaces_.clear();
+  }
+
   /// @brief Get the map of all the contacts
   ///
   /// @return std::unordered_map<std::string, contactsWithSensorT>&
@@ -132,6 +139,9 @@ protected:
   // list of surfaces used for contacts detection if @contactsDetection_ is
   // set to "Surfaces"
   std::vector<std::string> surfacesForContactDetection_;
+
+  // Invalid solver surfaces already reported to the user.
+  std::unordered_set<std::string> ignoredSurfaces_;
 };
 } // namespace mc_state_observation::measurements
 

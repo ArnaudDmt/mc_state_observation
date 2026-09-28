@@ -80,9 +80,10 @@ std::unordered_set<std::string> & ContactsDetector<ContactT>::updateContacts(con
 {
   for(auto it = latestContactList_.begin(); it != latestContactList_.end();)
   {
-    const std::string & fsName = ctl.robot(robotName).frame(*it).forceSensor().name();
+    const auto & robot = ctl.robot(robotName);
+    const std::string fsName = contactsDetectionMethod_ == Sensors ? *it : robot.frame(*it).forceSensor().name();
 
-    if(ctl.robot(robotName).forceSensor(fsName).wrenchWithoutGravity(ctl.realRobot(robotName)).force().z()
+    if(robot.forceSensor(fsName).wrenchWithoutGravity(ctl.realRobot(robotName)).force().z()
        <= schmittTrigger_.lowerThreshold)
     {
       it = latestContactList_.erase(it); // returns next iterator
@@ -115,6 +116,15 @@ void ContactsDetector<ContactT>::findContactsFromSolver(const mc_control::MCCont
 {
   const auto & measRobot = ctl.robot(robotName);
 
+  auto addSurface = [this, &measRobot](const std::string & surface)
+  {
+    if(measRobot.frame(surface).hasForceSensor()) { latestContactList_.insert(surface); }
+    else if(ignoredSurfaces_.insert(surface).second)
+    {
+      mc_rtc::log::warning("The solver contact surface {} has no force sensor and will be ignored.", surface);
+    }
+  };
+
   for(const auto & contact : ctl.solver().contacts())
   {
 
@@ -122,12 +132,11 @@ void ContactsDetector<ContactT>::findContactsFromSolver(const mc_control::MCCont
     const auto & r2 = ctl.robots().robot(contact.r2Index());
     if(r1.name() == measRobot.name())
     {
-
-      if(r2.mb().nrDof() == 0) { latestContactList_.insert(contact.r1Surface()->name()); }
+      if(r2.mb().nrDof() == 0) { addSurface(contact.r1Surface()->name()); }
     }
     else if(r2.name() == measRobot.name())
     {
-      if(r1.mb().nrDof() == 0) { latestContactList_.insert(contact.r2Surface()->name()); }
+      if(r1.mb().nrDof() == 0) { addSurface(contact.r2Surface()->name()); }
     }
   }
 }
@@ -141,6 +150,7 @@ void ContactsDetector<ContactT>::findContactsFromSurfaces(const mc_control::MCCo
 
   for(auto & surface : surfacesForContactDetection_)
   {
+    if(!robot.frame(surface).hasForceSensor()) { continue; }
     const std::string & fsName = robot.frame(surface).forceSensor().name();
     if(robot.forceSensor(fsName).wrenchWithoutGravity(realRobot).force().z() > schmittTrigger_.upperThreshold)
     {

@@ -10,6 +10,8 @@
 #include <state-observation/dynamics-estimators/kinetics-observer.hpp>
 #include <state-observation/tools/measurements-manager/IMU.hpp>
 #include <string_view>
+#include <unordered_map>
+#include <random>
 
 namespace mc_state_observation
 {
@@ -35,7 +37,10 @@ struct KoContactWithSensor : public stateObservation::measurements::Contact
 
   inline void fsName(const std::string_view & fsName) { fsName_ = fsName; }
 
-  inline void resetContact() noexcept { Contact::resetContact(); }
+  inline void resetContact() noexcept
+  {
+    Contact::resetContact();
+  }
 
 public:
   // kinematics of the contact frame in the floating base's frame
@@ -48,6 +53,11 @@ public:
   Eigen::Matrix<double, 6, 1> wrenchInCentroid_ = Eigen::Matrix<double, 6, 1>::Zero();
   // for debug only
   stateObservation::Vector6 viscoElasticWrenchAfterCorrection_;
+  // Rotation applied at contact creation to go from the current contact orientation to the
+  // rest orientation stored in the state (rotation vector in the contact frame), and its norm in degrees.
+  stateObservation::Vector3 initRestOriDiff_ = stateObservation::Vector3::Zero();
+  double initRestOriAngleDeg_ = 0.0;
+  stateObservation::kine::Kinematics initKine_;
   std::string fsName_;
 
   // the sensor measurement has to be used by the observer
@@ -56,8 +66,12 @@ public:
 
 struct KoContactsManager : public stateObservation::measurements::ContactsManager<KoContactWithSensor>
 {
-  // map that relates a force sensor to the associated surface
-  std::unordered_map<std::string, std::string> fs_Surface_Map;
+  void reset()
+  {
+    for(auto & [_, contact] : listContacts_) { contact.resetContact(); }
+    currentContactsList_.clear();
+    contactsDetected_ = false;
+  }
 };
 
 struct MCKineticsObserver : public mc_observers::Observer
@@ -196,14 +210,14 @@ protected:
   //                                                              fbContactPose);
 
   /// @brief Updates the measurements of the force sensor attached to a contact.
-  /// @details Expresses the measured wrench in the frame of the contact. The sensor is generally not directly
-  /// attached to the contact, so the transformation from the sensor to the contact might be necessary.
+  /// @details Expresses the measured wrench in the frame of the contact. Sensor-based contacts already use the force
+  /// sensor frame; surface-based contacts are transformed from the sensor frame to the surface frame.
   /// @param contact Contact associated to the sensor
   /// @param measuredWrench measured wrench
-  /// @param surfaceSensorKine transformation from the sensor to the contact.
-  void updateContactForceMeasurement(KoContactWithSensor & contact,
-                                     const sva::ForceVecd & measuredWrench,
-                                     const stateObservation::kine::Kinematics * contactSensorKine = nullptr);
+  void updateContactForceMeasurement(KoContactWithSensor & contact, const sva::ForceVecd & measuredWrench);
+
+  /// @brief Returns the sensor wrench covariance expressed at the contact origin in the contact frame.
+  stateObservation::Matrix6 contactWrenchCovariance(const KoContactWithSensor & contact) const;
 
   /// @brief Computes the rest pose of the contact in the world.
   /// @details At contact detection, a wrench is already applied, which means the contact frame obtained by forward
@@ -305,9 +319,6 @@ private:
   // instance of the Tilt Observer used as a backup
   MCValinor valinor_;
 
-  // contacts maintained during the current iteration
-  std::unordered_map<unsigned, KoContactWithSensor *> maintainedContacts_;
-
   enum EstimationState
   {
     noIssue,
@@ -373,6 +384,18 @@ private:
   bool withUnmodeledWrench_ = true;
   // indicates if we want to estimate the bias on the gyrometer measurement within the Kinetics Observer.
   bool withGyroBias_ = true;
+  bool pinContacts_ = false;
+  // Removes the ANGULAR visco-elastic contact model entirely: no angular stiffness and no angular
+  // damping on any axis. Distinct from pinContacts_, which zeroes the stiffness but keeps the yaw
+  // damping -- and that damping is what actually carries the yaw correction, so the two variants
+  // are not interchangeable. Exists as an option rather than as a configuration override because
+  // the stiffnesses are declared per robot, where an inline override could be silently ignored.
+  bool noAngularFlexibility_ = false;
+  double contactRestOrientationErrorDeg_ = 0.0;
+  unsigned contactRestOrientationSeed_ = 0;
+  std::mt19937 contactRestOrientationRng_;
+  std::unordered_map<std::string, stateObservation::Vector6> ignoredSensorWrenches_;
+  std::unordered_map<std::string, stateObservation::Vector3> wrenchCalibration_;
 
   /* Kalman Filter's covariances */
 
@@ -431,10 +454,12 @@ private:
   KoContactsDetector contactsDetector_;
 
   KoContactsManager contactsManager_;
+  std::unordered_map<std::string, sva::ForceVecd> forceSensorMeasurements_;
 
   /* IMU variables */
   // manager for the IMUs
   std::vector<stateObservation::measurements::IMU> listIMUs_;
+  std::vector<stateObservation::kine::Kinematics> imuInputKinematics_;
 
   /* Utilitary variables */
   // zero frame transformation
@@ -478,6 +503,7 @@ private:
   stateObservation::Vector correctedMeasurements_;
   // For logs only. Kinematics of the centroid frame within the world frame
   stateObservation::kine::Kinematics globalCentroidKinematics_;
+  stateObservation::Vector initialStateVector_;
 };
 
 } // namespace mc_state_observation

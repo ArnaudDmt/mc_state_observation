@@ -1,3 +1,6 @@
+# Paper experiments (all disabled by default).
+pinContacts: false # KO-PC: no wrench measurements, angular stiffness, gyro bias or disturbance wrench; yaw damping retained
+
 # gains for the Valinor Observer in backup in case of Kinetics divergence
 filterGains:
   finalAlpha: 5
@@ -42,5 +45,8 @@ ekfStateProcessVariances:
   contactTorqueProcessVariance: [25,25,25]
 
 contacts:
+  restOrientationErrorDeg: 0.0 # Set to 30 for the paper test; applied to new contacts after t=0
+  restOrientationErrorSeed: 0
+  ignoredSensors: [] # [LeftHandForceSensor]: omit detection AND additional-wrench input; keep evaluation logs
   contactsDetection: Surfaces
   surfacesForContactDetection: [RightFootCenter, LeftFootCenter]

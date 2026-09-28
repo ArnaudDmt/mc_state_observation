@@ -3,6 +3,9 @@ option(INSTALL_OBSERVER_CONFIG_FILES
 
 if(${INSTALL_OBSERVER_CONFIG_FILES})
   set(OBSERVERS MCKineticsObserver Tilt MCWaiko MCValinor)
+  if(WITH_KINETICS_OBSERVER_FG)
+    list(APPEND OBSERVERS MCKineticsObserverFG)
+  endif()
 
   foreach(OBS ${OBSERVERS})
 

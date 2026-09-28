@@ -4,7 +4,7 @@
 #include <mc_observers/ObserverMacros.h>
 #include <mc_rtc/io_utils.h>
 #include <mc_rtc/logging.h>
-#include <mc_state_observation/MOCAPVisualizer.h>
+#include <mc_state_observation/MocapVisualizer.h>
 #include <mc_state_observation/gui_helpers.h>
 
 #include <RBDyn/CoM.h>
@@ -16,13 +16,13 @@
 
 namespace mc_state_observation
 {
-MOCAPVisualizer::MOCAPVisualizer(const std::string & type, double dt) : mc_observers::Observer(type, dt) {}
+MocapVisualizer::MocapVisualizer(const std::string & type, double dt) : mc_observers::Observer(type, dt) {}
 
 ///////////////////////////////////////////////////////////////////////
 /// --------------------------Core functions---------------------------
 ///////////////////////////////////////////////////////////////////////
 
-void MOCAPVisualizer::configure(const mc_control::MCController & ctl, const mc_rtc::Configuration & config)
+void MocapVisualizer::configure(const mc_control::MCController & ctl, const mc_rtc::Configuration & config)
 {
   robot_ = config("robot", ctl.robot().name());
   std::string numExpe;
@@ -31,7 +31,7 @@ void MOCAPVisualizer::configure(const mc_control::MCController & ctl, const mc_r
              + "/MoCap/c++Reader/resultingData/aligned_data.csv";
 }
 
-void MOCAPVisualizer::reset(const mc_control::MCController & ctl)
+void MocapVisualizer::reset(const mc_control::MCController & ctl)
 {
   const auto & robot = ctl.robot(robot_);
   const auto & realRobot = ctl.realRobot(robot_);
@@ -40,7 +40,7 @@ void MOCAPVisualizer::reset(const mc_control::MCController & ctl)
   my_robots_->robotCopy(robot, robot.name());
   ctl.gui()->addElement(
       {"Robots"},
-      mc_rtc::gui::Robot("MOCAPVisualizer", [this]() -> const mc_rbdyn::Robot & { return my_robots_->robot(); }));
+      mc_rtc::gui::Robot("MocapVisualizer", [this]() -> const mc_rbdyn::Robot & { return my_robots_->robot(); }));
   /*
 ctl.gui()->addElement({"Robots"},
                     mc_rtc::gui::Robot("Real", [&ctl]() -> const mc_rbdyn::Robot & { return ctl.realRobot(); }));*/
@@ -60,7 +60,7 @@ ctl.gui()->addElement({"Robots"},
   }
 }
 
-bool MOCAPVisualizer::run(const mc_control::MCController & ctl)
+bool MocapVisualizer::run(const mc_control::MCController & ctl)
 {
   // std::cout << "\033[1;31m" << std::endl << "New iteration: " << std::endl << "\033[0m\n";
   const auto & robot = ctl.robot(robot_);
@@ -113,20 +113,20 @@ bool MOCAPVisualizer::run(const mc_control::MCController & ctl)
 /// -------------------------Called functions--------------------------
 ///////////////////////////////////////////////////////////////////////
 
-void MOCAPVisualizer::update(mc_control::MCController & ctl) // this function is called by the pipeline if the
+void MocapVisualizer::update(mc_control::MCController & ctl) // this function is called by the pipeline if the
                                                              // update is set to true in the configuration file
 {
   auto & realRobot = ctl.realRobot(robot_);
   update(realRobot);
 }
 
-void MOCAPVisualizer::update(mc_rbdyn::Robot & robot)
+void MocapVisualizer::update(mc_rbdyn::Robot & robot)
 {
   robot.posW(X_0_fb_);
   // robot.velW(v_fb_0_.vector());
 }
 
-void MOCAPVisualizer::updateContacts(const mc_control::MCController & ctl)
+void MocapVisualizer::updateContacts(const mc_control::MCController & ctl)
 {
   const auto & realRobot = ctl.realRobot(robot_);
   const auto & mocapRobot = my_robots_->robot();
@@ -188,7 +188,7 @@ void MOCAPVisualizer::updateContacts(const mc_control::MCController & ctl)
 /// -------------------------------Logs--------------------------------
 ///////////////////////////////////////////////////////////////////////
 
-void MOCAPVisualizer::addToLogger(const mc_control::MCController &,
+void MocapVisualizer::addToLogger(const mc_control::MCController &,
                                   mc_rtc::Logger & logger,
                                   const std::string & category)
 {
@@ -202,20 +202,20 @@ void MOCAPVisualizer::addToLogger(const mc_control::MCController &,
                      { return -so::kine::rotationMatrixToYawAxisAgnostic(X_0_fb_.rotation()); });
 }
 
-void MOCAPVisualizer::addContactsLogs(const std::string & name, mc_rtc::Logger & logger)
+void MocapVisualizer::addContactsLogs(const std::string & name, mc_rtc::Logger & logger)
 {
-  logger.addLogEntry("MOCAPVisualizer_contacts_" + name + "_position",
+  logger.addLogEntry("MocapVisualizer_contacts_" + name + "_position",
                      [this, name]() -> so::Vector3 { return contacts_.at(name).worldRefKine_.position(); });
-  logger.addLogEntry("MOCAPVisualizer_contacts_" + name + "_orientation",
+  logger.addLogEntry("MocapVisualizer_contacts_" + name + "_orientation",
                      [this, name]() -> so::Quaternion { return contacts_.at(name).quat_; });
-  logger.addLogEntry("MOCAPVisualizer_contacts_" + name + "_orientation_RollPitchYaw",
+  logger.addLogEntry("MocapVisualizer_contacts_" + name + "_orientation_RollPitchYaw",
                      [this, name]() -> so::Vector3
                      { return contacts_.at(name).worldRefKine_.orientation.toRollPitchYaw(); });
 }
 
-void MOCAPVisualizer::removeFromLogger(mc_rtc::Logger & logger, const std::string & category) {}
+void MocapVisualizer::removeFromLogger(mc_rtc::Logger & logger, const std::string & category) {}
 
-void MOCAPVisualizer::addToGUI(const mc_control::MCController &,
+void MocapVisualizer::addToGUI(const mc_control::MCController &,
                                mc_rtc::gui::StateBuilder & gui,
                                const std::vector<std::string> & category)
 {
@@ -231,7 +231,7 @@ void MOCAPVisualizer::addToGUI(const mc_control::MCController &,
 #include <string>
 #include <vector>
 
-void MOCAPVisualizer::extractMocapData()
+void MocapVisualizer::extractMocapData()
 {
   std::string fname;
   // cout << "Enter the file name: ";
@@ -376,4 +376,4 @@ void MOCAPVisualizer::extractMocapData()
 
 } // namespace mc_state_observation
 
-EXPORT_OBSERVER_MODULE("MOCAPVisualizer", mc_state_observation::MOCAPVisualizer)
+EXPORT_OBSERVER_MODULE("MocapVisualizer", mc_state_observation::MocapVisualizer)

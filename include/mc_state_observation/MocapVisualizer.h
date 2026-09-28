@@ -32,10 +32,10 @@ struct MocapData
   so::kine::Kinematics kine;
 };
 
-struct MOCAPVisualizer : public mc_observers::Observer
+struct MocapVisualizer : public mc_observers::Observer
 {
 
-  MOCAPVisualizer(const std::string & type, double dt);
+  MocapVisualizer(const std::string & type, double dt);
 
   void configure(const mc_control::MCController & ctl, const mc_rtc::Configuration &) override;
 

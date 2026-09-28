@@ -56,6 +56,14 @@ void MCValinor::configure(const mc_control::MCController & ctl, const mc_rtc::Co
 
   measurements::ContactsDetectorSurfacesConfiguration contactsConf(surfacesForContactDetection);
 
+  // Same optional thresholds as MCKineticsObserver, so that both observers can detect contacts identically.
+  if(contactsConfig.has("schmittTriggerLowerPropThreshold") && contactsConfig.has("schmittTriggerUpperPropThreshold"))
+  {
+    double schmittTriggerLowerPropThreshold = contactsConfig("schmittTriggerLowerPropThreshold");
+    double schmittTriggerUpperPropThreshold = contactsConfig("schmittTriggerUpperPropThreshold");
+    contactsConf.schmittTriggerPropThresholds(schmittTriggerLowerPropThreshold, schmittTriggerUpperPropThreshold);
+  }
+
   contactsDetector_.init(ctl, robot_, contactsConf);
 
   mc_rtc::Configuration odomConfig;

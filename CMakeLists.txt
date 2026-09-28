@@ -54,6 +54,7 @@ else()
 endif()
 option(WITH_ROS_OBSERVERS "Enable ROS-based observers"
        ${WITH_ROS_OBSERVERS_DEFAULT})
+option(WITH_KINETICS_OBSERVER_FG "Build the factor-graph kinetics observer" OFF)
 
 set(AMENT_CMAKE_UNINSTALL_TARGET
     OFF

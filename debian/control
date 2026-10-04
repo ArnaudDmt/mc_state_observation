@@ -12,6 +12,7 @@ Build-Depends: debhelper (>= 9),
                graphviz,
                libmc-rtc-dev,
                libgram-savitzky-golay-dev,
+               ros-@ROS_DISTRO@-rclcpp,
                ros-@ROS_DISTRO@-mc-rtc-plugin,
                ros-@ROS_DISTRO@-tf2-eigen
 

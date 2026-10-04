@@ -25,19 +25,13 @@ using RosRate = rclcpp::Rate;
 using RosTime = rclcpp::Time;
 
 inline bool ros_ok()
-{
-  return rclcpp::ok();
-}
+{ return rclcpp::ok(); }
 
 inline void spinOnce(const mc_rtc::NodeHandlePtr & nh)
-{
-  rclcpp::spin_some(nh);
-}
+{ rclcpp::spin_some(nh); }
 
 inline RosTime RosTimeNow()
-{
-  return rclcpp::Clock().now();
-}
+{ return rclcpp::Clock().now(); }
 #else
 using PoseStamped = geometry_msgs::PoseStamped;
 using TransformStamped = geometry_msgs::TransformStamped;
@@ -46,19 +40,13 @@ using RosRate = ros::Rate;
 using RosTime = ros::Time;
 
 inline bool ros_ok()
-{
-  return ros::ok();
-}
+{ return ros::ok(); }
 
 inline void spinOnce(const mc_rtc::NodeHandlePtr &)
-{
-  ros::spinOnce();
-}
+{ ros::spinOnce(); }
 
 inline RosTime RosTimeNow()
-{
-  return RosTime::now();
-}
+{ return RosTime::now(); }
 #endif
 
 } // namespace mc_state_observation

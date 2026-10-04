@@ -10,9 +10,7 @@ namespace filter
 
 Rotation::Rotation(const gram_sg::SavitzkyGolayFilterConfig & conf)
 : sg_conf(conf), sg_filter(conf), buffer(2 * sg_filter.config().m + 1)
-{
-  reset(Eigen::Matrix3d::Zero());
-}
+{ reset(Eigen::Matrix3d::Zero()); }
 
 void Rotation::reset(const Eigen::Matrix3d & r)
 {
@@ -21,14 +19,10 @@ void Rotation::reset(const Eigen::Matrix3d & r)
 }
 
 void Rotation::reset()
-{
-  buffer.clear();
-}
+{ buffer.clear(); }
 
 void Rotation::add(const Eigen::Matrix3d & r)
-{
-  buffer.push_back(r);
-}
+{ buffer.push_back(r); }
 
 Eigen::Matrix3d Rotation::filter() const
 {

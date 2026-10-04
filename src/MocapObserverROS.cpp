@@ -26,9 +26,7 @@ void MocapObserverROS::configure(const mc_control::MCController & ctl, const mc_
 }
 
 void MocapObserverROS::reset(const mc_control::MCController & ctl)
-{
-  MocapObserver::reset(ctl);
-}
+{ MocapObserver::reset(ctl); }
 
 bool MocapObserverROS::run(const mc_control::MCController & ctl)
 {

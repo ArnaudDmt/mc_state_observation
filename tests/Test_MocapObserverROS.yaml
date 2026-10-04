@@ -1,7 +1,0 @@
-ObserverModulePaths: ["$<TARGET_FILE_DIR:MocapObserverROS>"]
-ObserverPipelines:
-  name: MainObserverPipeline
-  gui: false
-  observers:
-    - type: MocapObserverROS
-      update: false

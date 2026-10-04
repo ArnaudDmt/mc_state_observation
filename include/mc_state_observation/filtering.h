@@ -26,9 +26,7 @@ protected:
 public:
   EigenVector(const gram_sg::SavitzkyGolayFilterConfig & conf)
   : sg_conf(conf), sg_filter(conf), buffer(2 * sg_filter.config().m + 1)
-  {
-    reset(T::Zero());
-  }
+  { reset(T::Zero()); }
 
   void reset(const T & data)
   {

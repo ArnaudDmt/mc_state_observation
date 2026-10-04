@@ -1,24 +1,22 @@
+ci:
+  autoupdate_schedule: quarterly
 repos:
 - repo: meta
   hooks:
   - id: check-useless-excludes
 - repo: https://github.com/pre-commit/mirrors-clang-format
-  rev: v20.1.4
+  rev: v22.1.5
   hooks:
   - id: clang-format
     'types_or': [c++, c]
 - repo: https://github.com/pre-commit/pre-commit-hooks
-  rev: v5.0.0
+  rev: v6.0.0
   hooks:
   - id: check-added-large-files
   - id: check-ast
   - id: check-executables-have-shebangs
   - id: check-merge-conflict
   - id: check-yaml
-    exclude: |
-      (?x)^(
-          tests/mc_rtc.in.yaml|
-      )$
   - id: debug-statements
   - id: destroyed-symlinks
   - id: detect-private-key

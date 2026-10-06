@@ -219,6 +219,14 @@ protected:
   /// @brief Returns the sensor wrench covariance expressed at the contact origin in the contact frame.
   stateObservation::Matrix6 contactWrenchCovariance(const KoContactWithSensor & contact) const;
 
+  /// Covariance of the contact pose given by the forward kinematics, as the RI-EKF plugin computes it.
+  stateObservation::Matrix6 legKinematicsCovariance(const mc_control::MCController & ctl,
+                                                    const KoContactWithSensor & contact) const;
+
+  /// Contact rest pose in the floating-base frame: the forward kinematics minus the static visco-elastic deflection
+  /// produced by the measured wrench.
+  stateObservation::kine::Kinematics compliantRestKine(const KoContactWithSensor & contact) const;
+
   /// @brief Computes the rest pose of the contact in the world.
   /// @details At contact detection, a wrench is already applied, which means the contact frame obtained by forward
   /// kinematics is not the rest pose. We thus remove it using the viscoelastic model and the measured wrench.
@@ -391,6 +399,19 @@ private:
   // are not interchangeable. Exists as an option rather than as a configuration override because
   // the stiffnesses are declared per robot, where an inline override could be silently ignored.
   bool noAngularFlexibility_ = false;
+  bool legKinematicsContacts_ = false;
+  double legKinematicsJointVariance_ = 2e-4;
+  bool legKinematicsFloatingBaseNoise_ = true;
+  bool legKinematicsPositionOnly_ = false;
+  bool legKinematicsWrenchCorrection_ = false;
+  bool legKinematicsCompliant_ = false;
+  bool legKinematicsCompliantProcess_ = false;
+  bool legKinematicsDeflection_ = false;
+  bool legKinematicsWrenchState_ = false;
+  bool legKinematicsWrenchDelay_ = false;
+  bool contactWrenchInitFromMeasurement_ = false;
+  bool legKinematicsWrenchStateNoise_ = false;
+  std::unordered_map<int, stateObservation::Vector6> previousContactWrenches_;
   double contactRestOrientationErrorDeg_ = 0.0;
   unsigned contactRestOrientationSeed_ = 0;
   std::mt19937 contactRestOrientationRng_;

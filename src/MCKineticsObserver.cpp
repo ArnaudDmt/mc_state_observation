@@ -1,6 +1,7 @@
 /* Copyright 2017-2020 CNRS-AIST JRL, CNRS-UM LIRMM */
 #include <mc_observers/ObserverMacros.h>
 #include <mc_rbdyn/ForceSensor.h>
+#include <RBDyn/Jacobian.h>
 #include <mc_rtc/logging.h>
 
 #include "mc_state_observation/measurements/ContactsDetector.h"
@@ -65,6 +66,18 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   auto contactsConfig = config("contacts");
   pinContacts_ = config("pinContacts", false);
   noAngularFlexibility_ = config("noAngularFlexibility", false);
+  legKinematicsContacts_ = config("legKinematicsContacts", false);
+  legKinematicsJointVariance_ = config("legKinematicsJointVariance", 2e-4);
+  legKinematicsFloatingBaseNoise_ = config("legKinematicsFloatingBaseNoise", true);
+  legKinematicsPositionOnly_ = config("legKinematicsPositionOnly", false);
+  legKinematicsWrenchCorrection_ = config("legKinematicsWrenchCorrection", false);
+  legKinematicsCompliant_ = config("legKinematicsCompliant", false);
+  legKinematicsCompliantProcess_ = config("legKinematicsCompliantProcess", false);
+  legKinematicsDeflection_ = config("legKinematicsDeflection", false);
+  legKinematicsWrenchState_ = config("legKinematicsWrenchState", false);
+  legKinematicsWrenchDelay_ = config("legKinematicsWrenchDelay", false);
+  contactWrenchInitFromMeasurement_ = config("contactWrenchInitFromMeasurement", false);
+  legKinematicsWrenchStateNoise_ = config("legKinematicsWrenchStateNoise", false);
   contactRestOrientationErrorDeg_ = contactsConfig("restOrientationErrorDeg", 0.0);
   contactRestOrientationSeed_ = contactsConfig("restOrientationErrorSeed", unsigned(0));
   if(!std::isfinite(contactRestOrientationErrorDeg_) || contactRestOrientationErrorDeg_ < 0.0
@@ -162,17 +175,19 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
   config("withAccelerationEstimation", withAccelerationEstimation);
   observer_.setWithAccelerationEstimation(withAccelerationEstimation);
   observer_.setWithDampingInMatrixA(config("withDampingInMatrixA", true));
+  observer_.setWithContactKinematicsMeasurement(legKinematicsContacts_);
+  observer_.setWithContactWrenchCorrection(legKinematicsContacts_ && legKinematicsWrenchCorrection_);
+  observer_.setWithContactKinematicsDamping(legKinematicsContacts_ && legKinematicsCompliant_);
+  observer_.setWithContactKinematicsDeflection(legKinematicsContacts_ && legKinematicsCompliant_
+                                               && legKinematicsDeflection_);
+  observer_.setWithContactWrenchFeedForward(legKinematicsContacts_ && legKinematicsCompliant_ && legKinematicsDeflection_
+                                            && legKinematicsWrenchState_);
+  observer_.setWithContactWrenchFeedForwardNoise(legKinematicsWrenchStateNoise_);
 
   if(config.has("withAdaptativeContactProcessCov"))
   {
     observer_.setWithAdaptativeContactProcessCov(config("withAdaptativeContactProcessCov"));
   }
-  const double contactCovLoadWeightExponent = config("contactCovLoadWeightExponent", 0.0);
-  if(!std::isfinite(contactCovLoadWeightExponent) || contactCovLoadWeightExponent < 0.0)
-  {
-    mc_rtc::log::error_and_throw<std::invalid_argument>("contactCovLoadWeightExponent must be finite and non-negative");
-  }
-  observer_.setContactCovLoadWeightExponent(contactCovLoadWeightExponent);
   wrenchCalibration_.clear();
   for(const auto & [surface, correction] :
       config("wrenchCalibration", std::map<std::string, std::vector<double>>{}))
@@ -891,6 +906,27 @@ void MCKineticsObserver::inputAdditionalWrench(const mc_rbdyn::Robot & inputRobo
     }
   }
 
+  if(legKinematicsContacts_ && !legKinematicsWrenchCorrection_ && !legKinematicsWrenchState_)
+  {
+    std::unordered_map<int, so::Vector6> currentWrenches;
+    for(const auto & [_, contact] : contactsManager_.contacts())
+    {
+      if(!contact.isSet() || ignoredSensorWrenches_.count(contact.fsName())) { continue; }
+      currentWrenches[contact.id()] = contact.contactWrenchVector_;
+      so::Vector6 wrench = contact.contactWrenchVector_;
+      if(legKinematicsWrenchDelay_)
+      {
+        const auto previous = previousContactWrenches_.find(contact.id());
+        wrench = previous == previousContactWrenches_.end() ? so::Vector6::Zero() : previous->second;
+      }
+      const so::Matrix3 fbContactOri = contact.fbContactKine_.orientation.toMatrix3();
+      const so::Vector3 force = fbContactOri * wrench.segment<3>(0);
+      additionalUserResultingForce_ += force;
+      additionalUserResultingMoment_ += fbContactOri * wrench.segment<3>(3) + contact.fbContactKine_.position().cross(force);
+    }
+    previousContactWrenches_ = std::move(currentWrenches);
+  }
+
   // We pass this computed wrench as an input to the Kinetics Observer
   observer_.setAdditionalWrench(additionalUserResultingForce_, additionalUserResultingMoment_);
 
@@ -1180,6 +1216,65 @@ void MCKineticsObserver::updateContactForceMeasurement(KoContactWithSensor & con
   }
 }
 
+so::Matrix6 MCKineticsObserver::legKinematicsCovariance(const mc_control::MCController & ctl,
+                                                        const KoContactWithSensor & contact) const
+{
+  const auto & robot = ctl.realRobot(robot_);
+  const auto & surface = robot.surface(contact.surfaceName());
+  rbd::Jacobian jacobian(robot.mb(), surface.bodyName(), surface.X_b_s().translation());
+  Eigen::MatrixXd J = jacobian.jacobian(robot.mb(), robot.mbc());
+  // The RI-EKF plugin also puts the joint noise on the free-flyer columns; without them only the encoders count.
+  if(!legKinematicsFloatingBaseNoise_ && jacobian.jointsPath().front() == 0 && robot.mb().joint(0).dof() == 6)
+  {
+    J.leftCols(6).setZero();
+  }
+  const Eigen::MatrixXd worldCov = legKinematicsJointVariance_ * J * J.transpose();
+  // rbd orders the rows angular then linear; the observer measures position then orientation, in the base frame.
+  const so::Matrix3 E = robot.posW().rotation();
+  so::Matrix6 cov;
+  cov.block<3, 3>(0, 0) = E * worldCov.block<3, 3>(3, 3) * E.transpose();
+  cov.block<3, 3>(3, 3) = E * worldCov.block<3, 3>(0, 0) * E.transpose();
+  cov.block<3, 3>(0, 3) = E * worldCov.block<3, 3>(3, 0) * E.transpose();
+  cov.block<3, 3>(3, 0) = cov.block<3, 3>(0, 3).transpose();
+  if(legKinematicsCompliant_)
+  {
+    const so::Matrix3 R = contact.fbContactKine_.orientation.toMatrix3();
+    // With legKinematicsCompliantProcess the deflection carries the Kinetics Observer's own tolerance on the
+    // contact wrench: its process covariance on top of the sensor's.
+    so::Matrix6 wrenchCov = contactWrenchCovariance(contact);
+    if(legKinematicsCompliantProcess_) { wrenchCov += contactProcessCovariance_.block<6, 6>(6, 6); }
+    const so::Matrix3 linCompliance = linStiffness_.inverse();
+    const so::Matrix3 angCompliance = angStiffness_.inverse();
+    cov.block<3, 3>(0, 0) += R * linCompliance * wrenchCov.block<3, 3>(0, 0) * linCompliance.transpose() * R.transpose();
+    cov.block<3, 3>(3, 3) += R * angCompliance * wrenchCov.block<3, 3>(3, 3) * angCompliance.transpose() * R.transpose();
+  }
+  if(legKinematicsPositionOnly_)
+  {
+    cov.block<3, 3>(3, 3) = so::Matrix3::Identity() * 9e90;
+    cov.block<3, 3>(0, 3).setZero();
+    cov.block<3, 3>(3, 0).setZero();
+  }
+  return cov;
+}
+
+so::kine::Kinematics MCKineticsObserver::compliantRestKine(const KoContactWithSensor & contact) const
+{
+  const so::Matrix3 R = contact.fbContactKine_.orientation.toMatrix3();
+  so::kine::Kinematics rest = contact.fbContactKine_;
+  rest.position = contact.fbContactKine_.position() + R * linStiffness_.inverse() * contact.contactWrenchVector_.segment<3>(0);
+
+  // same orientation deflection as getOdometryWorldContactRest, the contact being assumed at rest
+  const so::Vector3 flexRotDiff = -2 * angStiffness_.inverse() * contact.contactWrenchVector_.segment<3>(3);
+  so::Matrix3 flexRotMatrix = so::Matrix3::Identity();
+  if(flexRotDiff.norm() > so::cst::epsilonAngle)
+  {
+    const double flexRotAngle = std::asin(std::min(1.0, flexRotDiff.norm() / 2.0));
+    flexRotMatrix = so::kine::Orientation(Eigen::AngleAxisd(flexRotAngle, flexRotDiff.normalized())).toMatrix3();
+  }
+  rest.orientation = so::Matrix3(R * flexRotMatrix.transpose());
+  return rest;
+}
+
 so::Matrix6 MCKineticsObserver::contactWrenchCovariance(const KoContactWithSensor & contact) const
 {
   if(contactsDetector_.getContactsDetection() == KoContactsDetector::ContactsDetection::Sensors)
@@ -1281,21 +1376,29 @@ void MCKineticsObserver::setNewContact(const mc_control::MCController & ctl,
   getContactFsKinematics(ctl, contact, inputRobot);
   updateContactForceMeasurement(contact, measuredWrench);
 
-  so::kine::Kinematics worldContactKine = observer_.getGlobalKinematicsOf(contact.fbContactKine_);
+  so::kine::Kinematics worldContactKine =
+      observer_.getGlobalKinematicsOf(legKinematicsContacts_ && legKinematicsCompliant_ ? compliantRestKine(contact)
+                                                                                         : contact.fbContactKine_);
 
   // addContact mutates worldContactKine into the rest pose; keep the pre-call orientation.
   const so::Matrix3 currentContactOri = worldContactKine.orientation.toMatrix3();
-  if(pinContacts_) { contact.sensorEnabled_ = false; }
-  if(pinContacts_)
+  if(pinContacts_ || (legKinematicsContacts_ && !legKinematicsWrenchCorrection_)) { contact.sensorEnabled_ = false; }
+  so::Matrix12 processCovariance = contactProcessCovariance_;
+  if(legKinematicsWrenchState_)
+  {
+    processCovariance.bottomRightCorner<6, 6>() =
+        legKinematicsWrenchStateNoise_ ? contactWrenchCovariance(contact) : so::Matrix6::Zero();
+  }
+  if(pinContacts_ || legKinematicsContacts_)
   {
     // No measured-wrench rest-pose correction or inverse of zero angular stiffness.
     if(odometryType_ == so::odometry::OdometryType::Flat) { worldContactKine.position()(2) = 0.0; }
-    observer_.addContact(worldContactKine, initCovariance, contactProcessCovariance_, contact.id(), linStiffness_,
+    observer_.addContact(worldContactKine, initCovariance, processCovariance, contact.id(), linStiffness_,
                          linDamping_, angStiffness_, angDamping_);
   }
   else
   {
-    observer_.addContact(worldContactKine, initCovariance, contactProcessCovariance_, contact.id(), linStiffness_,
+    observer_.addContact(worldContactKine, initCovariance, processCovariance, contact.id(), linStiffness_,
                        linDamping_, angStiffness_, angDamping_, contact.contactWrenchVector_.segment<3>(0),
                        contact.contactWrenchVector_.segment<3>(3), odometryType_ == so::odometry::OdometryType::Flat);
   }
@@ -1309,6 +1412,7 @@ void MCKineticsObserver::setNewContact(const mc_control::MCController & ctl,
     worldContactKine.orientation = so::Matrix3(rotation * worldContactKine.orientation.toMatrix3());
     observer_.setStateContact(contact.id(), worldContactKine, so::Vector6::Zero(), false);
   }
+  if(contactWrenchInitFromMeasurement_) { observer_.setStateContactWrench(contact.id(), contact.contactWrenchVector_); }
   contact.initKine_ = worldContactKine;
 
   // Rotation from the rest orientation just stored to the actual contact orientation.
@@ -1324,13 +1428,46 @@ void MCKineticsObserver::setNewContact(const mc_control::MCController & ctl,
   {
     // we update the measurements of the sensor and the input kinematics of the contact in the user /
     // floating base's frame
-    observer_.updateContactWithWrenchSensor(contact.contactWrenchVector_, contactWrenchCovariance(contact),
-                                            contact.fbContactKine_, contact.id());
+    if(legKinematicsContacts_)
+    {
+      observer_.updateContactWithWrenchAndKinematicSensors(contact.contactWrenchVector_,
+                                                           contactWrenchCovariance(contact), contact.fbContactKine_,
+                                                           legKinematicsCovariance(ctl, contact), contact.id());
+    }
+    else
+    {
+      observer_.updateContactWithWrenchSensor(contact.contactWrenchVector_, contactWrenchCovariance(contact),
+                                              contact.fbContactKine_, contact.id());
+    }
   }
   else
   {
     // we update the input kinematics of the contact in the user / floating base's frame
-    observer_.updateContactWithNoSensor(contact.fbContactKine_, contact.id());
+    if(legKinematicsContacts_)
+    {
+      if(legKinematicsCompliant_)
+      {
+        if(legKinematicsDeflection_)
+        {
+          observer_.updateContactWithKinematicSensor(contact.fbContactKine_, legKinematicsCovariance(ctl, contact),
+                                                     contact.contactWrenchVector_, contact.id());
+        }
+        else
+        {
+          observer_.updateContactWithKinematicSensor(compliantRestKine(contact),
+                                                     legKinematicsCovariance(ctl, contact), contact.id());
+        }
+      }
+      else
+      {
+        observer_.updateContactWithKinematicSensor(contact.fbContactKine_, legKinematicsCovariance(ctl, contact),
+                                                   contact.id());
+      }
+    }
+    else
+    {
+      observer_.updateContactWithNoSensor(contact.fbContactKine_, contact.id());
+    }
   }
 
   // The contact channels the rest of the chain consumes -- debug_contactKine_*,
@@ -1364,12 +1501,45 @@ void MCKineticsObserver::updateContact(const mc_control::MCController & ctl, KoC
   if(contact.sensorEnabled_) // the force sensor attached to the contact is used in the correction by the
                              // Kinetics Observer.
   {
-    observer_.updateContactWithWrenchSensor(contact.contactWrenchVector_, contactWrenchCovariance(contact),
-                                            contact.fbContactKine_, contact.id());
+    if(legKinematicsContacts_)
+    {
+      observer_.updateContactWithWrenchAndKinematicSensors(contact.contactWrenchVector_,
+                                                           contactWrenchCovariance(contact), contact.fbContactKine_,
+                                                           legKinematicsCovariance(ctl, contact), contact.id());
+    }
+    else
+    {
+      observer_.updateContactWithWrenchSensor(contact.contactWrenchVector_, contactWrenchCovariance(contact),
+                                              contact.fbContactKine_, contact.id());
+    }
   }
   else
   {
-    observer_.updateContactWithNoSensor(contact.fbContactKine_, contact.id());
+    if(legKinematicsContacts_)
+    {
+      if(legKinematicsCompliant_)
+      {
+        if(legKinematicsDeflection_)
+        {
+          observer_.updateContactWithKinematicSensor(contact.fbContactKine_, legKinematicsCovariance(ctl, contact),
+                                                     contact.contactWrenchVector_, contact.id());
+        }
+        else
+        {
+          observer_.updateContactWithKinematicSensor(compliantRestKine(contact),
+                                                     legKinematicsCovariance(ctl, contact), contact.id());
+        }
+      }
+      else
+      {
+        observer_.updateContactWithKinematicSensor(contact.fbContactKine_, legKinematicsCovariance(ctl, contact),
+                                                   contact.id());
+      }
+    }
+    else
+    {
+      observer_.updateContactWithNoSensor(contact.fbContactKine_, contact.id());
+    }
   }
 }
 

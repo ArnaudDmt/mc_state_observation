@@ -25,15 +25,18 @@ void TiltObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
   config("updateSensor", updateSensor_);
   config("withDebugLogs", withDebugLogs_);
 
-  auto filterGainsConfig = config("filterGains");
+  if(config.has("filterGains"))
+  {
+    auto filterGainsConfig = config("filterGains");
 
-  filterGainsConfig("initAlpha", alpha_);
-  filterGainsConfig("initBeta", beta_);
-  filterGainsConfig("initGamma", gamma_);
+    filterGainsConfig("initAlpha", alpha_);
+    filterGainsConfig("initBeta", beta_);
+    filterGainsConfig("initGamma", gamma_);
 
-  filterGainsConfig("finalAlpha", finalAlpha_);
-  filterGainsConfig("finalBeta", finalBeta_);
-  filterGainsConfig("finalGamma", finalGamma_);
+    filterGainsConfig("finalAlpha", finalAlpha_);
+    filterGainsConfig("finalBeta", finalBeta_);
+    filterGainsConfig("finalGamma", finalGamma_);
+  }
 
   // filterGainsConfig("finalEta", eta_contacts_final_);
 

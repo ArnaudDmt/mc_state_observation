@@ -3,7 +3,7 @@ ObserverPipelines:
   name: MainObserverPipeline
   gui: false
   observers:
-    - type: Valinor
+    - type: MCValinor
       update: true
       config:
         odometryType: 6D

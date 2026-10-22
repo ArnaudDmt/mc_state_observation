@@ -151,7 +151,7 @@ void MCWaiko::reset(const mc_control::MCController & ctl)
       conversions::kinematics::fromSva(realRobot.bodyPosW(imu.parentBody()), so::kine::Kinematics::Flags::pose);
 
   // pose of the IMU in the world frame for the odometry robot
-  so ::kine::Kinematics initWorldImuKine = initWorldParentKine * initParentImuKine;
+  so::kine::Kinematics initWorldImuKine = initWorldParentKine * initParentImuKine;
   so::Vector3 initX2 = initWorldImuKine.orientation.toMatrix3().transpose() * so::Vector3::UnitZ();
 
   estimator_.initEstimator(so::Vector3::Zero(), initX2, initWorldImuKine.orientation.toVector4(),

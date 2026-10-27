@@ -67,25 +67,17 @@ inline auto make_label(std::string name, const std::string & label)
 }
 
 inline auto make_input_element(const std::string & name, sva::MotionVecd & ref)
-{
-  return make_motionvecd_input(name, ref);
-}
+{ return make_motionvecd_input(name, ref); }
 
 inline auto make_input_element(const std::string & name, sva::AdmittanceVecd & ref)
-{
-  return make_admittancevecd_input(name, ref);
-}
+{ return make_admittancevecd_input(name, ref); }
 
 inline auto make_input_element(const std::string & name, bool & ref)
-{
-  return make_checkbox(name, ref);
-}
+{ return make_checkbox(name, ref); }
 
 template<typename T, typename std::enable_if<std::is_arithmetic<T>::value, int>::type = 0>
 auto make_input_element(const std::string & name, T & ref)
-{
-  return make_number_input(name, ref);
-}
+{ return make_number_input(name, ref); }
 
 } // namespace gui
 

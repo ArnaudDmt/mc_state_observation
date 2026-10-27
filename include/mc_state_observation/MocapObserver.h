@@ -32,14 +32,10 @@ struct MocapObserver : public mc_observers::Observer
   const sva::PTransformd & markerPose() const noexcept { return X_m_marker_; }
 
   mc_rbdyn::Robot & robot(mc_control::MCController & ctl)
-  {
-    return useReal_ ? ctl.realRobot(robot_) : ctl.robot(robot_);
-  }
+  { return useReal_ ? ctl.realRobot(robot_) : ctl.robot(robot_); }
 
   const mc_rbdyn::Robot & robot(const mc_control::MCController & ctl) const
-  {
-    return useReal_ ? ctl.realRobot(robot_) : ctl.robot(robot_);
-  }
+  { return useReal_ ? ctl.realRobot(robot_) : ctl.robot(robot_); }
 
 protected:
   /*! \brief Add observer from logger

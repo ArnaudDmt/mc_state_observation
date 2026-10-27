@@ -34,7 +34,10 @@ void AttitudeObserver::configure(const mc_control::MCController & ctl, const mc_
   robot_ = config("robot", ctl.robot().name());
   imuSensor_ = config("imuSensor", ctl.robot().bodySensor().name());
   if(config.has("updateSensor")) { updateSensor_ = static_cast<std::string>(config("updateSensor")); }
-  else { updateSensor_ = imuSensor_; }
+  else
+  {
+    updateSensor_ = imuSensor_;
+  }
   datastoreName_ = config("datastoreName", name());
   config("log_kf", log_kf_);
   config("init_from_control", initFromControl_);
@@ -67,7 +70,10 @@ void AttitudeObserver::reset(const mc_control::MCController & ctl)
   uk_.setZero();
 
   if(filter_.stateIsSet()) { filter_.setState(xk_, filter_.getCurrentTime()); }
-  else { filter_.setState(xk_, 0); }
+  else
+  {
+    filter_.setState(xk_, 0);
+  }
   filter_.setStateCovariance(so::Matrix::Identity(STATE_SIZE, STATE_SIZE) * c.stateInitCov);
 
   lastStateInitCovariance_ = c.stateInitCov;
@@ -113,7 +119,10 @@ bool AttitudeObserver::run(const mc_control::MCController & ctl)
       ret = false;
     }
   }
-  else { measurement.head<3>() = accIn; }
+  else
+  {
+    measurement.head<3>() = accIn;
+  }
   measurement.tail<3>() = rateIn;
 
   auto time = filter_.getCurrentTime();
@@ -219,9 +228,7 @@ void AttitudeObserver::KalmanFilterConfig::addToGUI(mc_rtc::gui::StateBuilder & 
 
 void AttitudeObserver::KalmanFilterConfig::removeFromGUI(mc_rtc::gui::StateBuilder & gui,
                                                          const std::vector<std::string> & category)
-{
-  gui.removeCategory(category);
-}
+{ gui.removeCategory(category); }
 
 } // namespace mc_state_observation
 EXPORT_OBSERVER_MODULE("Attitude", mc_state_observation::AttitudeObserver)

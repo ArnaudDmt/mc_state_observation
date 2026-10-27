@@ -10,12 +10,12 @@ target_link_libraries(mc_state_observation PUBLIC mc_rtc::mc_control)
 install(
   TARGETS mc_state_observation
   EXPORT "${TARGETS_EXPORT_NAME}"
-  LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
-  ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
-  RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+  LIBRARY DESTINATION lib
+  ARCHIVE DESTINATION lib
+  RUNTIME DESTINATION bin)
 
 macro(add_simple_observer observer_name)
-  add_observer(${observer_name} "${observer_name}.cpp"
+  add_observer(${observer_name} "${CMAKE_SOURCE_DIR}/src/${observer_name}.cpp"
                "${CMAKE_SOURCE_DIR}/include/${PROJECT_NAME}/${observer_name}.h")
   # mc_observers doesn't actually depend on mc_control, but the observer's
   # implementation does

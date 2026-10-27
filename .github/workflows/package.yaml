@@ -21,11 +21,7 @@ jobs:
   package:
     uses: jrl-umi3218/github-actions/.github/workflows/package-project.yml@master
     with:
-      matrix: |
-        {
-          "dist": ["bionic", "focal", "jammy"],
-          "arch": ["amd64"]
-        }
+      latest-cmake: true
       main-branch: main
       with-ros: true
     secrets:

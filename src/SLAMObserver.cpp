@@ -75,7 +75,10 @@ void SLAMObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
     body_ = ctl.robot(robot_).mb().bodies()[0].name();
     robots_ = mc_rbdyn::loadRobot(ctl.robot(robot_).module());
   }
-  else { mc_rtc::log::error_and_throw<std::runtime_error>("[{}] Robot configuration is mandatory.", name()); }
+  else
+  {
+    mc_rtc::log::error_and_throw<std::runtime_error>("[{}] Robot configuration is mandatory.", name());
+  }
 
   if(config.has("SLAM"))
   {
@@ -84,7 +87,10 @@ void SLAMObserver::configure(const mc_control::MCController & ctl, const mc_rtc:
     if(config("SLAM").has("ground")) { ground_ = static_cast<std::string>(config("SLAM")("ground")); }
     config("SLAM")("initializeWithIdentity", isInitialized_);
   }
-  else { mc_rtc::log::error_and_throw<std::runtime_error>("[{}] SLAM configuration is mandatory.", name()); }
+  else
+  {
+    mc_rtc::log::error_and_throw<std::runtime_error>("[{}] SLAM configuration is mandatory.", name());
+  }
 
   int m = 150;
   int d = 0;
@@ -209,7 +215,10 @@ bool SLAMObserver::run(const mc_control::MCController & ctl)
       {
         error_ = fmt::format("[{}] Could not get transform from \"{}\" to \"{}\"", name(), "robot_map", ground_);
       }
-      else { X_Slam_Ground_ = sva::conversions::fromHomogeneous(tf2::transformToEigen(transformStamped).matrix()); }
+      else
+      {
+        X_Slam_Ground_ = sva::conversions::fromHomogeneous(tf2::transformToEigen(transformStamped).matrix());
+      }
     }
     return true;
   }
@@ -486,7 +495,10 @@ void SLAMObserver::togglePlots(mc_rtc::gui::StateBuilder & gui)
 {
   plotsEnabled_ = !plotsEnabled_;
   if(plotsEnabled_) { addPlots(gui); }
-  else { removePlots(gui); }
+  else
+  {
+    removePlots(gui);
+  }
 }
 
 void SLAMObserver::rosSpinner()

@@ -830,13 +830,12 @@ void MCWaiko::addToGUI(const mc_control::MCController &,
 {
   using namespace mc_state_observation::gui;
 
-  gui.addElement(category,
-                 mc_rtc::gui::Label("Odometry type",
-                                    [this]()
-                                    { return stateObservation::odometry::odometryTypeToString(
-                                          odometryManager_.odometryType_); }),
-                 mc_rtc::gui::Label("Maintained contacts",
-                                    [this]() { return std::to_string(odometryManager_.maintainedContacts().size()); }));
+  gui.addElement(
+      category,
+      mc_rtc::gui::Label("Odometry type", [this]()
+                         { return stateObservation::odometry::odometryTypeToString(odometryManager_.odometryType_); }),
+      mc_rtc::gui::Label("Maintained contacts",
+                         [this]() { return std::to_string(odometryManager_.maintainedContacts().size()); }));
 
   // gains applied after the first second (alpha_, beta_, ... are overwritten by these values in run())
   auto gainsCategory = category;

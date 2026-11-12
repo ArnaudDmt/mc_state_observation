@@ -260,7 +260,7 @@ bool MCValinor::run(const mc_control::MCController & ctl)
 
     maintainedContact.bodyContactKine_ = worldImuKine_.getInverse() * worldContactKine;
     const mc_rbdyn::ForceSensor & fs = measRobot.indirectSurfaceForceSensor(maintainedContact.surfaceName());
-    const stateObservation::Vector3 & forceMeas = fs.wrenchWithoutGravity(ctl.realRobot()).force();
+    const stateObservation::Vector3 forceMeas = fs.wrenchWithoutGravity(ctl.realRobot()).force();
     double forceRatio =
         forceMeas.z()
         / (forceMeas.head(2).norm() + 1e-6 * ctl.realRobot().mass() * stateObservation::cst::gravityConstant);

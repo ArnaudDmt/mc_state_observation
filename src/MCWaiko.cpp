@@ -280,7 +280,7 @@ bool MCWaiko::run(const mc_control::MCController & ctl)
     stateObservation::kine::Kinematics worldContactKine = worldParentKine * parentSurfaceKine;
 
     maintainedContact.bodyContactKine_ = worldImuKine_.getInverse() * worldContactKine;
-    const stateObservation::Vector3 & forceMeas =
+    const stateObservation::Vector3 forceMeas =
         measRobot.indirectSurfaceForceSensor(maintainedContact.surfaceName()).wrenchWithoutGravity(realRobot).force();
     double forceRatio =
         forceMeas.z() / (forceMeas.head(2).norm() + 1e-6 * realRobot.mass() * stateObservation::cst::gravityConstant);
@@ -824,10 +824,26 @@ void MCWaiko::removeFromLogger(mc_rtc::Logger & logger, const std::string & cate
   logger.removeLogEntry(category + "_controlAnchorFrame");
 }
 
-void MCWaiko::addToGUI(const mc_control::MCController &, mc_rtc::gui::StateBuilder &, const std::vector<std::string> &)
+void MCWaiko::addToGUI(const mc_control::MCController &,
+                       mc_rtc::gui::StateBuilder & gui,
+                       const std::vector<std::string> & category)
 {
   using namespace mc_state_observation::gui;
-  // gui.addElement(category, make_input_element("alpha", alpha_), make_input_element("beta", beta_));
+
+  gui.addElement(category,
+                 mc_rtc::gui::Label("Odometry type",
+                                    [this]()
+                                    { return stateObservation::odometry::odometryTypeToString(
+                                          odometryManager_.odometryType_); }),
+                 mc_rtc::gui::Label("Maintained contacts",
+                                    [this]() { return std::to_string(odometryManager_.maintainedContacts().size()); }));
+
+  // gains applied after the first second (alpha_, beta_, ... are overwritten by these values in run())
+  auto gainsCategory = category;
+  gainsCategory.push_back("Gains");
+  gui.addElement(gainsCategory, make_input_element("alpha", finalAlpha_), make_input_element("beta", finalBeta_),
+                 make_input_element("gamma", finalGamma_), make_input_element("rho", finalRho_),
+                 make_input_element("mu", finalMu_));
 }
 
 } // namespace mc_state_observation

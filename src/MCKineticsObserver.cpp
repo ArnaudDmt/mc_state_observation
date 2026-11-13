@@ -48,14 +48,19 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
     listIMUs_.push_back({0, ctl.robot(robot_).bodySensor().name()});
   }
 
-  config("debug", debug_);
   config("verbose", verbose_);
   config("withGui", withGui_);
 
   // we set the desired type of odometry
-  auto leggedOdomConfig = config("leggedOdometry");
-  std::string typeOfOdometry = static_cast<std::string>(leggedOdomConfig("odometryType"));
-  odometryType_ = so::odometry::stringToOdometryType(typeOfOdometry);
+  odometryType_ = so::odometry::OdometryType::None;
+  if(config.has("leggedOdometry"))
+  {
+    auto leggedOdomConfig = config("leggedOdometry");
+    if(leggedOdomConfig.has("odometryType"))
+    {
+      odometryType_ = so::odometry::stringToOdometryType(static_cast<std::string>(leggedOdomConfig("odometryType")));
+    }
+  }
 
   config("withDebugLogs", withDebugLogs_);
 
@@ -276,7 +281,7 @@ void MCKineticsObserver::configure(const mc_control::MCController & ctl, const m
 
   /* Configuration of the backup based on the Tilt Observer */
   // interval (in s) on which the backup will recover
-  double backupInterval = config("backupInterval", 0.5);
+  double backupInterval = config("backupInterval", 1);
   fbBackupCapacity_ = size_t(backupInterval / ctl.timeStep);
 
   koBackupFbKinematics_.set_capacity(fbBackupCapacity_);

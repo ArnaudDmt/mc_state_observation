@@ -40,17 +40,17 @@ void MCWaiko::configure(const mc_control::MCController & ctl, const mc_rtc::Conf
   {
     auto filterGainsConfig = config("filterGains");
     alpha_ = filterGainsConfig("initAlpha", 4);
-    beta_ = filterGainsConfig("initBeta", 1);
-    gamma_ = filterGainsConfig("initGamma", 4);
-    mu_ = filterGainsConfig("initMu", 4);
-    rho_ = filterGainsConfig("initRho", 4);
+    beta_ = filterGainsConfig("initBeta", 4);
+    gamma_ = filterGainsConfig("initGamma", 1);
+    mu_ = filterGainsConfig("initMu", 1);
+    rho_ = filterGainsConfig("initRho", 2);
     psi_ = filterGainsConfig("initPsi", 0.3);
 
     finalAlpha_ = filterGainsConfig("finalAlpha", 4);
-    finalBeta_ = filterGainsConfig("finalBeta", 1);
-    finalGamma_ = filterGainsConfig("finalGamma", 4);
-    finalMu_ = filterGainsConfig("finalMu", 2);
-    finalRho_ = filterGainsConfig("finalRho", 2);
+    finalBeta_ = filterGainsConfig("finalBeta", 4);
+    finalGamma_ = filterGainsConfig("finalGamma", 1);
+    finalMu_ = filterGainsConfig("finalMu", 1);
+    finalRho_ = filterGainsConfig("finalRho", 1);
     finalPsi_ = filterGainsConfig("finalPsi", 0.3);
   }
 
@@ -346,6 +346,7 @@ bool MCWaiko::run(const mc_control::MCController & ctl)
     estimator_.setGamma(gamma_);
     estimator_.setRho(rho_);
     estimator_.setMu(mu_);
+    estimator_.setPsi(psi_);
 
     yv_ = -imu.angularVelocity().cross(imuAnchorKine_.position()) - imuAnchorKine_.linVel();
   }

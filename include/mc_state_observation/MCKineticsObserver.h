@@ -260,13 +260,6 @@ public:
    */
   void mass(double mass);
 
-  /** Set debug flag.
-   *
-   * \param flag New debug flag.
-   *
-   */
-  inline void debug(bool flag) { debug_ = flag; }
-
   /** Get last measurement vector sent to observer.
    *
    */
@@ -315,7 +308,6 @@ private:
   std::vector<std::string> imuNames_; ///< list of IMUs
 
   /* Estimation parameters */
-  bool debug_ = false;
   bool verbose_ = true;
 
   /* Estimation results */

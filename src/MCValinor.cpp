@@ -31,12 +31,12 @@ void MCValinor::configure(const mc_control::MCController & ctl, const mc_rtc::Co
   {
     auto filterGainsConfig = config("filterGains");
     alpha_ = filterGainsConfig("initAlpha", 4);
-    beta_ = filterGainsConfig("initBeta", 1);
-    gamma_ = filterGainsConfig("initGamma", 4);
+    beta_ = filterGainsConfig("initBeta", 4);
+    gamma_ = filterGainsConfig("initGamma", 1);
 
     finalAlpha_ = filterGainsConfig("finalAlpha", 4);
-    finalBeta_ = filterGainsConfig("finalBeta", 1);
-    finalGamma_ = filterGainsConfig("finalGamma", 4);
+    finalBeta_ = filterGainsConfig("finalBeta", 4);
+    finalGamma_ = filterGainsConfig("finalGamma", 1);
   }
 
   anchorFrameFunction_ = "KinematicAnchorFrame::" + ctl.robot(robot_).name();

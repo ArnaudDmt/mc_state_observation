@@ -18,7 +18,7 @@ struct ContactsDetectorConfigurationPrvt
   inline ContactsDetectorConfigurationPrvt() noexcept
   {
     schmittLowerPropThreshold_ = 0.10;
-    schmittUpperPropThreshold_ = 0.15;
+    schmittUpperPropThreshold_ = 0.12;
   }
 
   inline ConfigurationType & schmittTriggerPropThresholds(double lowerPropThreshold, double upperPropThreshold) noexcept

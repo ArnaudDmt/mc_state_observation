@@ -8,7 +8,7 @@ leggedOdometry:
   kappa: 10
   lambdaInf: 0.001
   correctContacts: true
-  odometryType: 6D
+  odometryType: None
 
 backupInterval: 1
 

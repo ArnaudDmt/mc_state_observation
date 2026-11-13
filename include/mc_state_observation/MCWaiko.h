@@ -137,12 +137,12 @@ protected:
    * initial value of the parameter related to the convergence of the linear velocity
    * of the IMU expressed in the control frame
    */
-  double alpha_ = 5;
+  double alpha_ = 4;
   /// initial value of the parameter related to the fast convergence of the tilt
-  double beta_ = 1;
+  double beta_ = 4;
   /// initial value of the parameter related to the orthogonality
-  double gamma_ = 2; // gain associated with the correction of the orientation by the contact orientation
-  double mu_ = 2;
+  double gamma_ = 1; // gain associated with the correction of the orientation by the contact orientation
+  double mu_ = 1;
   // gain associated with the correction of the position by the contact position
   double rho_ = 2;
   // gain associated with the correction of the yaw by the contact position
@@ -152,15 +152,15 @@ protected:
    * parameter related to the convergence of the linear velocity
    * of the IMU expressed in the control frame
    */
-  double finalAlpha_ = 5;
+  double finalAlpha_ = 4;
   ///  parameter related to the fast convergence of the tilt
-  double finalBeta_ = 1;
+  double finalBeta_ = 4;
   /// parameter related to the orthogonality
-  double finalGamma_ = 2;
+  double finalGamma_ = 1;
   // gain associated with the correction of the orientation by the contact orientation
-  double finalMu_ = 2;
+  double finalMu_ = 1;
   // gain associated with the correction of the position by the contact position
-  double finalRho_ = 2;
+  double finalRho_ = 1;
   // gain associated with the correction of the yaw by the contact position
   double finalPsi_ = 0.3;
 

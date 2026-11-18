@@ -270,6 +270,8 @@ public:
    */
   inline const sva::PTransformd & posW() const { return X_0_fb_; }
 
+  inline const stateObservation::kine::Kinematics & kineW() const { return mcko_K_0_fb_; }
+
   /** Floating-base velocity estimate.
    *
    */

@@ -324,11 +324,11 @@ ObserverPipelines:
         withDebugLogs: false  # (default: false) add debugging logs
         # anchorFrameFunction: <datastore entry> # (default: KinematicAnchorFrame::<robot>)
         filterGains:          # the init gains are used during the first second, then the final gains
-          initAlpha: 4        # (default: 4) gain alpha_1 of the paper: convergence of the linear velocity x1
-          initBeta: 4         # (default: 4) gain alpha_2 of the paper: convergence of the intermediate tilt x2'
+          initAlpha: 5        # (default: 5) gain alpha_1 of the paper: convergence of the linear velocity x1
+          initBeta: 2         # (default: 2) gain alpha_2 of the paper: convergence of the intermediate tilt x2'
           initGamma: 1        # (default: 1) gain gamma of the paper: convergence of the tilt x2
-          finalAlpha: 4       # (default: 4)
-          finalBeta: 4        # (default: 4)
+          finalAlpha: 5       # (default: 5)
+          finalBeta: 2        # (default: 2)
           finalGamma: 1       # (default: 1)
 ```
 
@@ -347,11 +347,11 @@ ObserverPipelines:
         update: true          # (default: true)
         withDebugLogs: false  # (default: false) add debugging logs
         filterGains:          # same meaning as for the Tilt Observer. The init gains are used during the first second, then the final gains
-          initAlpha: 4        # (default: 4)
-          initBeta: 4         # (default: 4)
+          initAlpha: 5        # (default: 5)
+          initBeta: 2         # (default: 2)
           initGamma: 1        # (default: 1)
-          finalAlpha: 4       # (default: 4)
-          finalBeta: 4        # (default: 4)
+          finalAlpha: 5       # (default: 5)
+          finalBeta: 2        # (default: 2)
           finalGamma: 1       # (default: 1)
         # contacts: see Contact detection
         # leggedOdometry: see Legged odometry
@@ -373,14 +373,14 @@ ObserverPipelines:
         withOriCorrectFromContactOri: true  # (default: true) correct the yaw using the orientation of the contacts
         withOriCorrectFromContactPos: false # (default: false) correct the yaw using the positions of the contacts
         filterGains:          # the init gains are used during the first second, then the final gains
-          initAlpha: 4        # (default: 4) same as for the Tilt Observer
-          initBeta: 4         # (default: 4) same as for the Tilt Observer
+          initAlpha: 5        # (default: 5) same as for the Tilt Observer
+          initBeta: 2         # (default: 2) same as for the Tilt Observer
           initGamma: 1        # (default: 1) same as for the Tilt Observer
           initRho: 2          # (default: 2) correction of the position by the contact positions
           initMu: 1           # (default: 1) correction of the yaw by the contact orientations
           initPsi: 0.3        # (default: 0.3, not set in the installed file) correction of the yaw by the contact positions
-          finalAlpha: 4       # (default: 4)
-          finalBeta: 4        # (default: 4)
+          finalAlpha: 5       # (default: 5)
+          finalBeta: 2        # (default: 2)
           finalGamma: 1       # (default: 1)
           finalRho: 1         # (default: 1)
           finalMu: 1          # (default: 1)
@@ -411,8 +411,8 @@ ObserverPipelines:
         verbose: true                     # (default: true)
         withGui: false                    # (default: false)
         filterGains:          # gains of the backup Valinor (same meaning as for Valinor, but different defaults)
-          initAlpha: 4        # (default: 4, not set in the installed file)
-          initBeta: 4         # (default: 4, not set in the installed file)
+          initAlpha: 5        # (default: 5, not set in the installed file)
+          initBeta: 2         # (default: 2, not set in the installed file)
           initGamma: 1        # (default: 1, not set in the installed file)
           finalAlpha: 5       # (default: 5)
           finalBeta: 1        # (default: 1)

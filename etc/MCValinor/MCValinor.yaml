@@ -1,9 +1,9 @@
 filterGains:
-        initAlpha: 4
-        initBeta: 4
+        initAlpha: 5
+        initBeta: 2
         initGamma: 1
-        finalAlpha: 4
-        finalBeta: 4
+        finalAlpha: 5
+        finalBeta: 2
         finalGamma: 1
 
 contacts:

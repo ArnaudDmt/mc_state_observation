@@ -1,12 +1,12 @@
 filterGains:
-        initAlpha: 4
+        initAlpha: 5
         initRho: 2
-        initBeta: 4
+        initBeta: 2
         initGamma: 1
         initMu: 1
-        finalAlpha: 4
+        finalAlpha: 5
         finalRho: 1
-        finalBeta: 4
+        finalBeta: 2
         finalGamma: 1
         finalMu: 1
 

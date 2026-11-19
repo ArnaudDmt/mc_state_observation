@@ -39,15 +39,15 @@ void MCWaiko::configure(const mc_control::MCController & ctl, const mc_rtc::Conf
   if(config.has("filterGains"))
   {
     auto filterGainsConfig = config("filterGains");
-    alpha_ = filterGainsConfig("initAlpha", 4);
-    beta_ = filterGainsConfig("initBeta", 4);
+    alpha_ = filterGainsConfig("initAlpha", 5);
+    beta_ = filterGainsConfig("initBeta", 2);
     gamma_ = filterGainsConfig("initGamma", 1);
     mu_ = filterGainsConfig("initMu", 1);
     rho_ = filterGainsConfig("initRho", 2);
     psi_ = filterGainsConfig("initPsi", 0.3);
 
-    finalAlpha_ = filterGainsConfig("finalAlpha", 4);
-    finalBeta_ = filterGainsConfig("finalBeta", 4);
+    finalAlpha_ = filterGainsConfig("finalAlpha", 5);
+    finalBeta_ = filterGainsConfig("finalBeta", 2);
     finalGamma_ = filterGainsConfig("finalGamma", 1);
     finalMu_ = filterGainsConfig("finalMu", 1);
     finalRho_ = filterGainsConfig("finalRho", 1);
